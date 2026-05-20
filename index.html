@@ -661,9 +661,6 @@ function recordSnapshot(){
    ================================================================ */
 function fmtKRW(n){
   if (n==null||isNaN(n)) return '—';
-  const a=Math.abs(n);
-  if (a>=1e8) return (n/1e8).toLocaleString('ko-KR',{maximumFractionDigits:2})+'억';
-  if (a>=1e4) return (n/1e4).toLocaleString('ko-KR',{maximumFractionDigits:0})+'만';
   return Math.round(n).toLocaleString('ko-KR');
 }
 function fmtKRWFull(n){ return (n==null||isNaN(n))?'—':Math.round(n).toLocaleString('ko-KR')+'원'; }

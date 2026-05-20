@@ -359,7 +359,7 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div class="info-text">
         <b>주식·ETF</b> → Yahoo Finance<br>
         <b>암호화폐</b> → Upbit (원화 직접)<br>
-        <b>환율</b> → Frankfurter (USD/KRW)<br><br>
+        <b>환율</b> → Yahoo (KRW=X, 실시간) · 실패 시 Frankfurter<br><br>
         시트의 <b>YAHOO()</b>·<b>UPBIT()</b> 함수와 동일한 소스입니다. Google Finance는 공개 API가 없어 Yahoo로 대체합니다.
       </div>
     </div>
@@ -2101,10 +2101,18 @@ async function fetchUpbit(symbols){
 
 /* FX — Frankfurter primary, er-api fallback */
 async function fetchFx(){
+  // 1) Yahoo KRW=X — 실시간 환율 (프록시 경유, 분 단위 갱신)
+  try {
+    const data=await proxyFetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/KRW=X?interval=1d&range=1d&t=${Date.now()}`);
+    const m=data&&data.chart&&data.chart.result&&data.chart.result[0]&&data.chart.result[0].meta;
+    if(m&&m.regularMarketPrice>0) return m.regularMarketPrice;
+  } catch(e){}
+  // 2) Frankfurter — 일 1회 갱신 (폴백)
   try {
     const r=await fetch('https://api.frankfurter.app/latest?from=USD&to=KRW');
     if(r.ok){ const d=await r.json(); if(d.rates&&d.rates.KRW) return d.rates.KRW; }
   } catch(e){}
+  // 3) er-api — 폴백
   try {
     const r=await fetch('https://open.er-api.com/v6/latest/USD');
     if(r.ok){ const d=await r.json(); if(d.rates&&d.rates.KRW) return d.rates.KRW; }

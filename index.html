@@ -1032,17 +1032,19 @@ function renderHoldingsSummary(){
       if(usd){ invUSD+=h.qty*(h.avgUSD||0); curUSD+=h.qty*(h.curUSD||0); }
     }
     tInv+=inv; tCur+=cur;
-    const ret=inv>0?(cur-inv)/inv:0, cls=ret>=0?'up':'down';
+    const ret=inv>0?(cur-inv)/inv:0, cls=ret>=0?'up':'down', pnl=cur-inv;
     html+=`<div class="sum-row">
       <div class="sum-top"><span class="sum-name">${CATEGORIES[k].label}</span><span class="sum-ret ${cls}">${fmtPctSigned(ret)}</span></div>
-      <div class="sum-line">매입 <b>₩${fmtKRW(inv)}</b> · 평가 <b>₩${fmtKRW(cur)}</b> · 손익 <b class="${cls}">${ret>=0?'+':''}₩${fmtKRW(cur-inv)}</b></div>
+      <div class="sum-line">손익 <b class="${cls}">${pnl>=0?'+':'-'}₩${fmtKRW(Math.abs(pnl))}</b></div>
+      <div class="sum-line">매입 <b>₩${fmtKRW(inv)}</b> · 평가 <b>₩${fmtKRW(cur)}</b></div>
       ${usd?`<div class="sum-usd">달러 매입 $${Math.round(invUSD).toLocaleString()} · 평가 $${Math.round(curUSD).toLocaleString()}</div>`:''}
     </div>`;
   }
-  const tRet=tInv>0?(tCur-tInv)/tInv:0, tcls=tRet>=0?'up':'down';
+  const tRet=tInv>0?(tCur-tInv)/tInv:0, tcls=tRet>=0?'up':'down', tPnl=tCur-tInv;
   html+=`<div class="sum-row sum-total">
     <div class="sum-top"><span class="sum-name">합계</span><span class="sum-ret ${tcls}">${fmtPctSigned(tRet)}</span></div>
-    <div class="sum-line">매입 <b>₩${fmtKRW(tInv)}</b> · 평가 <b>₩${fmtKRW(tCur)}</b> · 손익 <b class="${tcls}">${tRet>=0?'+':''}₩${fmtKRW(tCur-tInv)}</b></div>
+    <div class="sum-line">손익 <b class="${tcls}">${tPnl>=0?'+':'-'}₩${fmtKRW(Math.abs(tPnl))}</b></div>
+    <div class="sum-line">매입 <b>₩${fmtKRW(tInv)}</b> · 평가 <b>₩${fmtKRW(tCur)}</b></div>
   </div></div>`;
   el.innerHTML = (tInv>0||tCur>0) ? html : '';
 }

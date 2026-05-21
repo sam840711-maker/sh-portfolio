@@ -1514,6 +1514,7 @@ function renderQuickEntry(){
   const sug={};
   for (const k in CATEGORIES){ for (const r of stockRebalance(k)) sug[r.h.id]=r.adjustShares; }
   let html='';
+  let rowN=0;   // 열 기준 tabindex용 누적 종목 번호
   for (const k in CATEGORIES){
     if(qeCat!=='all' && k!==qeCat) continue;
     let hs=state.holdings.filter(h=>h.cat===k);
@@ -1536,15 +1537,16 @@ function renderQuickEntry(){
       const sym=h.symbol.replace('.KS','').replace('.L','');
       const up=gi===0?'dim':'', down=gi===hs.length-1?'dim':'';
       const initQty=qty, initKrw=Math.round(krwTot), initUsd=Number(usdTot.toFixed(2));
+      rowN++;   // 수량열 tabindex=rowN, 한화열 1000+rowN, 달러열 2000+rowN → '다음' 버튼이 세로로 이동
       html+=`<div class="qe-row">
         <span class="qe-cmove">
-          <button class="${up}" onclick="qeMove('${h.id}',-1)" aria-label="위로">▲</button>
-          <button class="${down}" onclick="qeMove('${h.id}',1)" aria-label="아래로">▼</button>
+          <button class="${up}" tabindex="-1" onclick="qeMove('${h.id}',-1)" aria-label="위로">▲</button>
+          <button class="${down}" tabindex="-1" onclick="qeMove('${h.id}',1)" aria-label="아래로">▼</button>
         </span>
         <span class="qe-csym" title="${h.name}">${sym}</span>
-        <input class="qe-cell qe-cqty" id="qe-${h.id}-qty" type="number" step="any" inputmode="decimal" value="${initQty}" data-init="${initQty}" oninput="qeInput(this,'${h.id}')" onkeydown="qeKey(event)">
-        <input class="qe-cell qe-ckrw" id="qe-${h.id}-krw" type="number" step="1" inputmode="numeric" value="${initKrw}" data-init="${initKrw}" oninput="qeInput(this,'${h.id}')" onkeydown="qeKey(event)">
-        ${usd?`<input class="qe-cell qe-cusd" id="qe-${h.id}-usd" type="number" step="0.01" inputmode="decimal" value="${initUsd}" data-init="${initUsd}" oninput="qeInput(this,'${h.id}')" onkeydown="qeKey(event)">`:''}
+        <input class="qe-cell qe-cqty" id="qe-${h.id}-qty" type="number" step="any" inputmode="decimal" enterkeyhint="next" tabindex="${rowN}" value="${initQty}" data-init="${initQty}" oninput="qeInput(this,'${h.id}')" onkeydown="qeKey(event)">
+        <input class="qe-cell qe-ckrw" id="qe-${h.id}-krw" type="number" step="1" inputmode="numeric" enterkeyhint="next" tabindex="${1000+rowN}" value="${initKrw}" data-init="${initKrw}" oninput="qeInput(this,'${h.id}')" onkeydown="qeKey(event)">
+        ${usd?`<input class="qe-cell qe-cusd" id="qe-${h.id}-usd" type="number" step="0.01" inputmode="decimal" enterkeyhint="next" tabindex="${2000+rowN}" value="${initUsd}" data-init="${initUsd}" oninput="qeInput(this,'${h.id}')" onkeydown="qeKey(event)">`:''}
       </div>`;
     });
   }

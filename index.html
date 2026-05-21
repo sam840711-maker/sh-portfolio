@@ -233,6 +233,13 @@ input,select,textarea{font-family:inherit;color:inherit}
 .sum-line b.up{color:var(--up)}
 .sum-line b.down{color:var(--down)}
 .sum-usd{font-size:10.5px;color:var(--text-3);margin-top:3px;font-variant-numeric:tabular-nums}
+.itax-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.itax-m{display:flex;flex-direction:column;gap:3px}
+.itax-m label{font-size:10px;color:var(--text-2)}
+.itax-m input{width:100%;background:var(--frame);border:1px solid var(--hairline);border-radius:9px;padding:9px 10px;font-size:14px;font-variant-numeric:tabular-nums;color:var(--text)}
+.itax-m input:focus{outline:none;border-color:var(--gold)}
+.itax-sum{display:flex;justify-content:space-between;align-items:baseline;padding:11px 14px;background:var(--surface);border:1px solid var(--hairline);border-radius:11px;margin-bottom:14px;font-size:13px;font-weight:600}
+.itax-sum b{font-size:17px;font-weight:700;color:var(--gold)}
 .toast.show{opacity:1}
 </style>
 </head>
@@ -600,12 +607,23 @@ function normalizeState(){
   if (!state.transactions) state.transactions = [];
   if (!Array.isArray(state.holdings)) state.holdings = [];
   if (state.prices.autoMin == null) state.prices.autoMin = 0;
-  // 이자·세금 시드 기록 보정 — 구버전 데이터에 이자/세금 기록이 없으면 시트값으로 추가
-  if (!state.transactions.some(t=>t.type==='interest'||t.type==='tax')){
-    for (const t of SEED.transactions){
-      if (t.type==='interest'||t.type==='tax') state.transactions.push(JSON.parse(JSON.stringify(t)));
+  // 이자·세금 — 연도별 월별(itax) 구조로 일원화
+  if (!state.itax){
+    state.itax = {};
+    const src = (state.transactions||[]).some(t=>t.type==='interest'||t.type==='tax')
+      ? state.transactions : SEED.transactions;
+    for (const t of src){
+      if (t.type==='interest'||t.type==='tax'){
+        const y=(t.date||'').slice(0,4), m=parseInt((t.date||'').slice(5,7),10);
+        if (y && m>=1 && m<=12){
+          if (!state.itax[y]) state.itax[y]=new Array(12).fill(0);
+          state.itax[y][m-1]+=(t.amount||0);
+        }
+      }
     }
   }
+  // 이자·세금은 itax에서 관리하므로 거래목록에서 제외
+  state.transactions = (state.transactions||[]).filter(t=>t.type!=='interest'&&t.type!=='tax');
   if (!state.settings.classTargets){
     state.settings.classTargets = {};
     for (const k in CATEGORIES) state.settings.classTargets[k] = CATEGORIES[k].target;
@@ -747,7 +765,7 @@ function renderDashboard(){
   document.getElementById('hero-invested').textContent=fmtKRW(s.invested);
   const totalDeposits=state.transactions.filter(t=>t.type==='deposit').reduce((a,t)=>a+t.amount,0);
   document.getElementById('hero-deposits').textContent=fmtKRW(totalDeposits);
-  const totalItax=state.transactions.filter(t=>t.type==='interest'||t.type==='tax').reduce((a,t)=>a+t.amount,0);
+  const totalItax=itaxTotal();
   const itaxEl=document.getElementById('hero-itax');
   itaxEl.textContent=fmtKRW(totalItax);
   itaxEl.className='hm-val num';
@@ -1301,43 +1319,60 @@ async function saveCashEditor(){
 }
 window.openCashEditor=openCashEditor; window.saveCashEditor=saveCashEditor;
 
-/* === 이자 · 세금 입력/수정 === */
-function openItaxEditor(id){
-  const today=new Date().toISOString().slice(0,10);
-  const rec=id?state.transactions.find(t=>t.id===id):null;
-  const type=rec?rec.type:'tax';
-  const delBtn=rec?`<button class="btn btn-danger btn-sm" onclick="deleteItax('${id}')">삭제</button>`:'';
-  openModal(`<h3>${rec?'이자·세금 수정':'이자·세금 입력'}</h3>
-    <div class="modal-sub">받은 이자 또는 납부한 세금을 기록합니다</div>
-    <div class="field"><label>구분</label>
-      <select id="it-type">
-        <option value="tax" ${type==='tax'?'selected':''}>세금 (납부)</option>
-        <option value="interest" ${type==='interest'?'selected':''}>이자 (납부)</option>
-      </select></div>
-    <div class="field"><label>금액 (원)</label><input id="it-amt" type="number" step="1" value="${rec?rec.amount:''}" placeholder="0"></div>
-    <div class="field"><label>날짜</label><input id="it-date" type="date" value="${rec?rec.date:today}"></div>
-    <div class="field"><label>메모</label><input id="it-memo" type="text" value="${rec?(rec.memo||''):''}" placeholder="예: 2026년 양도소득세"></div>
+/* === 이자 · 세금 — 연도별 월별 입력 === */
+function itaxYearTotal(y){
+  const a=(state.itax||{})[y]||[];
+  return a.reduce((s,v)=>s+(v||0),0);
+}
+function itaxTotal(){
+  let s=0;
+  for (const y in (state.itax||{})) s+=itaxYearTotal(y);
+  return s;
+}
+function openItaxYear(year){
+  const y=String(year||new Date().getFullYear());
+  const exists=!!(state.itax&&state.itax[y]);
+  const arr=exists?state.itax[y].slice():new Array(12).fill(0);
+  let grid='';
+  for (let m=0;m<12;m++){
+    grid+=`<div class="itax-m"><label>${m+1}월</label>
+      <input id="itax-m${m}" type="number" step="1" inputmode="numeric" value="${arr[m]||''}" placeholder="0" oninput="itaxRecalc()"></div>`;
+  }
+  const delBtn=exists?`<button class="btn btn-danger btn-sm" onclick="deleteItaxYear('${y}')">삭제</button>`:'';
+  openModal(`<h3>이자·세금 — 월별 입력</h3>
+    <div class="modal-sub">해당 연도의 월별 이자·세금을 입력하면 연 합계로 자동 합산됩니다</div>
+    <div class="field"><label>연도</label><input id="itax-year" type="number" step="1" value="${y}"></div>
+    <div class="itax-grid">${grid}</div>
+    <div class="itax-sum">연 합계 <b id="itax-total" class="num">₩0</b></div>
     <div class="btn-row">
       ${delBtn}
       <button class="btn btn-secondary" onclick="closeModal()">취소</button>
-      <button class="btn btn-primary" onclick="saveItax('${id||''}')">저장</button>
+      <button class="btn btn-primary" onclick="saveItaxYear('${exists?y:''}')">저장</button>
     </div>`);
+  itaxRecalc();
 }
-async function saveItax(id){
-  const type=document.getElementById('it-type').value;
-  const amt=parseFloat(document.getElementById('it-amt').value);
-  const date=document.getElementById('it-date').value;
-  const memo=document.getElementById('it-memo').value.trim();
-  if(!(amt>0)){ toast('금액을 확인하세요'); return; }
-  if(id){
-    const rec=state.transactions.find(t=>t.id===id);
-    if(rec){ rec.type=type; rec.amount=amt; rec.date=date; rec.memo=memo; }
-  } else {
-    state.transactions.push({id:'it'+Date.now(),type,date,amount:amt,memo});
-  }
-  await saveState(); closeModal(); toast('저장됨'); switchView('transactions');
+function itaxRecalc(){
+  let s=0;
+  for (let m=0;m<12;m++){ const e=document.getElementById('itax-m'+m); if(e) s+=parseFloat(e.value)||0; }
+  const t=document.getElementById('itax-total');
+  if(t) t.textContent='₩'+Math.round(s).toLocaleString('ko-KR');
 }
-window.openItaxEditor=openItaxEditor; window.saveItax=saveItax;
+async function saveItaxYear(origYear){
+  const y=String(parseInt(document.getElementById('itax-year').value,10)||0);
+  if(y.length!==4){ toast('연도를 4자리로 입력하세요'); return; }
+  const arr=new Array(12).fill(0);
+  for (let m=0;m<12;m++){ const e=document.getElementById('itax-m'+m); arr[m]=Math.round(parseFloat(e.value)||0); }
+  if(!state.itax) state.itax={};
+  if(origYear && origYear!==y) delete state.itax[origYear];
+  state.itax[y]=arr;
+  await saveState(); closeModal(); toast(y+'년 이자·세금 저장됨'); switchView('transactions');
+}
+async function deleteItaxYear(year){
+  if(state.itax) delete state.itax[year];
+  await saveState(); closeModal(); toast(year+'년 기록 삭제됨'); switchView('transactions');
+}
+window.openItaxYear=openItaxYear; window.itaxRecalc=itaxRecalc;
+window.saveItaxYear=saveItaxYear; window.deleteItaxYear=deleteItaxYear;
 
 function renderTransactions(){
   renderCashList();
@@ -1366,24 +1401,23 @@ function renderCashList(){
 /* 이자 · 세금 */
 function renderItaxList(){
   const el=document.getElementById('itax-list');
-  const list=state.transactions.filter(t=>t.type==='interest'||t.type==='tax').sort((a,b)=>b.date.localeCompare(a.date));
-  let totInt=0, totTax=0;
-  for(const t of list){ if(t.type==='interest')totInt+=t.amount; else totTax+=t.amount; }
-  const cum=totInt+totTax;
+  const years=Object.keys(state.itax||{}).filter(y=>itaxYearTotal(y)>0||((state.itax[y]||[]).length)).sort((a,b)=>b.localeCompare(a));
+  const cum=itaxTotal();
   const sum=`<div style="background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:13px 14px;margin-bottom:10px">
     <div style="display:flex;justify-content:space-between;align-items:baseline">
-      <span style="font-size:11px;color:var(--text-2)">누적 이자·세금 납입액</span>
+      <span style="font-size:11px;color:var(--text-2)">누적 이자·세금</span>
       <span class="num" style="font-size:19px;font-weight:700;color:var(--gold)">${fmtKRWFull(cum)}</span>
     </div>
-    <div style="font-size:10.5px;color:var(--text-3);margin-top:5px">이자 ${fmtKRW(totInt)} · 세금 ${fmtKRW(totTax)} · ${list.length}건</div>
+    <div style="font-size:10.5px;color:var(--text-3);margin-top:5px">${years.length}개 연도 · 연도를 눌러 월별로 입력</div>
   </div>`;
-  if(!list.length){ el.innerHTML=sum+'<div class="empty">이자·세금 기록이 없습니다. ＋ 추가로 입력하세요.</div>'; return; }
-  el.innerHTML=sum+list.map(t=>{
-    const isInt=t.type==='interest';
-    return `<div class="txn" onclick="openItaxEditor('${t.id}')" style="cursor:pointer">
-      <div class="txn-icon" style="background:rgba(74,144,226,0.13);color:var(--down)">${isInt?'이':'세'}</div>
-      <div class="txn-info"><div class="txn-title">${t.memo||(isInt?'이자':'세금')}</div><div class="txn-date">${t.date} · ${isInt?'이자':'세금'}</div></div>
-      <div class="txn-amount num">${fmtKRW(t.amount)}</div></div>`;
+  if(!years.length){ el.innerHTML=sum+'<div class="empty">이자·세금 기록이 없습니다. ＋ 추가로 연도를 입력하세요.</div>'; return; }
+  el.innerHTML=sum+years.map(y=>{
+    const yt=itaxYearTotal(y);
+    const months=(state.itax[y]||[]).filter(v=>v>0).length;
+    return `<div class="txn" onclick="openItaxYear('${y}')" style="cursor:pointer">
+      <div class="txn-icon" style="background:rgba(74,144,226,0.13);color:var(--down)">${y.slice(2)}</div>
+      <div class="txn-info"><div class="txn-title">${y}년 이자·세금</div><div class="txn-date">${months}개월 입력 · 탭하여 월별 수정</div></div>
+      <div class="txn-amount num">${fmtKRW(yt)}</div></div>`;
   }).join('');
 }
 /* 납입 기록 */
@@ -1398,13 +1432,7 @@ function renderDepositList(){
     <div class="txn-info"><div class="txn-title">${t.memo||'납입'}</div><div class="txn-date">${t.date}</div></div>
     <div class="txn-amount num up">+${fmtKRW(t.amount)}</div></div>`).join('');
 }
-async function deleteItax(id){
-  const t=state.transactions.find(x=>x.id===id);
-  if(!t) return;
-  state.transactions=state.transactions.filter(x=>x.id!==id);
-  await saveState(); closeModal(); toast('삭제됨'); switchView('transactions');
-}
-window.deleteItax=deleteItax;
+/* 납입 기록 */
 
 /* ================================================================
    QUICK ENTRY — 자산군별 보유 종목 일괄 입력
@@ -1648,7 +1676,7 @@ document.querySelectorAll('#holding-sort button').forEach(b=>b.onclick=()=>{
   holdingSort=b.dataset.hs; renderHoldings();
 });
 document.getElementById('edit-cash').onclick=openCashEditor;
-document.getElementById('add-itax').onclick=()=>openItaxEditor();
+document.getElementById('add-itax').onclick=()=>openItaxYear();
 
 /* ================================================================
    TOAST & MODAL
@@ -1723,13 +1751,7 @@ function renderFabFields(){
       <div class="field"><label>날짜</label><input id="m-date" type="date" value="${today}"></div>
       <small style="color:var(--text-3)">납입은 원금 기록용입니다 · 예수금은 거래 탭에서 따로 입력하세요</small>`;
   } else if (t==='itax'){
-    d.innerHTML=`
-      <div class="field"><label>구분</label><select id="m-ittype">
-        <option value="tax">세금 (납부)</option>
-        <option value="interest">이자 (납부)</option></select></div>
-      <div class="field"><label>금액 (원)</label><input id="m-amount" type="number" placeholder="0"></div>
-      <div class="field"><label>날짜</label><input id="m-date" type="date" value="${today}"></div>
-      <div class="field"><label>메모</label><input id="m-memo" type="text" placeholder="예: 2026년 양도소득세"></div>`;
+    d.innerHTML=`<div class="info-text">이자·세금은 연도별 월별 입력 화면에서 관리합니다. 저장을 누르면 월별 입력 화면이 열립니다.</div>`;
   } else {
     d.innerHTML=`
       <div class="field"><label>USD/KRW 환율</label><div class="field-row">
@@ -1825,12 +1847,7 @@ async function submitFab(){
     return;
   }
   if (t==='itax'){
-    const amt=parseFloat(document.getElementById('m-amount').value);
-    if(!(amt>0)){ toast('금액을 확인하세요'); return; }
-    state.transactions.push({id:'it'+Date.now(),type:document.getElementById('m-ittype').value,
-      date:document.getElementById('m-date').value,amount:amt,
-      memo:document.getElementById('m-memo').value||''});
-    await saveState(); closeModal(); toast('이자·세금 기록됨'); switchView('transactions');
+    closeModal(); openItaxYear();
     return;
   }
   if (t==='holding'){
@@ -2329,6 +2346,7 @@ document.getElementById('reset-btn').onclick=async()=>{
 };
 async function doReset(){
   state=JSON.parse(JSON.stringify(SEED));
+  normalizeState();
   lastFailed=new Set();
   await saveState(); closeModal(); toast('초기 데이터로 복원됨'); switchView('dashboard');
 }

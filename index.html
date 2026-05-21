@@ -340,6 +340,11 @@ input,select,textarea{font-family:inherit;color:inherit}
     <div class="card">
       <div class="card-title">종목별 리밸런싱 <span class="action" id="edit-stock-tw">비중 수정</span></div>
       <div class="chips" id="rb-stock-chips"></div>
+      <div class="seg" id="rb-mode-seg" style="margin-bottom:4px">
+        <button data-rbmode="portfolio" class="active">전체 포트폴리오</button>
+        <button data-rbmode="within">자산군 내</button>
+      </div>
+      <div id="rb-mode-desc" style="font-size:10.5px;color:var(--text-3);margin:0 2px 12px"></div>
       <div id="rb-stock-list"></div>
       <div id="rb-stock-foot"></div>
       <button class="btn btn-primary" id="apply-rebal" style="width:100%;margin-top:14px">리밸런싱 후 종목 입력 ▸</button>
@@ -1113,12 +1118,15 @@ function renderAllocation(){
 
 /* 종목별 리밸런싱 — 각 종목을 카테고리 내 목표 비중에 맞추기 위한 매수/매도 수량
    기준: 카테고리 목표금액(= 총자산 × 카테고리 목표%) × 종목 목표비중  (시트의 리밸런싱 로직과 동일) */
-function stockRebalance(cat){
+function stockRebalance(cat, mode){
   const fx=state.settings.fxRate;
-  const base=portfolioStats().totalWithCash;
-  const catTargetVal=base*classTarget(cat);
   const holdings=state.holdings.filter(h=>h.cat===cat&&h.qty>0);
   const catCurrent=holdings.reduce((s,h)=>s+holdingValue(h,fx).current,0);
+  // 'within' = 자산군 현재 평가액을 기준으로 종목 재분배
+  // 그 외(전체) = 총자산 × 자산군 목표비중
+  const catTargetVal = mode==='within'
+    ? catCurrent
+    : portfolioStats().totalWithCash*classTarget(cat);
   return holdings.map(h=>{
     const v=holdingValue(h,fx);
     const tw=h.targetWt||0;
@@ -1134,6 +1142,7 @@ function stockRebalance(cat){
 }
 
 let rbStockCat='us_stock';
+let rbMode='portfolio';
 function renderStockRebalance(){
   const cats=Object.keys(CATEGORIES).filter(k=>state.holdings.some(h=>h.cat===k&&h.qty>0));
   const chipsEl=document.getElementById('rb-stock-chips');
@@ -1143,8 +1152,12 @@ function renderStockRebalance(){
   if(!cats.includes(rbStockCat)) rbStockCat=cats[0];
   chipsEl.innerHTML=cats.map(k=>`<button class="chip ${rbStockCat===k?'active':''}" data-rbcat="${k}">${CATEGORIES[k].label}</button>`).join('');
   chipsEl.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{rbStockCat=c.dataset.rbcat;renderStockRebalance();});
+  document.querySelectorAll('#rb-mode-seg button').forEach(b=>b.classList.toggle('active',b.dataset.rbmode===rbMode));
+  document.getElementById('rb-mode-desc').textContent = rbMode==='within'
+    ? '이 자산군의 현재 평가액을 종목 목표비중대로 재분배합니다 (자산군 총액 유지)'
+    : '총자산의 목표 배분 기준으로 계산합니다 (자산군 크기까지 조정)';
 
-  const rows=stockRebalance(rbStockCat).sort((a,b)=>Math.abs(b.adjustVal)-Math.abs(a.adjustVal));
+  const rows=stockRebalance(rbStockCat, rbMode);   // 자산 페이지 카테고리 순서와 동일
   let html='';
   for(const r of rows){
     const h=r.h, color=CATEGORIES[h.cat].color;
@@ -1177,8 +1190,9 @@ function renderStockRebalance(){
   const buyN=rows.filter(r=>r.adjustShares>0).length;
   const sellN=rows.filter(r=>r.adjustShares<0).length;
   const wtWarn=Math.abs(wtSum-1)>0.001?`<span class="up"> · 비중합 ${fmtPct(wtSum,1)} ⚠</span>`:'';
+  const tgtLabel=rbMode==='within'?'평가액':'목표';
   footEl.innerHTML=`<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-2);padding-top:12px;border-top:1px solid var(--hairline);margin-top:6px">
-    <span>${CATEGORIES[rbStockCat].label} 목표 <b class="num">${fmtKRW(catTgt)}</b>${wtWarn}</span>
+    <span>${CATEGORIES[rbStockCat].label} ${tgtLabel} <b class="num">₩${fmtKRW(catTgt)}</b>${wtWarn}</span>
     <span><span class="down">매수 ${buyN}</span> · <span class="up">매도 ${sellN}</span></span>
   </div>`;
 }
@@ -2005,6 +2019,9 @@ window.openHoldingDetail=openHoldingDetail; window.saveHoldingDetail=saveHolding
    ================================================================ */
 document.getElementById('edit-class-tw').onclick=openClassTargetEditor;
 document.getElementById('edit-stock-tw').onclick=openStockWeightEditor;
+document.querySelectorAll('#rb-mode-seg button').forEach(b=>b.onclick=()=>{
+  rbMode=b.dataset.rbmode; renderStockRebalance();
+});
 document.getElementById('goal-year').onclick=openTargetReturnEditor;
 document.getElementById('trend-add').onclick=openTrendManager;
 function openTrendManager(){

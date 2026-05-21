@@ -95,6 +95,7 @@ input,select,textarea{font-family:inherit;color:inherit}
 .holding{display:flex;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--hairline);cursor:pointer}
 .holding:last-child{border-bottom:none}
 .h-icon{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;letter-spacing:-0.02em}
+.h-icon-qty{font-size:10px;letter-spacing:-0.03em;padding:0 2px}
 .h-info{flex:1;min-width:0}
 .h-ticker{font-size:14px;font-weight:600;display:flex;align-items:center;gap:5px}
 .h-warn{font-size:10px;color:var(--gold)}
@@ -216,6 +217,16 @@ input,select,textarea{font-family:inherit;color:inherit}
 .h-move button{width:27px;height:20px;border:1px solid var(--hairline);border-radius:6px;background:var(--frame);color:var(--text-2);font-size:8px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0}
 .h-move button:active{background:var(--surface-2);color:var(--gold)}
 .h-move button.dim{opacity:.25;pointer-events:none}
+/* 자산 종목 행 — 배지 없는 2줄 레이아웃 */
+.hd-main{flex:1;min-width:0}
+.hd-r1{display:flex;align-items:baseline;gap:7px}
+.hd-tk{font-size:14.5px;font-weight:700;flex-shrink:0}
+.hd-nm{font-size:11px;color:var(--text-3);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hd-val{font-size:14.5px;font-weight:700;flex-shrink:0;font-variant-numeric:tabular-nums}
+.hd-r2{display:flex;align-items:baseline;gap:8px;margin-top:4px}
+.hd-qty{font-size:11.5px;color:var(--text-2);flex:1;min-width:0;font-variant-numeric:tabular-nums}
+.hd-ret{font-size:12.5px;font-weight:700;flex-shrink:0;font-variant-numeric:tabular-nums}
+.hd-day{font-size:10.5px;flex-shrink:0;font-variant-numeric:tabular-nums}
 .h-ms{font-size:9px;color:var(--text-3);font-weight:600;margin-left:2px}
 .q-sum{display:flex;justify-content:space-between;align-items:center;background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:13px 16px;margin-bottom:12px;font-size:13px;font-weight:700}
 .q-sum-time{font-size:11px;color:var(--text-3);font-weight:400}
@@ -965,14 +976,18 @@ function holdingRowHTML(h, moveInfo){
   const fx=state.settings.fxRate;
   const v=holdingValue(h,fx), pnl=v.current-v.invested, pct=v.invested>0?pnl/v.invested:0;
   const cls=pct>=0?'up':'down';
-  const ini=h.symbol.replace(/\..*/,'').slice(0,2).toUpperCase();
-  const warn=lastFailed.has(h.symbol)?'<span class="h-warn">⚠</span>':'';
-  const col=CATEGORIES[h.cat].color;
-  let dayLine='';
+  const q=h.qty||0;
+  const qtyStr = q>=1000 ? Math.round(q).toLocaleString('ko-KR')
+               : Number.isInteger(q) ? String(q)
+               : q>=1 ? q.toFixed(2)
+               : parseFloat(q.toFixed(4)).toString();
+  const warn=lastFailed.has(h.symbol)?' <span class="h-warn">⚠</span>':'';
+  const sym=h.symbol.replace('.KS','').replace('.L','');
+  let dayHtml='';
   if (h._mkt && h._mkt.dayChangePct!=null){
     const dc=h._mkt.dayChangePct, dcls=dc>=0?'up':'down';
     const msl=marketStateLabel(h._mkt.marketState);
-    dayLine=`<div class="h-day ${dcls}">오늘 ${fmtPctSigned(dc)}${msl?` <span class="h-ms">${msl}</span>`:''}</div>`;
+    dayHtml=`<span class="hd-day ${dcls}">오늘 ${fmtPctSigned(dc)}${msl?' '+msl:''}</span>`;
   }
   let moveHtml='';
   if(moveInfo){
@@ -982,15 +997,17 @@ function holdingRowHTML(h, moveInfo){
     </div>`;
   }
   return `<div class="holding" data-id="${h.id}">
-    <div class="h-icon" style="background:${col}22;color:${col}">${ini}</div>
-    <div class="h-info">
-      <div class="h-ticker">${h.symbol.replace('.KS','').replace('.L','')} ${warn}</div>
-      <div class="h-name">${h.name}</div>
-    </div>
-    <div class="h-val">
-      <div class="h-amount">${fmtKRW(v.current)}</div>
-      <div class="h-pct ${cls}">${fmtPctSigned(pct)}</div>
-      ${dayLine}
+    <div class="hd-main">
+      <div class="hd-r1">
+        <span class="hd-tk">${sym}${warn}</span>
+        <span class="hd-nm">${h.name}</span>
+        <span class="hd-val">${fmtKRW(v.current)}</span>
+      </div>
+      <div class="hd-r2">
+        <span class="hd-qty">${qtyStr}주 보유</span>
+        <span class="hd-ret ${cls}">${fmtPctSigned(pct)}</span>
+        ${dayHtml}
+      </div>
     </div>${moveHtml}</div>`;
 }
 /* 종합 내역 — 자산군별 매입·평가·수익률 (카테고리 필터와 무관, 전체 기준) */

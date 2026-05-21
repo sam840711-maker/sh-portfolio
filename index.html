@@ -1556,14 +1556,18 @@ function renderQuickEntry(){
     el.innerHTML = html;
   }
 }
-/* 엔터 → 다음 칸 / 다음 종목으로 이동 */
+/* 엔터 → 같은 칸(열) 아래 종목으로 이동 (수량 쭉 → 매입금액 쭉) */
 function qeKey(e){
   if(e.key!=='Enter') return;
   e.preventDefault();
-  const cells=Array.from(document.querySelectorAll('#qe-list input.qe-cell'));
-  const i=cells.indexOf(e.target);
+  const t=e.target;
+  let col='qe-cqty';
+  if(t.classList.contains('qe-ckrw')) col='qe-ckrw';
+  else if(t.classList.contains('qe-cusd')) col='qe-cusd';
+  const cells=Array.from(document.querySelectorAll('#qe-list input.'+col));
+  const i=cells.indexOf(t);
   if(i>=0 && i<cells.length-1){ const n=cells[i+1]; n.focus(); if(n.select)n.select(); }
-  else if(e.target.blur) e.target.blur();
+  else if(t.blur) t.blur();
 }
 window.qeKey=qeKey;
 function qeRecalc(id){

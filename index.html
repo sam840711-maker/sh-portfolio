@@ -192,25 +192,24 @@ input,select,textarea{font-family:inherit;color:inherit}
 .abar-lg-bar{width:16px;height:8px;border-radius:2px;background:var(--text-2);display:inline-block}
 .abar-lg-tick{width:3px;height:13px;border-radius:2px;background:var(--text);display:inline-block}
 
-/* === 빠른 입력 페이지 === */
-.qe-cat{font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--gold);margin:20px 4px 9px;display:flex;justify-content:space-between;align-items:baseline}
+/* === 빠른 입력 페이지 — 엑셀형 한 줄 입력 === */
+.qe-cat{font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--gold);margin:20px 4px 6px;display:flex;justify-content:space-between;align-items:baseline}
 .qe-cat-sum{font-size:10px;color:var(--text-3);font-weight:500;letter-spacing:0}
-.qe-card{background:var(--surface);border:1px solid var(--hairline);border-radius:14px;padding:13px 14px;margin-bottom:8px}
-.qe-sym{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;font-size:14px;font-weight:700;margin-bottom:10px}
-.qe-sym-txt{flex:1;min-width:0}
-.qe-move{display:flex;gap:5px;flex-shrink:0}
-.qe-move button{width:32px;height:28px;border:1px solid var(--hairline);border-radius:8px;background:var(--frame);color:var(--text-2);font-size:10px;display:flex;align-items:center;justify-content:center}
-.qe-move button:active{background:var(--surface-2);color:var(--gold)}
-.qe-move button.dim{opacity:0.25;pointer-events:none}
-.qe-name{font-size:11px;font-weight:400;color:var(--text-3);margin-left:6px}
-.qe-fields{display:flex;flex-wrap:wrap;gap:9px}
-.qe-f{flex:1 1 140px;display:flex;flex-direction:column;gap:4px}
-.qe-f label{font-size:10px;color:var(--text-2);letter-spacing:0.02em}
-.qe-f input{width:100%;background:var(--frame);border:1px solid var(--hairline);border-radius:9px;padding:9px 10px;font-size:14px;font-variant-numeric:tabular-nums;color:var(--text)}
-.qe-f input:focus{outline:none;border-color:var(--gold)}
-.qe-calc{font-size:10.5px;color:var(--text-3);margin-top:10px;font-variant-numeric:tabular-nums}
-.qe-hint{font-size:11px;font-weight:600;margin:-3px 0 9px;font-variant-numeric:tabular-nums}
-.qe-f input.qe-changed{border-color:var(--gold);background:var(--gold-soft)}
+.qe-row,.qe-hrow{display:flex;align-items:center;gap:6px}
+.qe-row{padding:4px 2px}
+.qe-hrow{padding:3px 2px 5px;border-bottom:1px solid var(--hairline);margin-bottom:2px}
+.qe-cmove{width:24px;flex-shrink:0;display:flex;flex-direction:column;gap:2px}
+.qe-cmove button{height:15px;border:1px solid var(--hairline);border-radius:4px;background:var(--frame);color:var(--text-3);font-size:7px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0}
+.qe-cmove button:active{background:var(--surface-2);color:var(--gold)}
+.qe-cmove button.dim{opacity:0.2;pointer-events:none}
+.qe-csym{width:50px;flex-shrink:0;font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qe-cell{min-width:0;box-sizing:border-box;background:var(--frame);border:1px solid var(--hairline);border-radius:7px;padding:9px 7px;font-size:13px;color:var(--text);font-variant-numeric:tabular-nums;text-align:right}
+.qe-cell:focus{outline:none;border-color:var(--gold);background:var(--surface)}
+.qe-cell.qe-changed{border-color:var(--gold);background:var(--gold-soft)}
+.qe-hcell{font-size:9.5px;color:var(--text-2);text-align:right;font-weight:600}
+.qe-cqty{flex:1}
+.qe-ckrw{flex:1.65}
+.qe-cusd{flex:1.25}
 .rebal-alert{cursor:pointer;border:1px solid var(--gold);background:var(--gold-soft)}
 .rebal-alert .ra-dot{width:9px;height:9px;border-radius:50%;background:var(--gold);flex-shrink:0}
 .h-move{display:flex;flex-direction:column;gap:3px;margin-left:10px;flex-shrink:0}
@@ -1458,6 +1457,13 @@ function renderQuickEntry(){
     if(!hs.length) continue;
     const usd=isUSDcat(k);
     html+=`<div class="qe-cat"><span>${CATEGORIES[k].label}</span><span class="qe-cat-sum">${hs.length}종목 · ${usd?'달러 자산':'한화 자산'}</span></div>`;
+    html+=`<div class="qe-hrow">
+      <span class="qe-cmove"></span>
+      <span class="qe-csym">종목</span>
+      <span class="qe-hcell qe-cqty">수량</span>
+      <span class="qe-hcell qe-ckrw">한화매수액</span>
+      ${usd?`<span class="qe-hcell qe-cusd">달러매수액</span>`:''}
+    </div>`;
     hs.forEach((h,gi)=>{
       const qty=h.qty||0;
       let krwTot=0, usdTot=0;
@@ -1465,29 +1471,16 @@ function renderQuickEntry(){
       else { krwTot=qty*(h.avgKRW||0); }
       const sym=h.symbol.replace('.KS','').replace('.L','');
       const up=gi===0?'dim':'', down=gi===hs.length-1?'dim':'';
-      const adj=sug[h.id]||0;
-      const hint = adj>=1 ? `<span class="down">리밸런싱 제안 +${adj.toLocaleString()}주 매수</span>`
-                 : adj<=-1 ? `<span class="up">리밸런싱 제안 ${adj.toLocaleString()}주 매도</span>`
-                 : `<span style="color:var(--text-3)">리밸런싱 균형</span>`;
       const initQty=qty, initKrw=Math.round(krwTot), initUsd=Number(usdTot.toFixed(2));
-      html+=`<div class="qe-card">
-        <div class="qe-sym">
-          <span class="qe-sym-txt">${sym}<span class="qe-name">${h.name}</span></span>
-          <span class="qe-move">
-            <button class="${up}" onclick="qeMove('${h.id}',-1)" aria-label="위로">▲</button>
-            <button class="${down}" onclick="qeMove('${h.id}',1)" aria-label="아래로">▼</button>
-          </span>
-        </div>
-        <div class="qe-hint">${hint}</div>
-        <div class="qe-fields">
-          <div class="qe-f"><label>보유수량</label>
-            <input id="qe-${h.id}-qty" type="number" step="any" inputmode="decimal" value="${initQty}" data-init="${initQty}" oninput="qeInput(this,'${h.id}')"></div>
-          <div class="qe-f"><label>한화 매수총액 (₩)</label>
-            <input id="qe-${h.id}-krw" type="number" step="1" inputmode="numeric" value="${initKrw}" data-init="${initKrw}" oninput="qeInput(this,'${h.id}')"></div>
-          ${usd?`<div class="qe-f"><label>달러 매수총액 ($)</label>
-            <input id="qe-${h.id}-usd" type="number" step="0.01" inputmode="decimal" value="${initUsd}" data-init="${initUsd}" oninput="qeInput(this,'${h.id}')"></div>`:''}
-        </div>
-        <div class="qe-calc" id="qe-${h.id}-calc"></div>
+      html+=`<div class="qe-row">
+        <span class="qe-cmove">
+          <button class="${up}" onclick="qeMove('${h.id}',-1)" aria-label="위로">▲</button>
+          <button class="${down}" onclick="qeMove('${h.id}',1)" aria-label="아래로">▼</button>
+        </span>
+        <span class="qe-csym" title="${h.name}">${sym}</span>
+        <input class="qe-cell qe-cqty" id="qe-${h.id}-qty" type="number" step="any" inputmode="decimal" value="${initQty}" data-init="${initQty}" oninput="qeInput(this,'${h.id}')" onkeydown="qeKey(event)">
+        <input class="qe-cell qe-ckrw" id="qe-${h.id}-krw" type="number" step="1" inputmode="numeric" value="${initKrw}" data-init="${initKrw}" oninput="qeInput(this,'${h.id}')" onkeydown="qeKey(event)">
+        ${usd?`<input class="qe-cell qe-cusd" id="qe-${h.id}-usd" type="number" step="0.01" inputmode="decimal" value="${initUsd}" data-init="${initUsd}" oninput="qeInput(this,'${h.id}')" onkeydown="qeKey(event)">`:''}
       </div>`;
     });
   }
@@ -1498,8 +1491,17 @@ function renderQuickEntry(){
   } else {
     el.innerHTML = html;
   }
-  for (const h of state.holdings) qeRecalc(h.id);
 }
+/* 엔터 → 다음 칸 / 다음 종목으로 이동 */
+function qeKey(e){
+  if(e.key!=='Enter') return;
+  e.preventDefault();
+  const cells=Array.from(document.querySelectorAll('#qe-list input.qe-cell'));
+  const i=cells.indexOf(e.target);
+  if(i>=0 && i<cells.length-1){ const n=cells[i+1]; n.focus(); if(n.select)n.select(); }
+  else if(e.target.blur) e.target.blur();
+}
+window.qeKey=qeKey;
 function qeRecalc(id){
   const h=state.holdings.find(x=>x.id===id);
   const calc=document.getElementById('qe-'+id+'-calc');

@@ -770,6 +770,22 @@ function renderTopbar(){
   ft.textContent = state.prices.lastFetch ? '시세 '+relTime(state.prices.lastFetch) : '탭하여 시세 갱신';
 }
 
+/* XIRR — 납입 시점을 반영한 연환산 수익률 (이분법) */
+function xirr(flows){
+  if(!flows||flows.length<2) return null;
+  const cf=flows.slice().sort((a,b)=>a.date-b.date);
+  const t0=cf[0].date.getTime(), Y=365.25*24*3600*1000;
+  const npv=r=>cf.reduce((s,f)=>s+f.amount/Math.pow(1+r,(f.date.getTime()-t0)/Y),0);
+  let lo=-0.9999, hi=100, flo=npv(lo), fhi=npv(hi);
+  if(!isFinite(flo)||!isFinite(fhi)||flo*fhi>0) return null;
+  for(let i=0;i<200;i++){
+    const mid=(lo+hi)/2, fm=npv(mid);
+    if(!isFinite(fm)) return null;
+    if(Math.abs(fm)<1) return mid;
+    if(flo*fm<0){ hi=mid; } else { lo=mid; flo=fm; }
+  }
+  return (lo+hi)/2;
+}
 function renderDashboard(){
   const s=portfolioStats(), st=state.settings, fx=st.fxRate;
   document.getElementById('hero-total').textContent=fmtKRW(s.totalWithCash);
@@ -790,12 +806,27 @@ function renderDashboard(){
   fxEl.textContent=(fxGain>=0?'+':'')+fmtKRW(fxGain);
   fxEl.className='hm-val num '+(fxGain>=0?'up':'down');
 
-  document.getElementById('stat-return').textContent=fmtPctSigned(st.cumReturnAfterTax);
-  document.getElementById('stat-return').className='stat-value num '+(st.cumReturnAfterTax>=0?'up':'down');
-  document.getElementById('stat-cagr').textContent=fmtPct(st.cagr);
-  document.getElementById('stat-cagr').className='stat-value num '+(st.cagr>=st.targetCAGR?'up':'down');
+  // 누적수익률 — (총자산 − 납입원금 − 누적이자세금) ÷ 납입원금  (실시간)
+  const principal = totalDeposits>0 ? totalDeposits : (st.principal||0);
+  const cumReturn = principal>0 ? (s.totalWithCash - principal - totalItax)/principal : 0;
+  document.getElementById('stat-return').textContent=fmtPctSigned(cumReturn);
+  document.getElementById('stat-return').className='stat-value num '+(cumReturn>=0?'up':'down');
+  // 투자개월 — 시작일부터 현재까지 자동 누적
+  const _sd=new Date(st.startDate||'2022-01-01'), _now=new Date();
+  let months=(_now.getFullYear()-_sd.getFullYear())*12+(_now.getMonth()-_sd.getMonth());
+  months=Math.max(1,months);
+  document.getElementById('stat-months').textContent=months+'개월';
+  // 연평균 — 납입 시점 반영 연환산(XIRR), 실패 시 누적수익률 단순 연환산
+  const cfs=state.transactions.filter(t=>t.type==='deposit'&&t.date)
+    .map(t=>({date:new Date(t.date), amount:-(t.amount||0)}));
+  cfs.push({date:new Date(), amount:s.totalWithCash-totalItax});
+  let cagr=xirr(cfs);
+  if(cagr==null||!isFinite(cagr)){
+    cagr=(1+cumReturn>0)?Math.pow(1+cumReturn,12/months)-1:0;
+  }
+  document.getElementById('stat-cagr').textContent=fmtPct(cagr);
+  document.getElementById('stat-cagr').className='stat-value num '+(cagr>=st.targetCAGR?'up':'down');
   document.getElementById('stat-cagr-sub').textContent='목표 '+fmtPct(st.targetCAGR,1);
-  document.getElementById('stat-months').textContent=st.months+'개월';
   const sdP=(st.startDate||'').split('-');
   document.getElementById('stat-startdate').textContent =
     sdP.length>=2 ? (sdP[0]+'년 '+parseInt(sdP[1],10)+'월 시작') : (st.startDate+' 시작');

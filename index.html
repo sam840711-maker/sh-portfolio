@@ -193,24 +193,20 @@ input,select,textarea{font-family:inherit;color:inherit}
 .abar-lg-bar{width:16px;height:8px;border-radius:2px;background:var(--text-2);display:inline-block}
 .abar-lg-tick{width:3px;height:13px;border-radius:2px;background:var(--text);display:inline-block}
 
-/* === 빠른 입력 페이지 — 엑셀형 한 줄 입력 === */
+/* === 빠른 입력 페이지 — 엑셀형 그리드 입력 (열 우선 DOM) === */
 .qe-cat{font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--gold);margin:20px 4px 6px;display:flex;justify-content:space-between;align-items:baseline}
 .qe-cat-sum{font-size:10px;color:var(--text-3);font-weight:500;letter-spacing:0}
-.qe-row,.qe-hrow{display:flex;align-items:center;gap:6px}
-.qe-row{padding:4px 2px}
-.qe-hrow{padding:3px 2px 5px;border-bottom:1px solid var(--hairline);margin-bottom:2px}
-.qe-cmove{width:24px;flex-shrink:0;display:flex;flex-direction:column;gap:2px}
+.qe-grid{display:grid;gap:7px 6px;align-items:center;margin-bottom:4px}
+.qe-gh{font-size:9.5px;color:var(--text-2);font-weight:600;padding-bottom:2px}
+.qe-ghr{text-align:right}
+.qe-cmove{width:24px;display:flex;flex-direction:column;gap:2px}
 .qe-cmove button{height:15px;border:1px solid var(--hairline);border-radius:4px;background:var(--frame);color:var(--text-3);font-size:7px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0}
 .qe-cmove button:active{background:var(--surface-2);color:var(--gold)}
 .qe-cmove button.dim{opacity:0.2;pointer-events:none}
-.qe-csym{width:50px;flex-shrink:0;font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.qe-cell{min-width:0;box-sizing:border-box;background:var(--frame);border:1px solid var(--hairline);border-radius:7px;padding:9px 7px;font-size:13px;color:var(--text);font-variant-numeric:tabular-nums;text-align:right}
+.qe-csym{font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qe-cell{min-width:0;width:100%;box-sizing:border-box;background:var(--frame);border:1px solid var(--hairline);border-radius:7px;padding:9px 7px;font-size:13px;color:var(--text);font-variant-numeric:tabular-nums;text-align:right}
 .qe-cell:focus{outline:none;border-color:var(--gold);background:var(--surface)}
 .qe-cell.qe-changed{border-color:var(--gold);background:var(--gold-soft)}
-.qe-hcell{font-size:9.5px;color:var(--text-2);text-align:right;font-weight:600}
-.qe-cqty{flex:1}
-.qe-ckrw{flex:1.65}
-.qe-cusd{flex:1.25}
 .rebal-alert{cursor:pointer;border:1px solid var(--gold);background:var(--gold-soft)}
 .rebal-alert .ra-dot{width:9px;height:9px;border-radius:50%;background:var(--gold);flex-shrink:0}
 .h-move{display:flex;flex-direction:column;gap:3px;margin-left:10px;flex-shrink:0}
@@ -1514,41 +1510,54 @@ function renderQuickEntry(){
   const sug={};
   for (const k in CATEGORIES){ for (const r of stockRebalance(k)) sug[r.h.id]=r.adjustShares; }
   let html='';
-  let rowN=0;   // 열 기준 tabindex용 누적 종목 번호
   for (const k in CATEGORIES){
     if(qeCat!=='all' && k!==qeCat) continue;
     let hs=state.holdings.filter(h=>h.cat===k);
     if(qeFilter==='rebal') hs=hs.filter(h=>Math.abs(sug[h.id]||0)>=1);
     if(!hs.length) continue;
     const usd=isUSDcat(k);
-    html+=`<div class="qe-cat"><span>${CATEGORIES[k].label}</span><span class="qe-cat-sum">${hs.length}종목 · ${usd?'달러 자산':'한화 자산'}</span></div>`;
-    html+=`<div class="qe-hrow">
-      <span class="qe-cmove"></span>
-      <span class="qe-csym">종목</span>
-      <span class="qe-hcell qe-cqty">수량</span>
-      <span class="qe-hcell qe-ckrw">한화매수액</span>
-      ${usd?`<span class="qe-hcell qe-cusd">달러매수액</span>`:''}
-    </div>`;
-    hs.forEach((h,gi)=>{
+    const rows=hs.map(h=>{
       const qty=h.qty||0;
       let krwTot=0, usdTot=0;
       if(usd){ usdTot=qty*(h.avgUSD||0); krwTot=usdTot*(h.avgFx||fx); }
       else { krwTot=qty*(h.avgKRW||0); }
-      const sym=h.symbol.replace('.KS','').replace('.L','');
-      const up=gi===0?'dim':'', down=gi===hs.length-1?'dim':'';
-      const initQty=qty, initKrw=Math.round(krwTot), initUsd=Number(usdTot.toFixed(2));
-      rowN++;   // 수량열 tabindex=rowN, 한화열 1000+rowN, 달러열 2000+rowN → '다음' 버튼이 세로로 이동
-      html+=`<div class="qe-row">
-        <span class="qe-cmove">
-          <button class="${up}" tabindex="-1" onclick="qeMove('${h.id}',-1)" aria-label="위로">▲</button>
-          <button class="${down}" tabindex="-1" onclick="qeMove('${h.id}',1)" aria-label="아래로">▼</button>
-        </span>
-        <span class="qe-csym" title="${h.name}">${sym}</span>
-        <input class="qe-cell qe-cqty" id="qe-${h.id}-qty" type="number" step="any" inputmode="decimal" enterkeyhint="next" tabindex="${rowN}" value="${initQty}" data-init="${initQty}" oninput="qeInput(this,'${h.id}')" onkeydown="qeKey(event)">
-        <input class="qe-cell qe-ckrw" id="qe-${h.id}-krw" type="number" step="1" inputmode="numeric" enterkeyhint="next" tabindex="${1000+rowN}" value="${initKrw}" data-init="${initKrw}" oninput="qeInput(this,'${h.id}')" onkeydown="qeKey(event)">
-        ${usd?`<input class="qe-cell qe-cusd" id="qe-${h.id}-usd" type="number" step="0.01" inputmode="decimal" enterkeyhint="next" tabindex="${2000+rowN}" value="${initUsd}" data-init="${initUsd}" oninput="qeInput(this,'${h.id}')" onkeydown="qeKey(event)">`:''}
-      </div>`;
+      return { h, initQty:qty, initKrw:Math.round(krwTot), initUsd:Number(usdTot.toFixed(2)) };
     });
+    html+=`<div class="qe-cat"><span>${CATEGORIES[k].label}</span><span class="qe-cat-sum">${hs.length}종목 · ${usd?'달러 자산':'한화 자산'}</span></div>`;
+    const cols = usd ? '24px 52px 1fr 1.55fr 1.2fr' : '24px 52px 1fr 1.7fr';
+    // 입력칸은 열 단위로 DOM에 나열 → '다음' 버튼이 같은 열 아래로 이동 (그리드로 화면 배치만 행으로)
+    let cells='';
+    // 헤더(1행)
+    cells+=`<span class="qe-gh" style="grid-column:1;grid-row:1"></span>`;
+    cells+=`<span class="qe-gh" style="grid-column:2;grid-row:1">종목</span>`;
+    cells+=`<span class="qe-gh qe-ghr" style="grid-column:3;grid-row:1">수량</span>`;
+    cells+=`<span class="qe-gh qe-ghr" style="grid-column:4;grid-row:1">한화매수액</span>`;
+    if(usd) cells+=`<span class="qe-gh qe-ghr" style="grid-column:5;grid-row:1">달러매수액</span>`;
+    // ▲▼ (1열)
+    rows.forEach((r,gi)=>{
+      const up=gi===0?'dim':'', down=gi===rows.length-1?'dim':'';
+      cells+=`<span class="qe-cmove" style="grid-column:1;grid-row:${gi+2}">
+        <button class="${up}" tabindex="-1" onclick="qeMove('${r.h.id}',-1)" aria-label="위로">▲</button>
+        <button class="${down}" tabindex="-1" onclick="qeMove('${r.h.id}',1)" aria-label="아래로">▼</button></span>`;
+    });
+    // 종목명 (2열)
+    rows.forEach((r,gi)=>{
+      const sym=r.h.symbol.replace('.KS','').replace('.L','');
+      cells+=`<span class="qe-csym" style="grid-column:2;grid-row:${gi+2}" title="${r.h.name}">${sym}</span>`;
+    });
+    // 수량 입력칸 (3열) — DOM에 세로로 연속 배치 → 키보드 '다음'이 같은 열 아래로 이동
+    rows.forEach((r,gi)=>{
+      cells+=`<input class="qe-cell qe-cqty" id="qe-${r.h.id}-qty" style="grid-column:3;grid-row:${gi+2}" type="number" step="any" inputmode="decimal" enterkeyhint="next" value="${r.initQty}" data-init="${r.initQty}" oninput="qeInput(this,'${r.h.id}')" onkeydown="qeKey(event)">`;
+    });
+    // 한화매수액 입력칸 (4열)
+    rows.forEach((r,gi)=>{
+      cells+=`<input class="qe-cell qe-ckrw" id="qe-${r.h.id}-krw" style="grid-column:4;grid-row:${gi+2}" type="number" step="1" inputmode="numeric" enterkeyhint="next" value="${r.initKrw}" data-init="${r.initKrw}" oninput="qeInput(this,'${r.h.id}')" onkeydown="qeKey(event)">`;
+    });
+    // 달러매수액 입력칸 (5열)
+    if(usd) rows.forEach((r,gi)=>{
+      cells+=`<input class="qe-cell qe-cusd" id="qe-${r.h.id}-usd" style="grid-column:5;grid-row:${gi+2}" type="number" step="0.01" inputmode="decimal" enterkeyhint="next" value="${r.initUsd}" data-init="${r.initUsd}" oninput="qeInput(this,'${r.h.id}')" onkeydown="qeKey(event)">`;
+    });
+    html+=`<div class="qe-grid" style="grid-template-columns:${cols}">${cells}</div>`;
   }
   if(!html){
     el.innerHTML = qeFilter==='rebal'

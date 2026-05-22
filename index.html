@@ -320,6 +320,7 @@ input,select,textarea{font-family:inherit;color:inherit}
         <div><span class="hm-label">총 납입금액</span><span class="hm-val num" id="hero-deposits">—</span></div>
         <div><span class="hm-label">납입액 대비 손익</span><span class="hm-val num" id="hero-dep-profit">—</span></div>
         <div><span class="hm-label">총 투자금액</span><span class="hm-val num" id="hero-invested">—</span></div>
+        <div><span class="hm-label">보유 평가액</span><span class="hm-val num" id="hero-cur-value">—</span></div>
         <div><span class="hm-label">달러 투자금액</span><span class="hm-val num" id="hero-usd-invested">—</span></div>
         <div><span class="hm-label">달러 평가액</span><span class="hm-val num" id="hero-usd-value">—</span></div>
         <div><span class="hm-label">달러자산 원화손익</span><span class="hm-val num" id="hero-usd-pnl">—</span></div>
@@ -897,6 +898,7 @@ function renderDashboard(){
   document.getElementById('hero-pnl').innerHTML=`<span class="num ${sign}">${s.pnl>=0?'+':''}${fmtKRW(s.pnl)}</span> <span style="font-size:12px">평가손익</span>`;
 
   document.getElementById('hero-invested').textContent=fmtKRW(s.invested);
+  document.getElementById('hero-cur-value').textContent=fmtKRW(s.current);
   const totalDeposits=depositsTotal();
   document.getElementById('hero-deposits').textContent=fmtKRW(totalDeposits);
   // 납입액 대비 손익 — 총자산(평가금) − 총 납입금액

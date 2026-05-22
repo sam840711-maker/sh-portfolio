@@ -135,6 +135,18 @@ input,select,textarea{font-family:inherit;color:inherit}
 .rb-bar-current{position:absolute;top:0;bottom:0;left:0;border-radius:6px;transition:width .6s}
 .rb-bar-target{position:absolute;top:0;bottom:0;width:2px;background:var(--text)}
 .rb-detail{display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--text-2);font-variant-numeric:tabular-nums}
+.rbx-row{display:flex;align-items:center;gap:11px;padding:10px 2px;border-bottom:1px solid var(--hairline);cursor:pointer}
+.rbx-row:last-child{border-bottom:none}
+.rbx-accent{width:3px;align-self:stretch;border-radius:2px;flex-shrink:0;min-height:34px}
+.rbx-main{flex:1;min-width:0}
+.rbx-l1{display:flex;align-items:baseline;gap:6px;min-width:0}
+.rbx-tk{font-size:14px;font-weight:600;letter-spacing:-0.01em;flex-shrink:0}
+.rbx-nm{font-size:11px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.rbx-wt{font-size:11px;color:var(--text-2);margin-top:3px;font-variant-numeric:tabular-nums}
+.rbx-right{text-align:right;flex-shrink:0}
+.rbx-qty{font-size:14.5px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-0.01em}
+.rbx-qty.muted{color:var(--text-3)}
+.rbx-sub{font-size:10.5px;color:var(--text-3);margin-top:2px;font-variant-numeric:tabular-nums}
 
 .txn{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--hairline)}
 .txn:last-child{border-bottom:none}
@@ -1323,30 +1335,30 @@ function renderStockRebalance(){
   const rows=stockRebalance(rbStockCat, rbMode);   // 자산 페이지 카테고리 순서와 동일
   let html='';
   for(const r of rows){
-    const h=r.h, color=CATEGORIES[h.cat].color;
-    const ini=h.symbol.replace(/\..*/,'').slice(0,2).toUpperCase();
+    const h=r.h;
     const hold=r.adjustShares===0, buy=r.adjustShares>0;
     const cls=hold?'muted':(buy?'down':'up');     // 매수=부족=down/파랑, 매도=초과=up/빨강
-    const action=hold?'균형':(buy?'매수':'매도');
-    const mx=Math.max(r.curWtInCat,r.tw)||1;
-    html+=`<div class="holding" data-id="${h.id}">
-      <div class="h-icon" style="background:${color}22;color:${color}">${ini}</div>
-      <div class="h-info">
-        <div class="h-ticker">${h.symbol.replace('.KS','').replace('.L','')}</div>
-        <div class="h-name">목표 ${fmtPct(r.tw,1)} · 현재 ${fmtPct(r.curWtInCat,1)}</div>
-        <div style="position:relative;height:4px;background:rgba(255,255,255,0.05);border-radius:2px;margin-top:6px">
-          <div style="height:100%;width:${Math.min(100,r.curWtInCat/mx*100)}%;background:${color}99;border-radius:2px"></div>
-          <div style="position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--text);left:${Math.min(100,r.tw/mx*100)}%"></div>
-        </div>
+    const accent=hold?'var(--text-3)':(buy?'var(--down)':'var(--up)');
+    const tk=h.symbol.replace('.KS','').replace('.L','');
+    const qtyTxt=hold ? '균형'
+      : `${(buy?'+':'')+r.adjustShares.toLocaleString()}주 ${buy?'매수':'매도'}`;
+    const subTxt=hold
+      ? `이후 ${r.qtyAfter.toLocaleString()}주`
+      : `₩${fmtKRW(Math.abs(r.adjustVal))} · 이후 ${r.qtyAfter.toLocaleString()}주`;
+    html+=`<div class="rbx-row" data-id="${h.id}">
+      <div class="rbx-accent" style="background:${accent}"></div>
+      <div class="rbx-main">
+        <div class="rbx-l1"><span class="rbx-tk">${tk}</span><span class="rbx-nm">${h.name||''}</span></div>
+        <div class="rbx-wt">현재 ${fmtPct(r.curWtInCat,1)} → 목표 ${fmtPct(r.tw,1)}</div>
       </div>
-      <div class="h-val">
-        <div class="h-amount ${cls}">${hold?'—':(r.adjustShares>0?'+':'')+r.adjustShares.toLocaleString()+'주'}</div>
-        <div class="h-pct ${cls}">${action}${hold?'':' '+fmtKRW(Math.abs(r.adjustVal))}</div>
-        <div class="h-day">이후 ${r.qtyAfter.toLocaleString()}주</div>
-      </div></div>`;
+      <div class="rbx-right">
+        <div class="rbx-qty ${cls}">${qtyTxt}</div>
+        <div class="rbx-sub">${subTxt}</div>
+      </div>
+    </div>`;
   }
   listEl.innerHTML=html;
-  listEl.querySelectorAll('.holding').forEach(el=>el.onclick=()=>openHoldingDetail(el.dataset.id));
+  listEl.querySelectorAll('.rbx-row').forEach(el=>el.onclick=()=>openHoldingDetail(el.dataset.id));
 
   const wtSum=rows.reduce((s,r)=>s+r.tw,0);
   const catTgt=rows.length?rows[0].catTargetVal:0;

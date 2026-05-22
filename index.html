@@ -877,16 +877,17 @@ function renderDashboard(){
   const pd=(st.pickDate||'').slice(2,7).replace('-','.');
   document.getElementById('stat-mdd-amt').textContent='고점 '+fmtKRW(pick)+(pd?' ('+pd+')':'');
 
-  // 10년 투자 목표 = 원금 × (1 + 연 목표수익률)^10  (시트 목표 도달액 표 기준)
-  const goal=st.principal*Math.pow(1+st.targetCAGR,10);
-  const gpct=s.totalWithCash/goal;
+  // 10년 목표 — 각 납입을 납입일부터 목표수익률로 복리 성장 (납입 시기 반영, XIRR과 동일 관점)
+  const goalDate=new Date(st.startDate||'2022-01-01');
+  goalDate.setFullYear(goalDate.getFullYear()+10);
+  const goal=targetFV(goalDate);
+  const expectedNow=targetFV(_now);
+  const gpct=goal>0?s.totalWithCash/goal:0;
   document.getElementById('goal-year').textContent='연 '+fmtPct(st.targetCAGR,1)+' 수정 ▸';
   document.getElementById('goal-current').textContent=fmtKRWFull(s.totalWithCash);
   document.getElementById('goal-fill').style.width=Math.min(100,gpct*100)+'%';
   document.getElementById('goal-pct').textContent=fmtPct(gpct,1);
   document.getElementById('goal-target').textContent=fmtKRW(goal);
-  // 현재 시점에 목표 수익률대로라면 도달했어야 할 금액 = 원금 × (1+목표수익률)^(경과연수)
-  const expectedNow=st.principal*Math.pow(1+st.targetCAGR, months/12);
   const paceGap=s.totalWithCash-expectedNow;
   const pacePct=expectedNow>0?paceGap/expectedNow:0;
   const paceCls=paceGap>=0?'up':'down';
@@ -1387,13 +1388,13 @@ window.updateSwSum=updateSwSum; window.saveStockWeights=saveStockWeights;
 
 /* === 연 목표 수익률 수정 → 10년 목표액 === */
 function openTargetReturnEditor(){
-  const p=state.settings.principal;
+  const p=depositsTotal();
   openModal(`<h3>연 목표 수익률</h3>
-    <div class="modal-sub">10년 투자 목표액이 이 수익률의 복리로 계산됩니다</div>
+    <div class="modal-sub">10년 목표액은 각 납입을 납입 시기부터 이 수익률로 복리 성장시켜 계산됩니다</div>
     <div class="field"><label>연 목표 수익률 (%)</label>
       <input id="tr-rate" type="number" step="0.5" value="${(state.settings.targetCAGR*100).toFixed(1)}" oninput="updateTargetPreview()"></div>
     <div style="background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:13px 14px;margin-bottom:4px">
-      <div style="font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:0.08em">10년 목표액 (원금 ${fmtKRW(p)})</div>
+      <div style="font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:0.08em">10년 목표액 (누적 납입 ${fmtKRW(p)})</div>
       <div id="tr-preview" style="font-size:18px;font-weight:700;margin-top:3px;color:var(--gold)">—</div>
     </div>
     <div class="btn-row">
@@ -1404,8 +1405,9 @@ function openTargetReturnEditor(){
 }
 function updateTargetPreview(){
   const r=(parseFloat(document.getElementById('tr-rate').value)||0)/100;
-  const p=state.settings.principal;
-  document.getElementById('tr-preview').textContent=fmtKRWFull(p*Math.pow(1+r,10));
+  const goalDate=new Date(state.settings.startDate||'2022-01-01');
+  goalDate.setFullYear(goalDate.getFullYear()+10);
+  document.getElementById('tr-preview').textContent=fmtKRWFull(targetFV(goalDate,r));
 }
 async function saveTargetReturn(){
   const r=parseFloat(document.getElementById('tr-rate').value);
@@ -1525,6 +1527,18 @@ function depositFlows(){
   }
   out.sort((a,b)=>a.date-b.date);
   return out;
+}
+/* 목표 도달액 — 각 납입을 납입일부터 목표수익률로 복리 성장시켜 asOf 시점 합산
+   (XIRR과 동일하게 납입 시기를 반영) */
+function targetFV(asOf, rate){
+  const r=(rate==null)?state.settings.targetCAGR:rate;
+  const Y=365.25*24*3600*1000;
+  let sum=0;
+  for(const d of depositFlows()){
+    const t=(asOf-d.date)/Y;
+    sum += t>0 ? d.amount*Math.pow(1+r,t) : d.amount;
+  }
+  return sum;
 }
 function openDepositYear(year){
   const y=String(year||new Date().getFullYear());

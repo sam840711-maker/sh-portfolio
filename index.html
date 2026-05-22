@@ -1850,4 +1850,945 @@ function qeRecalc(id){
 /* 입력 칸 변경 시 — 바뀐 칸 강조 + 평균단가 재계산 */
 function qeInput(inp,id){
   const init=parseFloat(inp.dataset.init)||0;
-  const cur=parseFloat(inp.valu
+  const cur=parseFloat(inp.value)||0;
+  inp.classList.toggle('qe-changed', cur!==init);
+  qeRecalc(id);
+}
+function qeHasUnsaved(){
+  return document.querySelectorAll('#qe-list input.qe-changed').length>0;
+}
+window.qeInput=qeInput;
+/* 입력 화면의 현재 값을 state에 반영 (저장/순서변경 시 공통) */
+function commitQuickEntry(){
+  for (const h of state.holdings){
+    const qEl=document.getElementById('qe-'+h.id+'-qty');
+    if(!qEl) continue;
+    const v=i=>{ const e=document.getElementById('qe-'+h.id+'-'+i); return e?parseFloat(e.value)||0:0; };
+    const qty=v('qty'), krw=v('krw');
+    h.qty=qty;
+    if(isUSDcat(h.cat)){
+      const usd=v('usd');
+      if(qty>0 && usd>0) h.avgUSD=usd/qty;
+      if(usd>0 && krw>0) h.avgFx=krw/usd;
+    } else {
+      if(qty>0 && krw>0) h.avgKRW=krw/qty;
+    }
+  }
+}
+async function saveQuickEntry(){
+  commitQuickEntry();
+  await saveState();
+  toast('보유 종목 저장 완료');
+  renderQuickEntry();
+}
+/* 종목 순서 이동 (같은 자산군 내) — 입력 중인 값은 먼저 반영 */
+/* 종목 순서 이동 (같은 자산군 내) — 공통 로직 */
+function reorderHolding(id,dir){
+  const arr=state.holdings;
+  const i=arr.findIndex(h=>h.id===id);
+  if(i<0) return false;
+  const cat=arr[i].cat;
+  let j=i+dir;
+  while(j>=0 && j<arr.length && arr[j].cat!==cat) j+=dir;
+  if(j<0||j>=arr.length||arr[j].cat!==cat) return false;  // 같은 자산군 내 인접 종목 없음
+  const tmp=arr[i]; arr[i]=arr[j]; arr[j]=tmp;
+  return true;
+}
+/* 입력 화면 순서 이동 — 입력 중인 값 먼저 반영 */
+async function qeMove(id,dir){
+  commitQuickEntry();
+  if(reorderHolding(id,dir)){ await saveState(); renderQuickEntry(); }
+}
+window.qeMove=qeMove;
+/* 자산(카테고리 보기) 순서 이동 */
+async function hMove(id,dir){
+  if(reorderHolding(id,dir)){ await saveState(); renderHoldings(); }
+}
+window.hMove=hMove;
+window.qeRecalc=qeRecalc;
+
+/* ================================================================
+   QUOTES — 보유 종목 현재가·변동률
+   ================================================================ */
+function quoteRowHTML(h){
+  const usd=isUSDcat(h.cat);
+  const price=usd?(h.curUSD||0):(h.curKRW||0);
+  const priceStr=usd?fmtUSD(price):'₩'+Math.round(price).toLocaleString();
+  const ini=h.symbol.replace(/\..*/,'').slice(0,2).toUpperCase();
+  const col=CATEGORIES[h.cat].color;
+  let chgHtml='<div class="h-pct" style="color:var(--text-3)">시세 없음</div>';
+  if(h._mkt && h._mkt.dayChangePct!=null){
+    const dc=h._mkt.dayChangePct, cls=dc>=0?'up':'down';
+    let absStr='';
+    if(h._mkt.prevClose){
+      const abs=price-h._mkt.prevClose;
+      absStr=usd?`${abs>=0?'+':''}${abs.toFixed(2)}`:`${abs>=0?'+':''}${Math.round(abs).toLocaleString()}`;
+    }
+    const msl=marketStateLabel(h._mkt.marketState);
+    chgHtml=`<div class="h-pct ${cls}">${fmtPctSigned(dc)}${absStr?`<span class="q-abs">${absStr}</span>`:''}</div>`
+           +(msl?`<div class="h-ms">${msl}</div>`:'');
+  }
+  return `<div class="holding" data-id="${h.id}">
+    <div class="h-icon" style="background:${col}22;color:${col}">${ini}</div>
+    <div class="h-info">
+      <div class="h-ticker">${h.symbol.replace('.KS','').replace('.L','')}</div>
+      <div class="h-name">${h.name}</div>
+    </div>
+    <div class="h-val">
+      <div class="h-amount">${priceStr}</div>
+      ${chgHtml}
+    </div></div>`;
+}
+function renderQuotes(){
+  const holdings=state.holdings.filter(h=>h.qty>0);
+  let up=0,down=0,flat=0;
+  for(const h of holdings){
+    const dc=h._mkt?h._mkt.dayChangePct:null;
+    if(dc==null) continue;
+    if(dc>0.00005) up++; else if(dc<-0.00005) down++; else flat++;
+  }
+  const lf=state.prices&&state.prices.lastFetch;
+  const lfStr=lf?new Date(lf).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+' 기준':'갱신 기록 없음';
+  document.getElementById('quotes-summary').innerHTML=
+    `<div class="q-sum">
+      <div><span class="up">▲ ${up}</span>&nbsp;&nbsp;<span class="down">▼ ${down}</span>&nbsp;&nbsp;<span style="color:var(--text-3)">― ${flat}</span></div>
+      <div class="q-sum-time">${lfStr}</div>
+    </div>`;
+  const el=document.getElementById('quotes-list');
+  if(!holdings.length){ el.innerHTML='<div class="empty">보유 종목이 없습니다.</div>'; return; }
+  const groups={};
+  for(const h of holdings){ (groups[h.cat]=groups[h.cat]||[]).push(h); }
+  let html='';
+  for(const cat in groups){
+    html+=`<div class="card"><div class="card-title">${CATEGORIES[cat].label} <span style="color:var(--text-3);font-weight:400;margin-left:4px">${groups[cat].length}종</span></div>`;
+    html+=groups[cat].map(quoteRowHTML).join('');
+    html+='</div>';
+  }
+  el.innerHTML=html;
+  el.querySelectorAll('.holding').forEach(r=>r.onclick=()=>openHoldingDetail(r.dataset.id));
+}
+
+/* ================================================================
+   세금 · 온핸드
+   ================================================================ */
+function renderTax(){
+  const s=portfolioStats();
+  const est=taxEstimate();
+  const onhand=s.totalWithCash-est.totalTax;
+  const fmtRate=x=>(+(x*100).toFixed(2))+'%';
+  let html='';
+
+  // 온핸드 카드
+  html+=`<div class="card">
+    <div class="card-title">전체 정리 시 온핸드</div>
+    <div class="tax-onhand">${fmtKRWFull(onhand)}</div>
+    <div class="tax-line"><span>현재 총자산 (예수금 포함)</span><span class="num">${fmtKRW(s.totalWithCash)}</span></div>
+    <div class="tax-line"><span>예상 양도소득세</span><span class="num down">${est.totalTax>0?'-'+fmtKRW(est.totalTax):'0'}</span></div>
+    <div class="tax-line tax-line-sum"><span>온핸드 예상액</span><span class="num">${fmtKRW(onhand)}</span></div>
+  </div>`;
+
+  // 자산군별 양도세 추정
+  html+=`<div class="card"><div class="card-title">자산군별 양도세 추정 <span class="action" id="tax-edit">세율 설정 ▸</span></div>`;
+  for (const r of est.rows){
+    const gCls=r.gain>=0?'up':'down';
+    const meta=['세율 '+fmtRate(r.rate)];
+    if (r.deduction>0) meta.push('공제 '+fmtKRW(r.deduction));
+    html+=`<div class="tax-row">
+      <div class="tax-row-top">
+        <span class="tax-row-name">${r.label}${r.sub?` <span style="font-size:11px;color:var(--text-3);font-weight:400">${r.sub}</span>`:''}</span>
+        <span class="num">예상세금 ${r.tax>0?fmtKRW(r.tax)+'원':'없음'}</span>
+      </div>
+      <div class="tax-row-sub">
+        <span>평가손익 <b class="num ${gCls}">${r.gain>=0?'+':'-'}${fmtKRW(Math.abs(r.gain))}</b></span>
+        <span>${meta.join(' · ')}</span>
+      </div>
+    </div>`;
+  }
+  html+=`<div class="tax-row-sum"><span class="tax-row-name">예상 양도세 합계</span>`
+    +`<span class="num down">${est.totalTax>0?'-'+fmtKRW(est.totalTax)+'원':'0원'}</span></div></div>`;
+
+  // 기 납부 이자·세금
+  const years=Object.keys(state.itax||{}).filter(y=>itaxYearTotal(y)>0).sort((a,b)=>b.localeCompare(a));
+  html+=`<div class="card"><div class="card-title">기 납부 이자·세금 <span class="action" id="tax-itax">거래에서 수정 ▸</span></div>`;
+  if (years.length){
+    for (const y of years)
+      html+=`<div class="tax-line"><span>${y}년</span><span class="num">${fmtKRW(itaxYearTotal(y))}원</span></div>`;
+    html+=`<div class="tax-line tax-line-sum"><span>누적 합계</span><span class="num">${fmtKRW(itaxTotal())}원</span></div>`;
+  } else {
+    html+=`<div style="color:var(--text-2);font-size:13px;padding:6px 0">기록된 내역이 없습니다.</div>`;
+  }
+  html+=`</div>`;
+
+  html+=`<div class="tax-note">※ 예상 세금은 추정치입니다. 실제 세액은 보유기간, 종목 유형(국내주식형 ETF는 매매차익 비과세 등), 다른 소득과의 합산, 매도 시점 환율, 거래·환전 수수료에 따라 달라집니다. 해외주식 양도소득은 1년간 손익을 합산해 기본공제(현행 250만원)를 뺀 금액에 과세됩니다. 암호화폐 양도차익은 2026년 현재 비과세이며 2027년 1월부터 과세(연 250만원 공제, 22%)될 예정입니다. 정확한 세금은 세무 전문가나 국세청에 확인하세요.</div>`;
+
+  document.getElementById('tax-body').innerHTML=html;
+  document.getElementById('tax-edit').onclick=openTaxRateEditor;
+  document.getElementById('tax-itax').onclick=()=>switchView('transactions');
+}
+
+function openTaxRateEditor(){
+  const r=state.settings.taxRates||{};
+  const pct=x=>((x||0)*100).toFixed(1);
+  openModal(`<h3>양도세율 설정</h3>
+    <div class="modal-sub">정리 시 예상 세금 계산에 쓰이는 추정 세율입니다</div>
+    <div class="field"><label>해외주식 세율 % (US Stock·Leverage)</label>
+      <input id="tx-overseas" type="number" step="0.1" value="${pct(r.overseas)}"></div>
+    <div class="field"><label>해외주식 양도소득 기본공제 (원)</label>
+      <input id="tx-ded" type="number" step="500000" value="${state.settings.overseasDeduction||0}"></div>
+    <div class="field"><label>글로벌 ETF 세율 % (국내주식형이면 0)</label>
+      <input id="tx-etf" type="number" step="0.1" value="${pct(r.global_etf)}"></div>
+    <div class="field"><label>암호화폐 세율 % (2026년 비과세 → 0)</label>
+      <input id="tx-crypto" type="number" step="0.1" value="${pct(r.crypto)}"></div>
+    <div class="field"><label>채권 세율 % (매매차익)</label>
+      <input id="tx-bond" type="number" step="0.1" value="${pct(r.bond)}"></div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="closeModal()">취소</button>
+      <button class="btn btn-primary" onclick="saveTaxRates()">저장</button>
+    </div>`);
+}
+async function saveTaxRates(){
+  const g=id=>parseFloat(document.getElementById(id).value);
+  const norm=v=>(isNaN(v)||v<0)?0:v;
+  state.settings.taxRates={
+    overseas:norm(g('tx-overseas'))/100,
+    global_etf:norm(g('tx-etf'))/100,
+    crypto:norm(g('tx-crypto'))/100,
+    bond:norm(g('tx-bond'))/100,
+  };
+  state.settings.overseasDeduction=norm(g('tx-ded'));
+  await saveState(); closeModal(); toast('세율 저장됨'); switchView('tax');
+}
+window.openTaxRateEditor=openTaxRateEditor; window.saveTaxRates=saveTaxRates;
+
+/* ================================================================
+   NAVIGATION
+   ================================================================ */
+function switchView(v){
+  if(currentView==='quickentry' && v!=='quickentry' && typeof qeHasUnsaved==='function' && qeHasUnsaved()){
+    if(!confirm('입력 페이지에 저장하지 않은 변경사항이 있습니다. 저장 없이 나가시겠습니까?')) return;
+  }
+  currentView=v;
+  document.querySelectorAll('.view').forEach(el=>el.classList.add('hidden'));
+  document.getElementById('view-'+v).classList.remove('hidden');
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===v));
+  if(v==='dashboard')renderDashboard();
+  if(v==='holdings')renderHoldings();
+  if(v==='allocation')renderAllocation();
+  if(v==='transactions')renderTransactions();
+  if(v==='quickentry')renderQuickEntry();
+  if(v==='quotes')renderQuotes();
+  if(v==='tax')renderTax();
+}
+let beforeQuotes='dashboard';
+document.getElementById('quotes-btn').onclick=()=>{
+  if(currentView!=='quotes') beforeQuotes=currentView;
+  switchView('quotes');
+};
+document.getElementById('quotes-close').onclick=()=>switchView(beforeQuotes);
+let beforeTax='dashboard';
+document.getElementById('tax-btn').onclick=()=>{
+  if(currentView!=='tax' && currentView!=='quotes') beforeTax=currentView;
+  switchView('tax');
+};
+document.getElementById('tax-close').onclick=()=>switchView(beforeTax);
+document.getElementById('quotes-refresh').onclick=()=>refreshAllPrices();
+document.querySelectorAll('.nav-btn').forEach(b=>b.onclick=()=>switchView(b.dataset.view));
+document.getElementById('qe-save').onclick=saveQuickEntry;
+document.querySelectorAll('#qe-seg button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#qe-seg button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active'); qeFilter=b.dataset.qf; renderQuickEntry();
+});
+function setQeFilter(f){
+  qeFilter=f;
+  document.querySelectorAll('#qe-seg button').forEach(x=>x.classList.toggle('active',x.dataset.qf===f));
+}
+document.getElementById('apply-rebal').onclick=()=>{ setQeFilter('rebal'); switchView('quickentry'); };
+document.querySelectorAll('#holding-sort button').forEach(b=>b.onclick=()=>{
+  holdingSort=b.dataset.hs; renderHoldings();
+});
+document.getElementById('edit-cash').onclick=openCashEditor;
+document.getElementById('add-itax').onclick=()=>openItaxYear();
+document.getElementById('add-deposit').onclick=()=>openDepositYear();
+
+/* ================================================================
+   TOAST & MODAL
+   ================================================================ */
+let toastTimer=null;
+function toast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>t.classList.remove('show'),2200);
+}
+function openModal(html){
+  document.getElementById('modal-content').innerHTML=html;
+  document.getElementById('modal-bg').classList.add('show');
+}
+function closeModal(){ document.getElementById('modal-bg').classList.remove('show'); }
+document.getElementById('modal-bg').addEventListener('click',e=>{ if(e.target.id==='modal-bg')closeModal(); });
+window.closeModal=closeModal;
+
+/* ================================================================
+   FAB — ADD HOLDING / DEPOSIT / INTEREST·TAX / FX
+   ================================================================ */
+let fabCat='us_stock', fabSym='';
+document.getElementById('fab').onclick=()=>{
+  fabCat='us_stock'; fabSym='';
+  openModal(`<h3>추가</h3><div class="modal-sub">종목·납입·이자·세금을 기록합니다</div>
+    <div class="field"><label>종류</label>
+      <select id="m-type">
+        <option value="holding">새 종목 추가</option>
+        <option value="deposit">납입 (원금 입금)</option>
+        <option value="itax">이자 · 세금</option>
+        <option value="fx">환율 업데이트</option>
+      </select></div>
+    <div id="m-dynamic"></div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="closeModal()">취소</button>
+      <button class="btn btn-primary" onclick="submitFab()">저장</button>
+    </div>`);
+  renderFabFields();
+  document.getElementById('m-type').onchange=renderFabFields;
+};
+function renderFabFields(){
+  const catEl=document.getElementById('m-cat');
+  const symEl=document.getElementById('m-symbol');
+  if(catEl) fabCat=catEl.value;
+  if(symEl) fabSym=symEl.value;
+  const t=document.getElementById('m-type').value;
+  const today=new Date().toISOString().split('T')[0];
+  const d=document.getElementById('m-dynamic');
+  if (t==='holding'){
+    d.innerHTML=`
+      <div class="field"><label>자산 구분</label><select id="m-cat" onchange="renderFabFields()">
+        ${Object.keys(CATEGORIES).map(k=>`<option value="${k}" ${fabCat===k?'selected':''}>${CATEGORIES[k].label}</option>`).join('')}</select></div>
+      <div class="field"><label>티커</label><div class="field-row">
+        <input id="m-symbol" value="${fabSym}" placeholder="예: AAPL / 005930.KS / BTC">
+        <button class="btn btn-secondary btn-sm" onclick="lookupTicker()">조회</button></div>
+        <small>미국: AAPL · 한국: 005930.KS · 런던: XXX.L · 코인: BTC</small></div>
+      <div class="field"><label>종목명</label><input id="m-name" placeholder="조회 시 자동 입력"></div>
+      <div class="field"><label>보유수량</label><input id="m-qty" type="number" step="0.00000001" placeholder="0" oninput="syncPurchase('m','qty')"></div>
+      <div class="field"><label>평균 매입단가 ${isUSDcat(fabCat)?'($)':'(₩)'}</label><input id="m-avg" type="number" step="0.00000001" placeholder="0" oninput="syncPurchase('m','avg')"></div>
+      ${isUSDcat(fabCat)?`
+      <div class="field"><label>달러 매입금액 (총 $) — 입력 시 평균단가 자동 계산</label><input id="m-usd" type="number" step="0.01" placeholder="0" oninput="syncPurchase('m','usd')"></div>
+      <div class="field"><label>매입 평균환율 (USD/KRW)</label><input id="m-fx" type="number" step="0.01" value="${state.settings.fxRate}" oninput="syncPurchase('m','fx')"></div>
+      <div class="field"><label>원화 매입금액 (총 ₩) — 입력 시 매입환율 자동 계산</label><input id="m-krw" type="number" step="1" placeholder="0" oninput="syncPurchase('m','krw')"><small>수량 입력 후 평균단가 또는 달러 총액 중 하나만 넣으면 나머지가 채워집니다</small></div>`
+      :`
+      <div class="field"><label>총 매입금액 (₩) — 입력 시 평균단가 자동 계산</label><input id="m-tot" type="number" step="1" placeholder="0" oninput="syncPurchase('m','tot')"><small>수량과 총 매입금액을 넣으면 평균단가가 자동 계산됩니다</small></div>`}
+      <div class="field"><label>현재가 ${isUSDcat(fabCat)?'($)':'(₩)'}</label><input id="m-cur" type="number" step="0.00000001" placeholder="조회 시 자동 입력"></div>`;
+  } else if (t==='deposit'){
+    d.innerHTML=`<div class="info-text">납입은 연도별 월별 입력 화면에서 관리합니다. 저장을 누르면 월별 입력 화면이 열립니다.</div>`;
+  } else if (t==='itax'){
+    d.innerHTML=`<div class="info-text">이자·세금은 연도별 월별 입력 화면에서 관리합니다. 저장을 누르면 월별 입력 화면이 열립니다.</div>`;
+  } else {
+    d.innerHTML=`
+      <div class="field"><label>USD/KRW 환율</label><div class="field-row">
+        <input id="m-fx" type="number" step="0.01" value="${state.settings.fxRate}">
+        <button class="btn btn-secondary btn-sm" onclick="fetchFxToField()">가져오기</button></div></div>`;
+  }
+}
+
+/* USD 매입금액 동기화 — 수량/평균단가/달러총액/환율/원화총액 상호 계산 */
+function syncKrwBasis(prefix, source){
+  const g=id=>document.getElementById(prefix+'-'+id);
+  const qEl=g('qty'), aEl=g('avg'), uEl=g('usd'), fEl=g('fx'), kEl=g('krw');
+  if(!qEl||!aEl||!fEl) return;
+  let q=parseFloat(qEl.value)||0;
+  let avg=parseFloat(aEl.value)||0;
+  let usd=uEl?(parseFloat(uEl.value)||0):0;
+  let fx=parseFloat(fEl.value)||0;
+  let krw=kEl?(parseFloat(kEl.value)||0):0;
+
+  if(source==='usd'){            // 달러 매입 총액 입력 → 평균단가 역산
+    if(q>0) avg=usd/q;
+    krw=usd*fx;
+  } else if(source==='krw'){     // 원화 매입 총액 입력 → 매입환율 역산
+    usd=q*avg;
+    if(usd>0) fx=krw/usd;
+  } else {                       // 수량·평균단가·환율 변경 → 총액 재계산
+    usd=q*avg;
+    krw=usd*fx;
+  }
+  if(source!=='avg'&&aEl) aEl.value = avg ? Number(avg.toFixed(6)) : '';
+  if(source!=='usd'&&uEl) uEl.value = usd ? Number(usd.toFixed(2)) : '';
+  if(source!=='fx' &&fEl) fEl.value = fx  ? Number(fx.toFixed(2))  : '';
+  if(source!=='krw'&&kEl) kEl.value = krw ? Math.round(krw) : '';
+}
+window.syncKrwBasis=syncKrwBasis;
+
+/* 한화 매입 종목 — 총 매입금액 ↔ 평균단가 동기화 */
+function syncKrwTotal(prefix, source){
+  const g=id=>document.getElementById(prefix+'-'+id);
+  const qEl=g('qty'), aEl=g('avg'), tEl=g('tot');
+  if(!qEl||!aEl||!tEl) return;
+  const q=parseFloat(qEl.value)||0;
+  let avg=parseFloat(aEl.value)||0;
+  let tot=parseFloat(tEl.value)||0;
+  if(source==='tot'){ if(q>0) avg=tot/q; }
+  else { tot=q*avg; }
+  if(source!=='avg'&&aEl) aEl.value = avg ? Number(avg.toFixed(6)) : '';
+  if(source!=='tot'&&tEl) tEl.value = tot ? Math.round(tot) : '';
+}
+/* 매입금액 동기화 라우터 — USD 폼(환율 필드 존재)/KRW 폼 자동 판별 */
+function syncPurchase(prefix, source){
+  if(document.getElementById(prefix+'-fx')) syncKrwBasis(prefix,source);
+  else syncKrwTotal(prefix,source);
+}
+window.syncKrwTotal=syncKrwTotal; window.syncPurchase=syncPurchase;
+async function lookupTicker(){
+  const sym=(document.getElementById('m-symbol').value||'').trim();
+  const cat=document.getElementById('m-cat').value;
+  if(!sym){ toast('티커를 입력하세요'); return; }
+  toast('조회 중...');
+  try {
+    if (cat==='crypto'){
+      const r=await fetchUpbit([sym.toUpperCase()]);
+      const p=r[sym.toUpperCase()];
+      if(p){ document.getElementById('m-cur').value=p.price; document.getElementById('m-name').value=sym.toUpperCase(); toast('조회 완료'); }
+      else toast('코인을 찾을 수 없음');
+    } else {
+      const q=await fetchYahoo(sym);
+      document.getElementById('m-cur').value=q.price;
+      if(q.name) document.getElementById('m-name').value=q.name;
+      toast('조회 완료 · '+q.currency);
+    }
+  } catch(e){ toast('조회 실패: 티커 확인'); }
+}
+async function fetchFxToField(){
+  toast('환율 조회 중...');
+  try { const fx=await fetchFx(); document.getElementById('m-fx').value=fx.toFixed(2); toast('환율 '+fx.toFixed(2)); }
+  catch(e){ toast('환율 조회 실패'); }
+}
+async function submitFab(){
+  const t=document.getElementById('m-type').value;
+  if (t==='fx'){
+    const v=parseFloat(document.getElementById('m-fx').value);
+    if(v>0){ state.settings.fxRate=v; await saveState(); closeModal(); toast('환율 업데이트됨'); switchView(currentView); }
+    return;
+  }
+  if (t==='deposit'){
+    closeModal(); openDepositYear();
+    return;
+  }
+  if (t==='itax'){
+    closeModal(); openItaxYear();
+    return;
+  }
+  if (t==='holding'){
+    const cat=document.getElementById('m-cat').value;
+    const sym=(document.getElementById('m-symbol').value||'').trim();
+    const name=(document.getElementById('m-name').value||'').trim()||sym;
+    const qty=parseFloat(document.getElementById('m-qty').value);
+    const avg=parseFloat(document.getElementById('m-avg').value);
+    const cur=parseFloat(document.getElementById('m-cur').value)||avg;
+    if(!sym||!(qty>0)||!(avg>0)){ toast('티커·수량·단가를 확인하세요'); return; }
+    const h={id:cat+'_'+sym.replace(/[^\w]/g,'_')+'_'+Date.now().toString(36),cat,symbol:sym,name,qty,targetWt:0};
+    if (isUSDcat(cat)){
+      h.avgUSD=avg; h.curUSD=cur;
+      const afx=parseFloat(document.getElementById('m-fx').value);
+      h.avgFx=(afx>0)?afx:state.settings.fxRate;
+    } else { h.avgKRW=avg; h.curKRW=cur; }
+    state.holdings.push(h);
+    await saveState(); closeModal(); toast('종목 추가됨'); switchView('holdings');
+    return;
+  }
+}
+window.submitFab=submitFab; window.lookupTicker=lookupTicker; window.fetchFxToField=fetchFxToField;
+
+/* ================================================================
+   HOLDING DETAIL MODAL
+   ================================================================ */
+function openHoldingDetail(id){
+  const h=state.holdings.find(x=>x.id===id);
+  if(!h) return;
+  const fx=state.settings.fxRate, usd=isUSDcat(h.cat);
+  const v=holdingValue(h,fx), pnl=v.current-v.invested, pct=v.invested>0?pnl/v.invested:0;
+  const cur=usd?h.curUSD:h.curKRW, avg=usd?h.avgUSD:h.avgKRW;
+  const unit=usd?'$':'₩';
+  let dayInfo='—', range52='—';
+  if (h._mkt){
+    if(h._mkt.dayChangePct!=null) dayInfo=fmtPctSigned(h._mkt.dayChangePct);
+    if(h._mkt.lo52&&h._mkt.hi52) range52=`${unit}${h._mkt.lo52.toLocaleString()} – ${unit}${h._mkt.hi52.toLocaleString()}`;
+  }
+  const rb=stockRebalance(h.cat).find(r=>r.h.id===id);
+  let rbText='—', rbSub='', rbCls='muted';
+  if (rb){
+    if (rb.adjustShares===0){ rbText='균형 상태'; rbSub=`목표 비중 ${fmtPct(rb.tw,1)} 충족`; }
+    else {
+      const buy=rb.adjustShares>0;
+      rbCls=buy?'down':'up';
+      rbText=`${buy?'+':''}${rb.adjustShares.toLocaleString()}주 ${buy?'매수':'매도'}`;
+      rbSub=`목표금액 ${fmtKRW(rb.targetVal)} · 거래 후 ${rb.qtyAfter.toLocaleString()}주`;
+    }
+  }
+  const bd=holdingGainBreakdown(h,fx);
+  const krwInvVal=Math.round(v.invested);
+  let fxBox='';
+  if (usd){
+    fxBox=`<div style="background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:13px 14px;margin-bottom:14px">
+      <div class="dl" style="font-size:10px;color:var(--text-2);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px">손익 분해 (원화 ${fmtKRW(bd.total)})</div>
+      <div style="display:flex;gap:16px">
+        <div style="flex:1"><div style="font-size:10px;color:var(--text-3)">주가손익</div>
+          <div style="font-size:15px;font-weight:700" class="${bd.price>=0?'up':'down'}">${bd.price>=0?'+':''}${fmtKRW(bd.price)}</div></div>
+        <div style="flex:1"><div style="font-size:10px;color:var(--text-3)">환차손익</div>
+          <div style="font-size:15px;font-weight:700" class="${bd.fx>=0?'up':'down'}">${bd.fx>=0?'+':''}${fmtKRW(bd.fx)}</div></div>
+      </div>
+      <div style="font-size:10px;color:var(--text-3);margin-top:8px">매입 ${fmtUSD(bd.usdInv)} @${(h.avgFx||fx).toFixed(2)} → ${fmtKRW(bd.krwInv)} · 현재 ${fmtUSD(bd.usdCur)} @${fx.toFixed(2)}</div>
+    </div>`;
+  }
+  const usdInvVal = usd ? Number((h.qty*h.avgUSD).toFixed(2)) : 0;
+  const usdFields = usd?`
+    <div class="field"><label>달러 매입금액 (총 $) — 입력 시 평균단가 자동 계산</label>
+      <input id="d-usd" type="number" step="0.01" value="${usdInvVal}" oninput="syncPurchase('d','usd')"></div>
+    <div class="field"><label>매입 평균환율 (USD/KRW)</label>
+      <input id="d-fx" type="number" step="0.01" value="${(h.avgFx||fx).toFixed(2)}" oninput="syncPurchase('d','fx')"></div>
+    <div class="field"><label>원화 매입금액 (총 ₩) — 입력 시 매입환율 자동 계산</label>
+      <input id="d-krw" type="number" step="1" value="${krwInvVal}" oninput="syncPurchase('d','krw')">
+      <small>달러 총액을 넣으면 평균단가가, 원화 총액을 넣으면 매입환율이 자동 계산됩니다</small></div>`:'';
+  const krwTotVal = !usd ? Math.round(h.qty*h.avgKRW) : 0;
+  const krwFields = !usd?`
+    <div class="field"><label>총 매입금액 (₩) — 입력 시 평균단가 자동 계산</label>
+      <input id="d-tot" type="number" step="1" value="${krwTotVal}" oninput="syncPurchase('d','tot')">
+      <small>수량과 총 매입금액을 넣으면 평균단가가 자동 계산됩니다</small></div>`:'';
+  openModal(`<h3>${h.symbol.replace('.KS','').replace('.L','')}</h3>
+    <div class="modal-sub">${h.name} · ${CATEGORIES[h.cat].label}</div>
+    <div class="detail-grid">
+      <div class="detail-cell"><div class="dl">평가액</div><div class="dv">${fmtKRW(v.current)}</div></div>
+      <div class="detail-cell"><div class="dl">평가손익</div><div class="dv ${pnl>=0?'up':'down'}">${pnl>=0?'+':''}${fmtKRW(pnl)}</div></div>
+      <div class="detail-cell"><div class="dl">수익률</div><div class="dv ${pct>=0?'up':'down'}">${fmtPctSigned(pct)}</div></div>
+      <div class="detail-cell"><div class="dl">오늘 변동</div><div class="dv ${(h._mkt&&h._mkt.dayChangePct>=0)?'up':'down'}">${dayInfo}</div></div>
+    </div>
+    ${fxBox}
+    <div style="background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:13px 14px;margin-bottom:14px">
+      <div class="dl" style="font-size:10px;color:var(--text-2);letter-spacing:0.08em;text-transform:uppercase">리밸런싱 제안</div>
+      <div style="font-size:16px;font-weight:700;margin-top:3px" class="${rbCls}">${rbText}</div>
+      <div style="font-size:11px;color:var(--text-3);margin-top:2px">${rbSub}</div>
+    </div>
+    <div class="field"><label>보유수량</label><input id="d-qty" type="number" step="0.00000001" value="${h.qty}" oninput="syncPurchase('d','qty')"></div>
+    <div class="field"><label>목표 비중 (${CATEGORIES[h.cat].label} 내 %)</label>
+      <input id="d-tw" type="number" step="0.1" value="${((h.targetWt||0)*100).toFixed(1)}">
+      <small>같은 카테고리 종목들의 합이 100%가 되도록 설정하세요</small></div>
+    <div class="field"><label>평균 매입단가 (${unit})</label><input id="d-avg" type="number" step="0.00000001" value="${avg}" oninput="syncPurchase('d','avg')"></div>
+    ${usdFields}${krwFields}
+    <div class="field"><label>현재가 (${unit})</label><div class="field-row">
+      <input id="d-cur" type="number" step="0.00000001" value="${cur}">
+      <button class="btn btn-secondary btn-sm" onclick="refreshOne('${id}')">시세 갱신</button></div>
+      <small>52주 범위: ${range52}</small></div>
+    <div class="btn-row">
+      <button class="btn btn-danger btn-sm" onclick="deleteHolding('${id}')">삭제</button>
+      <button class="btn btn-secondary" onclick="closeModal()">취소</button>
+      <button class="btn btn-primary" onclick="saveHoldingDetail('${id}')">저장</button>
+    </div>`);
+}
+async function saveHoldingDetail(id){
+  const h=state.holdings.find(x=>x.id===id);
+  if(!h) return;
+  const qty=parseFloat(document.getElementById('d-qty').value);
+  const avg=parseFloat(document.getElementById('d-avg').value);
+  const cur=parseFloat(document.getElementById('d-cur').value);
+  const tw=parseFloat(document.getElementById('d-tw').value);
+  if(qty<0||avg<0||cur<0||isNaN(qty)||isNaN(avg)||isNaN(cur)){ toast('값을 확인하세요'); return; }
+  h.qty=qty;
+  if(!isNaN(tw)&&tw>=0) h.targetWt=tw/100;
+  if (isUSDcat(h.cat)){
+    h.avgUSD=avg; h.curUSD=cur;
+    const afx=parseFloat(document.getElementById('d-fx').value);
+    if(afx>0) h.avgFx=afx;
+  } else { h.avgKRW=avg; h.curKRW=cur; }
+  await saveState(); closeModal(); toast('저장됨'); switchView(currentView);
+}
+async function deleteHolding(id){
+  const h=state.holdings.find(x=>x.id===id);
+  if(!h) return;
+  state.holdings=state.holdings.filter(x=>x.id!==id);
+  await saveState(); closeModal(); toast(h.symbol+' 삭제됨'); switchView(currentView);
+}
+window.openHoldingDetail=openHoldingDetail; window.saveHoldingDetail=saveHoldingDetail; window.deleteHolding=deleteHolding;
+
+/* ================================================================
+   TREND — 과거 자산 기록 추가
+   ================================================================ */
+document.getElementById('edit-class-tw').onclick=openClassTargetEditor;
+document.getElementById('edit-stock-tw').onclick=openStockWeightEditor;
+document.querySelectorAll('#rb-mode-seg button').forEach(b=>b.onclick=()=>{
+  rbMode=b.dataset.rbmode; renderStockRebalance();
+});
+document.getElementById('goal-year').onclick=openTargetReturnEditor;
+document.getElementById('trend-add').onclick=openTrendManager;
+function openTrendManager(){
+  const list=(state.history||[]).slice().sort((a,b)=>b.ym.localeCompare(a.ym));
+  const rows=list.length
+    ? list.map(h=>`<div class="txn" onclick="openTrendPointEditor('${h.ym}')" style="cursor:pointer">
+        <div class="txn-icon" style="background:var(--gold-soft);color:var(--gold)">₩</div>
+        <div class="txn-info"><div class="txn-title num">${h.ym}</div><div class="txn-date">탭하여 수정 · 삭제</div></div>
+        <div class="txn-amount num">${fmtKRW(h.total)}</div></div>`).join('')
+    : '<div class="empty">기록이 없습니다.</div>';
+  openModal(`<h3>자산 추이 기록</h3>
+    <div class="modal-sub">과거 월말 평가 잔액 — 추가·수정·삭제</div>
+    <button class="btn btn-secondary" style="width:100%;margin-bottom:12px" onclick="openTrendPointEditor('')">＋ 새 기록 추가</button>
+    ${rows}
+    <div class="btn-row"><button class="btn btn-secondary" onclick="closeModal()">닫기</button></div>`);
+}
+function openTrendPointEditor(ym){
+  const thisYm=new Date().toISOString().slice(0,7);
+  const rec=ym?(state.history||[]).find(h=>h.ym===ym):null;
+  const delBtn=rec?`<button class="btn btn-danger btn-sm" onclick="deleteTrendPoint('${ym}')">삭제</button>`:'';
+  openModal(`<h3>${rec?'기록 수정':'새 기록 추가'}</h3>
+    <div class="modal-sub">해당 월말의 총 평가 자산을 입력하세요</div>
+    <div class="field"><label>해당 월</label><input id="t-ym" type="month" max="${thisYm}" value="${rec?rec.ym:thisYm}"></div>
+    <div class="field"><label>총 평가 자산 (원)</label><input id="t-amt" type="number" placeholder="예: 520000000" value="${rec?rec.total:''}"></div>
+    <div class="btn-row">
+      ${delBtn}
+      <button class="btn btn-secondary" onclick="openTrendManager()">취소</button>
+      <button class="btn btn-primary" onclick="submitTrendPoint('${ym||''}')">저장</button>
+    </div>`);
+}
+async function submitTrendPoint(origYm){
+  const ym=document.getElementById('t-ym').value;
+  const amt=parseFloat(document.getElementById('t-amt').value);
+  if(!ym||!(amt>0)){ toast('월과 금액을 확인하세요'); return; }
+  if(!state.history) state.history=[];
+  if(origYm && origYm!==ym) state.history=state.history.filter(h=>h.ym!==origYm);
+  const f=state.history.find(h=>h.ym===ym);
+  if(f){ f.total=amt; f.ts=Date.now(); } else { state.history.push({ym,total:amt,ts:Date.now()}); }
+  state.history.sort((a,b)=>a.ym.localeCompare(b.ym));
+  await window.storage.set(STORE_KEY,JSON.stringify(state));
+  closeModal(); toast(ym+' 기록 저장됨'); switchView('dashboard');
+}
+async function deleteTrendPoint(ym){
+  state.history=(state.history||[]).filter(h=>h.ym!==ym);
+  await window.storage.set(STORE_KEY,JSON.stringify(state));
+  closeModal(); toast(ym+' 기록 삭제됨'); switchView('dashboard');
+}
+window.openTrendManager=openTrendManager; window.openTrendPointEditor=openTrendPointEditor;
+window.submitTrendPoint=submitTrendPoint; window.deleteTrendPoint=deleteTrendPoint;
+
+/* ================================================================
+   PRICE FETCH LAYER  —  Yahoo Finance + Upbit + FX
+   (시트의 YAHOO()·UPBIT() 앱스크립트와 동일 소스)
+   ================================================================ */
+const PUBLIC_PROXIES=['https://api.allorigins.win/raw?url=','https://api.codetabs.com/v1/proxy/?quest='];
+
+function getProxies(){
+  if (state.prices.proxyMode==='custom' && state.prices.proxyUrl){
+    let u=state.prices.proxyUrl.trim();
+    if(!/[?&](url|quest)=$/.test(u)) u+=(u.includes('?')?'&':'?')+'url=';
+    return [u];
+  }
+  return PUBLIC_PROXIES;
+}
+async function proxyFetchJson(targetUrl){
+  let lastErr;
+  for (const base of getProxies()){
+    try {
+      const res=await fetch(base+encodeURIComponent(targetUrl));
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      return JSON.parse(await res.text());
+    } catch(e){ lastErr=e; }
+  }
+  throw lastErr||new Error('proxy failed');
+}
+
+/* Yahoo — 정규장 + 프리장·애프터장 시세 반영 (Apps Script YAHOO()와 동일 소스) */
+async function fetchYahoo(symbol){
+  const yurl=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1m&range=1d&includePrePost=true&t=${Date.now()}`;
+  const data=await proxyFetchJson(yurl);
+  const r=data&&data.chart&&data.chart.result&&data.chart.result[0];
+  if(!r||!r.meta) throw new Error('no data');
+  const m=r.meta;
+  if(m.regularMarketPrice==null) throw new Error('no price');
+  const ms=m.marketState||'REGULAR';
+  // 프리장·애프터장 체결가 — 1분봉 시계열의 마지막 유효 종가
+  let extended=null;
+  const q=r.indicators&&r.indicators.quote&&r.indicators.quote[0];
+  if(q&&Array.isArray(q.close)){
+    for(let i=q.close.length-1;i>=0;i--){ if(q.close[i]!=null){ extended=q.close[i]; break; } }
+  }
+  // 정규장이면 실시간 정규가, 그 외(프리·애프터·마감)엔 마지막 체결가
+  const price=(ms!=='REGULAR'&&extended!=null)?extended:m.regularMarketPrice;
+  const prev=m.chartPreviousClose!=null?m.chartPreviousClose:(m.previousClose!=null?m.previousClose:m.regularMarketPrice);
+  return {
+    price, currency:(m.currency||'USD').toUpperCase(),
+    prevClose:prev, dayChangePct:prev?(price-prev)/prev:0,
+    hi52:m.fiftyTwoWeekHigh, lo52:m.fiftyTwoWeekLow,
+    name:m.longName||m.shortName||'',
+    marketState:ms,
+  };
+}
+/* 장 상태 라벨 */
+function marketStateLabel(ms){
+  if(ms==='PRE'||ms==='PREPRE') return '프리장';
+  if(ms==='POST'||ms==='POSTPOST') return '애프터장';
+  if(ms==='CLOSED') return '장마감';
+  return '';
+}
+
+/* Upbit — same endpoint/field as the user's UPBIT() Apps Script */
+async function fetchUpbit(symbols){
+  const markets=symbols.map(s=>UPBIT_MARKET[s.toUpperCase()]||('KRW-'+s.toUpperCase()));
+  const url='https://api.upbit.com/v1/ticker?markets='+markets.join(',');
+  let arr;
+  try {
+    const res=await fetch(url);
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    arr=await res.json();
+  } catch(e){
+    arr=await proxyFetchJson(url);   // CORS fallback
+  }
+  const out={};
+  for (const t of arr){
+    const sym=t.market.replace('KRW-','');
+    out[sym]={price:t.trade_price,dayChangePct:t.signed_change_rate,prevClose:t.prev_closing_price};
+  }
+  return out;
+}
+
+/* FX — Frankfurter primary, er-api fallback */
+async function fetchFx(){
+  // 1) Yahoo KRW=X — 실시간 환율 (프록시 경유, 분 단위 갱신)
+  try {
+    const data=await proxyFetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/KRW=X?interval=1d&range=1d&t=${Date.now()}`);
+    const m=data&&data.chart&&data.chart.result&&data.chart.result[0]&&data.chart.result[0].meta;
+    if(m&&m.regularMarketPrice>0) return m.regularMarketPrice;
+  } catch(e){}
+  // 2) Frankfurter — 일 1회 갱신 (폴백)
+  try {
+    const r=await fetch('https://api.frankfurter.app/latest?from=USD&to=KRW');
+    if(r.ok){ const d=await r.json(); if(d.rates&&d.rates.KRW) return d.rates.KRW; }
+  } catch(e){}
+  // 3) er-api — 폴백
+  try {
+    const r=await fetch('https://open.er-api.com/v6/latest/USD');
+    if(r.ok){ const d=await r.json(); if(d.rates&&d.rates.KRW) return d.rates.KRW; }
+  } catch(e){}
+  throw new Error('FX 조회 실패');
+}
+
+function setRefreshSpin(on){
+  document.getElementById('refresh-btn').classList.toggle('spinning',on);
+}
+
+async function refreshAllPrices(quiet){
+  if (isFetching) return;
+  isFetching=true; setRefreshSpin(true);
+  if(!quiet) toast('시세 갱신 중...');
+  let ok=0,fail=0; lastFailed=new Set();
+
+  // 1) FX
+  try { state.settings.fxRate=await fetchFx(); } catch(e){}
+
+  // 2) Stocks / ETFs via Yahoo (concurrency 4)
+  const stocks=state.holdings.filter(h=>h.cat!=='crypto');
+  let idx=0;
+  async function worker(){
+    while(idx<stocks.length){
+      const h=stocks[idx++];
+      try {
+        const q=await fetchYahoo(h.symbol);
+        const wantKRW=!isUSDcat(h.cat);
+        if (wantKRW && q.currency==='KRW'){ h.curKRW=q.price; }
+        else if (!wantKRW && q.currency==='USD'){ h.curUSD=q.price; }
+        else { lastFailed.add(h.symbol); fail++; continue; }
+        h._mkt={dayChangePct:q.dayChangePct,prevClose:q.prevClose,hi52:q.hi52,lo52:q.lo52,marketState:q.marketState,ts:Date.now()};
+        ok++;
+      } catch(e){ lastFailed.add(h.symbol); fail++; }
+    }
+  }
+  await Promise.all(Array.from({length:6},()=>worker()));
+
+  // 3) Crypto via Upbit (batch)
+  const cryptos=state.holdings.filter(h=>h.cat==='crypto');
+  if (cryptos.length){
+    try {
+      const r=await fetchUpbit(cryptos.map(h=>h.symbol));
+      for (const h of cryptos){
+        const p=r[h.symbol.toUpperCase()];
+        if(p){ h.curKRW=p.price; h._mkt={dayChangePct:p.dayChangePct,prevClose:p.prevClose,ts:Date.now()}; ok++; }
+        else { lastFailed.add(h.symbol); fail++; }
+      }
+    } catch(e){ cryptos.forEach(h=>{lastFailed.add(h.symbol);fail++;}); }
+  }
+
+  state.prices.lastFetch=Date.now();
+  isFetching=false; setRefreshSpin(false);
+  await saveState();
+  switchView(currentView);
+  if(quiet){
+    if(fail>0) toast(`자동 갱신 · ${fail}종 실패`);
+  } else {
+    toast(fail===0?`${ok}종 시세 갱신 완료`:`${ok}종 갱신 · ${fail}종 실패 (수동 확인)`);
+  }
+}
+
+async function refreshOne(id){
+  const h=state.holdings.find(x=>x.id===id);
+  if(!h) return;
+  toast(h.symbol+' 갱신 중...');
+  try {
+    if (h.cat==='crypto'){
+      const r=await fetchUpbit([h.symbol]);
+      const p=r[h.symbol.toUpperCase()];
+      if(!p) throw new Error('no data');
+      h.curKRW=p.price; h._mkt={dayChangePct:p.dayChangePct,prevClose:p.prevClose,ts:Date.now()};
+    } else {
+      const q=await fetchYahoo(h.symbol);
+      const wantKRW=!isUSDcat(h.cat);
+      if (wantKRW&&q.currency==='KRW') h.curKRW=q.price;
+      else if (!wantKRW&&q.currency==='USD') h.curUSD=q.price;
+      else throw new Error('통화 불일치: '+q.currency);
+      h._mkt={dayChangePct:q.dayChangePct,prevClose:q.prevClose,hi52:q.hi52,lo52:q.lo52,marketState:q.marketState,ts:Date.now()};
+    }
+    await saveState();
+    const inp=document.getElementById('d-cur');
+    if(inp) inp.value=isUSDcat(h.cat)?h.curUSD:h.curKRW;
+    toast(h.symbol+' 갱신 완료');
+  } catch(e){ toast('갱신 실패: '+e.message); }
+}
+window.refreshOne=refreshOne;
+
+document.getElementById('refresh-btn').onclick=()=>refreshAllPrices(false);
+document.getElementById('freshness').onclick=()=>refreshAllPrices(false);
+
+/* ===== 자동 갱신 (N분 폴링) ===== */
+let autoTimer=null;
+function applyAutoRefresh(){
+  if (autoTimer){ clearInterval(autoTimer); autoTimer=null; }
+  const m=state.prices.autoMin;
+  if (m>0){
+    autoTimer=setInterval(()=>{
+      if (document.visibilityState==='visible' && !isFetching) refreshAllPrices(true);
+    }, m*60*1000);
+  }
+}
+document.addEventListener('visibilitychange',()=>{
+  if (document.visibilityState!=='visible') return;
+  const m=state.prices.autoMin;
+  if (m>0 && !isFetching){
+    const stale=!state.prices.lastFetch || (Date.now()-state.prices.lastFetch)>m*60*1000;
+    if (stale) refreshAllPrices(true);
+  }
+});
+
+/* ================================================================
+   SETTINGS
+   ================================================================ */
+function renderSettings(){
+  const seg=document.getElementById('proxy-seg');
+  seg.querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.dataset.mode===state.prices.proxyMode));
+  document.getElementById('proxy-url-field').style.display=state.prices.proxyMode==='custom'?'block':'none';
+  const inp=document.getElementById('set-proxyurl');
+  if(inp&&inp!==document.activeElement) inp.value=state.prices.proxyUrl||'';
+  document.getElementById('auto-seg').querySelectorAll('button').forEach(b=>
+    b.classList.toggle('active',Number(b.dataset.min)===state.prices.autoMin));
+  const meta=document.getElementById('last-fetch-meta');
+  meta.textContent=state.prices.lastFetch?'최근 시세 갱신: '+new Date(state.prices.lastFetch).toLocaleString('ko-KR'):'시세를 아직 갱신하지 않았습니다';
+}
+document.getElementById('gear-btn').onclick=()=>{
+  document.querySelectorAll('.view').forEach(el=>el.classList.add('hidden'));
+  document.getElementById('view-settings').classList.remove('hidden');
+  renderSettings();
+};
+document.getElementById('settings-close').onclick=()=>switchView(currentView);
+document.getElementById('proxy-seg').querySelectorAll('button').forEach(b=>b.onclick=async()=>{
+  state.prices.proxyMode=b.dataset.mode; await saveState(); renderSettings();
+});
+document.getElementById('auto-seg').querySelectorAll('button').forEach(b=>b.onclick=async()=>{
+  state.prices.autoMin=Number(b.dataset.min);
+  await saveState(); renderSettings(); applyAutoRefresh();
+  toast(state.prices.autoMin===0?'자동 갱신 끔':`${state.prices.autoMin}분마다 자동 갱신`);
+});
+document.getElementById('set-proxyurl').addEventListener('input',async e=>{
+  state.prices.proxyUrl=e.target.value.trim(); await saveState();
+});
+document.getElementById('test-btn').onclick=async()=>{
+  const dot=document.querySelector('#test-status .dot'), txt=document.getElementById('test-text');
+  dot.className='dot gray'; txt.textContent='테스트 중...';
+  let yOk=false,uOk=false,yMsg='',uMsg='';
+  try { const q=await fetchYahoo('AAPL'); yOk=true; yMsg='AAPL '+fmtUSD(q.price); }
+  catch(e){ yMsg='실패'; }
+  try { const r=await fetchUpbit(['BTC']); if(r.BTC){ uOk=true; uMsg='BTC ₩'+r.BTC.price.toLocaleString(); } else uMsg='실패'; }
+  catch(e){ uMsg='실패'; }
+  dot.className='dot '+(yOk&&uOk?'green':(yOk||uOk?'gray':'red'));
+  txt.innerHTML=`Yahoo: ${yOk?'✓':'✗'} ${yMsg} · Upbit: ${uOk?'✓':'✗'} ${uMsg}`;
+};
+document.getElementById('copy-worker').onclick=()=>{
+  const code=document.getElementById('worker-code').textContent.replace('복사','').trim();
+  navigator.clipboard.writeText(code).then(()=>toast('Worker 코드 복사됨')).catch(()=>toast('복사 실패'));
+};
+document.getElementById('export-btn').onclick=()=>{
+  const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download='sh_portfolio_backup.json'; a.click();
+  toast('데이터 내보냄');
+};
+let pendingImport=null;
+document.getElementById('import-btn').onclick=()=>document.getElementById('import-file').click();
+document.getElementById('import-file').onchange=function(e){
+  const file=e.target.files&&e.target.files[0];
+  e.target.value='';
+  if(!file) return;
+  const reader=new FileReader();
+  reader.onload=()=>{
+    let data;
+    try { data=JSON.parse(reader.result); }
+    catch(err){ toast('JSON 파일을 읽을 수 없습니다'); return; }
+    if(!data || typeof data!=='object' || !Array.isArray(data.holdings) || !data.settings){
+      toast('올바른 백업 파일이 아닙니다'); return;
+    }
+    pendingImport=data;
+    const nH=data.holdings.length;
+    const nT=Array.isArray(data.transactions)?data.transactions.length:0;
+    const nHist=Array.isArray(data.history)?data.history.length:0;
+    openModal(`<h3>데이터 가져오기</h3>
+      <div class="modal-sub">아래 백업으로 현재 데이터를 모두 덮어씁니다. 되돌릴 수 없으니, 현재 데이터를 먼저 내보내 두는 것을 권장합니다.</div>
+      <div class="field"><label>백업 파일 내용</label>
+        <div style="background:var(--surface);border:1px solid var(--hairline);border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.7">
+          보유 종목 <b class="num">${nH}</b>개<br>
+          거래 기록 <b class="num">${nT}</b>건<br>
+          자산 추이 기록 <b class="num">${nHist}</b>개월
+        </div></div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="closeModal()">취소</button>
+        <button class="btn btn-primary" onclick="confirmImport()">가져오기</button>
+      </div>`);
+  };
+  reader.onerror=()=>toast('파일을 읽지 못했습니다');
+  reader.readAsText(file);
+};
+async function confirmImport(){
+  if(!pendingImport) return;
+  state=pendingImport; pendingImport=null;
+  normalizeState();
+  lastFailed=new Set();
+  await saveState();
+  closeModal(); toast('데이터를 가져왔습니다'); switchView('dashboard');
+}
+window.confirmImport=confirmImport;
+document.getElementById('reset-btn').onclick=async()=>{
+  openModal(`<h3>초기화 확인</h3><div class="modal-sub">모든 변경사항이 시트 기준 초기 데이터로 되돌아갑니다.</div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="closeModal()">취소</button>
+      <button class="btn btn-danger" onclick="doReset()">되돌리기</button>
+    </div>`);
+};
+async function doReset(){
+  state=JSON.parse(JSON.stringify(SEED));
+  normalizeState();
+  lastFailed=new Set();
+  await saveState(); closeModal(); toast('초기 데이터로 복원됨'); switchView('dashboard');
+}
+window.doReset=doReset;
+
+/* ================================================================
+   BOOT
+   ================================================================ */
+(async function(){
+  await loadState();
+  await saveState();        // 앱 실행 시 이번 달 자산 스냅샷 기록
+  renderTopbar();
+  renderDashboard();
+  applyAutoRefresh();       // 자동 갱신 주기 적용
+})();
+</script>
+</body>
+</html>

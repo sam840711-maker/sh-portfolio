@@ -82,6 +82,11 @@ input,select,textarea{font-family:inherit;color:inherit}
 .stat-label{font-size:10px;color:var(--text-2);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px}
 .stat-value{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
 .stat-sub{font-size:11px;color:var(--text-3);margin-top:2px}
+.stat-dual{margin-top:2px}
+.sd-row{display:flex;justify-content:space-between;align-items:baseline;padding:2.5px 0}
+.sd-tag{font-size:10.5px;color:var(--text-3)}
+.sd-val{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}
+.stat-goal{font-size:11px;color:var(--text-3);margin-top:5px;padding-top:5px;border-top:1px solid var(--hairline)}
 
 .alloc-bar{height:4px;background:rgba(255,255,255,0.04);border-radius:2px;overflow:hidden;margin-top:6px}
 .chart-wrap{position:relative;height:220px;margin-top:8px}
@@ -347,8 +352,17 @@ input,select,textarea{font-family:inherit;color:inherit}
     <div class="card rebal-alert" id="rebal-alert" style="display:none"></div>
 
     <div class="stats">
-      <div class="stat"><div class="stat-label">누적 수익률</div><div class="stat-value num" id="stat-return">—</div><div class="stat-sub num" id="stat-return-amt">—</div></div>
-      <div class="stat"><div class="stat-label">연 평균</div><div class="stat-value num" id="stat-cagr">—</div><div class="stat-sub" id="stat-cagr-sub">목표 20.0%</div></div>
+      <div class="stat"><div class="stat-label">누적 수익률</div>
+        <div class="stat-dual">
+          <div class="sd-row"><span class="sd-tag">차감 전</span><span class="sd-val num" id="cum-before">—</span></div>
+          <div class="sd-row"><span class="sd-tag">차감 후</span><span class="sd-val num" id="cum-after">—</span></div>
+        </div></div>
+      <div class="stat"><div class="stat-label">연 평균</div>
+        <div class="stat-dual">
+          <div class="sd-row"><span class="sd-tag">차감 전</span><span class="sd-val num" id="cagr-before">—</span></div>
+          <div class="sd-row"><span class="sd-tag">차감 후</span><span class="sd-val num" id="cagr-after">—</span></div>
+        </div>
+        <div class="stat-goal" id="stat-cagr-sub">목표 —</div></div>
       <div class="stat"><div class="stat-label">투자 개월</div><div class="stat-value num" id="stat-months">—</div><div class="stat-sub" id="stat-startdate">—</div></div>
       <div class="stat"><div class="stat-label">MDD</div><div class="stat-value num down" id="stat-mdd">—</div><div class="stat-sub num" id="stat-mdd-amt">—</div></div>
     </div>
@@ -961,29 +975,37 @@ function renderDashboard(){
   exFxEl.textContent=(usdPriceGain>=0?'+':'')+fmtKRW(usdPriceGain);
   exFxEl.className='hm-val num '+(usdPriceGain>=0?'up':'down');
 
-  // 누적수익률 — (총자산 − 납입원금 − 누적이자세금) ÷ 납입원금  (실시간)
+  // 누적 수익률 — 차감 전(총자산−납입) / 차감 후(이자·세금까지 차감)
   const principal = totalDeposits>0 ? totalDeposits : (st.principal||0);
-  const cumReturn = principal>0 ? (s.totalWithCash - principal - totalItax)/principal : 0;
-  const cumProfit = s.totalWithCash - principal - totalItax;
-  document.getElementById('stat-return').textContent=fmtPctSigned(cumReturn);
-  document.getElementById('stat-return').className='stat-value num '+(cumReturn>=0?'up':'down');
-  const crAmtEl=document.getElementById('stat-return-amt');
-  crAmtEl.textContent=(cumProfit>=0?'+':'')+fmtKRW(cumProfit)+'원';
-  crAmtEl.className='stat-sub num '+(cumProfit>=0?'up':'down');
+  const cumBefore = principal>0 ? (s.totalWithCash-principal)/principal : 0;
+  const cumAfter  = principal>0 ? (s.totalWithCash-principal-totalItax)/principal : 0;
+  const cb=document.getElementById('cum-before');
+  cb.textContent=fmtPctSigned(cumBefore); cb.className='sd-val num '+(cumBefore>=0?'up':'down');
+  const ca=document.getElementById('cum-after');
+  ca.textContent=fmtPctSigned(cumAfter); ca.className='sd-val num '+(cumAfter>=0?'up':'down');
   // 투자개월 — 시작일부터 현재까지 자동 누적
   const _sd=new Date(st.startDate||'2022-01-01'), _now=new Date();
   let months=(_now.getFullYear()-_sd.getFullYear())*12+(_now.getMonth()-_sd.getMonth());
   months=Math.max(1,months);
   document.getElementById('stat-months').textContent=months+'개월';
-  // 연평균 — 납입 시점 반영 연환산(XIRR), 실패 시 누적수익률 단순 연환산
-  const cfs=depositFlows().map(d=>({date:d.date, amount:-d.amount}));
-  cfs.push({date:new Date(), amount:s.totalWithCash-totalItax});
-  let cagr=xirr(cfs);
-  if(cagr==null||!isFinite(cagr)){
-    cagr=(1+cumReturn>0)?Math.pow(1+cumReturn,12/months)-1:0;
+  // 연 평균 — 차감 전/후 (XIRR, 터미널 금액만 다름)
+  const cfsBase=depositFlows().map(d=>({date:d.date, amount:-d.amount}));
+  function calcCagr(terminal){
+    const cfs=cfsBase.map(x=>({date:x.date, amount:x.amount}));
+    cfs.push({date:new Date(), amount:terminal});
+    let r=xirr(cfs);
+    if(r==null||!isFinite(r)){
+      const cr=principal>0?(terminal-principal)/principal:0;
+      r=(1+cr>0)?Math.pow(1+cr,12/months)-1:0;
+    }
+    return r;
   }
-  document.getElementById('stat-cagr').textContent=fmtPct(cagr);
-  document.getElementById('stat-cagr').className='stat-value num '+(cagr>=st.targetCAGR?'up':'down');
+  const cagrBefore=calcCagr(s.totalWithCash);
+  const cagrAfter=calcCagr(s.totalWithCash-totalItax);
+  const gb=document.getElementById('cagr-before');
+  gb.textContent=fmtPct(cagrBefore); gb.className='sd-val num '+(cagrBefore>=st.targetCAGR?'up':'down');
+  const ga=document.getElementById('cagr-after');
+  ga.textContent=fmtPct(cagrAfter); ga.className='sd-val num '+(cagrAfter>=st.targetCAGR?'up':'down');
   document.getElementById('stat-cagr-sub').textContent='목표 '+fmtPct(st.targetCAGR,1);
   const sdP=(st.startDate||'').split('-');
   document.getElementById('stat-startdate').textContent =

@@ -93,6 +93,21 @@ input,select,textarea{font-family:inherit;color:inherit}
 .goal-pace-row .num{font-weight:600;color:var(--text)}
 .goal-pace-row .num.up{color:var(--up)}
 .goal-pace-row .num.down{color:var(--down)}
+.tax-line{display:flex;justify-content:space-between;font-size:13px;color:var(--text-2);padding:5px 0;font-variant-numeric:tabular-nums}
+.tax-line .num{color:var(--text);font-weight:600}
+.tax-line .num.down{color:var(--down)}
+.tax-line .num.up{color:var(--up)}
+.tax-line-sum{border-top:1px solid var(--hairline);margin-top:6px;padding-top:10px;font-size:14px}
+.tax-line-sum>span:first-child{color:var(--text);font-weight:600}
+.tax-row{padding:11px 0;border-bottom:1px solid var(--hairline)}
+.tax-row-top{display:flex;justify-content:space-between;align-items:baseline}
+.tax-row-name{font-size:14px;font-weight:600}
+.tax-row-top .num{font-size:12.5px;color:var(--text-2);font-weight:600}
+.tax-row-sub{display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-2);margin-top:4px;font-variant-numeric:tabular-nums}
+.tax-row-sum{display:flex;justify-content:space-between;align-items:baseline;border-top:1px solid var(--hairline);padding-top:11px;margin-top:3px}
+.tax-row-sum .num{font-weight:700}
+.tax-onhand{font-size:27px;font-weight:700;font-variant-numeric:tabular-nums;margin:3px 0 13px;letter-spacing:-0.02em}
+.tax-note{font-size:11px;color:var(--text-2);line-height:1.75;padding:8px 6px 26px}
 
 .chips{display:flex;gap:8px;margin-bottom:14px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
 .chips::-webkit-scrollbar{display:none}
@@ -264,6 +279,9 @@ input,select,textarea{font-family:inherit;color:inherit}
     <div class="topbar-right">
       <button class="icon-btn" id="quotes-btn" title="보유 종목 시세">
         <svg fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24"><polyline points="3 16 9 10 13 14 21 6"/><polyline points="15 6 21 6 21 12"/></svg>
+      </button>
+      <button class="icon-btn" id="tax-btn" title="세금 · 온핸드">
+        <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><line x1="9.5" y1="8" x2="14.5" y2="8"/><line x1="9.5" y1="12" x2="14.5" y2="12"/></svg>
       </button>
       <button class="icon-btn" id="refresh-btn" title="시세 갱신">
         <svg fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>
@@ -482,6 +500,14 @@ input,select,textarea{font-family:inherit;color:inherit}
     <div id="quotes-list"></div>
   </div>
 
+  <div class="view hidden" id="view-tax">
+    <div style="padding:16px 4px 12px;display:flex;justify-content:space-between;align-items:baseline">
+      <h2 style="font-size:24px;font-weight:700;letter-spacing:-0.02em">세금 · 온핸드</h2>
+      <button class="icon-btn" id="tax-close" style="color:var(--text-2)">✕</button>
+    </div>
+    <div id="tax-body"></div>
+  </div>
+
   <nav class="navbar">
     <button class="nav-btn active" data-view="dashboard">
       <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
@@ -560,6 +586,8 @@ const SEED = {
       bond:{krw:0,usd:0},
     },
     classTargets:{us_stock:0.60,leverage:0.30,global_etf:0.10,crypto:0,bond:0},
+    taxRates:{overseas:0.22,global_etf:0.154,crypto:0,bond:0},
+    overseasDeduction:2500000,
   },
   holdings: [
     {id:'gef_218420',cat:'global_etf',symbol:'218420.KS',name:'KODEX SYNTH-US Energy',qty:552,avgKRW:15797.27536,curKRW:21360,targetWt:0.20},
@@ -665,6 +693,14 @@ function normalizeState(){
     state.settings.classTargets = {};
     for (const k in CATEGORIES) state.settings.classTargets[k] = CATEGORIES[k].target;
   }
+  // 양도세율 — 정리 시 예상 세금 계산용 (사용자 수정 가능)
+  if (!state.settings.taxRates){
+    state.settings.taxRates = {overseas:0.22,global_etf:0.154,crypto:0,bond:0};
+  }
+  ['overseas','global_etf','crypto','bond'].forEach(k=>{
+    if (state.settings.taxRates[k]==null) state.settings.taxRates[k]=0;
+  });
+  if (state.settings.overseasDeduction==null) state.settings.overseasDeduction=2500000;
   // 자산군별 예수금 — 구버전(단일 cash) → 자산군별 KRW/USD 구조로 마이그레이션
   if (!state.settings.cashByClass){
     state.settings.cashByClass = {};
@@ -779,6 +815,32 @@ function portfolioStats(){
   for (const k in totals){ invested+=totals[k].invested; current+=totals[k].current; }
   return { totals, cash, invested, current, totalWithCash:current+cash,
            pnl:current-invested, pnlPct:invested>0?(current-invested)/invested:0 };
+}
+
+/* 정리 시 예상 양도소득세 — 자산군별 평가손익에 세율 적용 (추정용) */
+function taxEstimate(){
+  const fx=state.settings.fxRate;
+  const r=state.settings.taxRates||{};
+  const ded=state.settings.overseasDeduction||0;
+  const gain={us_stock:0,leverage:0,global_etf:0,crypto:0,bond:0};
+  for (const h of state.holdings){
+    if (gain[h.cat]==null) gain[h.cat]=0;
+    gain[h.cat]+=holdingGainBreakdown(h,fx).total;
+  }
+  const rows=[];
+  // 해외주식 — US Stock + Leverage 합산, 연 기본공제 후 과세
+  const ovGain=gain.us_stock+gain.leverage;
+  const ovRate=r.overseas||0;
+  const ovTaxable=Math.max(0, ovGain-ded);
+  rows.push({key:'overseas',label:'해외주식',sub:'US Stock · Leverage',
+             gain:ovGain,rate:ovRate,deduction:ded,taxable:ovTaxable,tax:ovTaxable*ovRate});
+  for (const k of ['global_etf','crypto','bond']){
+    const g=gain[k]||0, rt=r[k]||0, taxable=Math.max(0,g);
+    rows.push({key:k,label:CATEGORIES[k].label,sub:'',
+               gain:g,rate:rt,deduction:0,taxable,tax:taxable*rt});
+  }
+  const totalTax=rows.reduce((s,x)=>s+x.tax,0);
+  return { rows, totalTax };
 }
 
 /* ================================================================
@@ -1879,6 +1941,98 @@ function renderQuotes(){
 }
 
 /* ================================================================
+   세금 · 온핸드
+   ================================================================ */
+function renderTax(){
+  const s=portfolioStats();
+  const est=taxEstimate();
+  const onhand=s.totalWithCash-est.totalTax;
+  const fmtRate=x=>(+(x*100).toFixed(2))+'%';
+  let html='';
+
+  // 온핸드 카드
+  html+=`<div class="card">
+    <div class="card-title">전체 정리 시 온핸드</div>
+    <div class="tax-onhand">${fmtKRWFull(onhand)}</div>
+    <div class="tax-line"><span>현재 총자산 (예수금 포함)</span><span class="num">${fmtKRW(s.totalWithCash)}</span></div>
+    <div class="tax-line"><span>예상 양도소득세</span><span class="num down">${est.totalTax>0?'-'+fmtKRW(est.totalTax):'0'}</span></div>
+    <div class="tax-line tax-line-sum"><span>온핸드 예상액</span><span class="num">${fmtKRW(onhand)}</span></div>
+  </div>`;
+
+  // 자산군별 양도세 추정
+  html+=`<div class="card"><div class="card-title">자산군별 양도세 추정 <span class="action" id="tax-edit">세율 설정 ▸</span></div>`;
+  for (const r of est.rows){
+    const gCls=r.gain>=0?'up':'down';
+    const meta=['세율 '+fmtRate(r.rate)];
+    if (r.deduction>0) meta.push('공제 '+fmtKRW(r.deduction));
+    html+=`<div class="tax-row">
+      <div class="tax-row-top">
+        <span class="tax-row-name">${r.label}${r.sub?` <span style="font-size:11px;color:var(--text-3);font-weight:400">${r.sub}</span>`:''}</span>
+        <span class="num">예상세금 ${r.tax>0?fmtKRW(r.tax)+'원':'없음'}</span>
+      </div>
+      <div class="tax-row-sub">
+        <span>평가손익 <b class="num ${gCls}">${r.gain>=0?'+':'-'}${fmtKRW(Math.abs(r.gain))}</b></span>
+        <span>${meta.join(' · ')}</span>
+      </div>
+    </div>`;
+  }
+  html+=`<div class="tax-row-sum"><span class="tax-row-name">예상 양도세 합계</span>`
+    +`<span class="num down">${est.totalTax>0?'-'+fmtKRW(est.totalTax)+'원':'0원'}</span></div></div>`;
+
+  // 기 납부 이자·세금
+  const years=Object.keys(state.itax||{}).filter(y=>itaxYearTotal(y)>0).sort((a,b)=>b.localeCompare(a));
+  html+=`<div class="card"><div class="card-title">기 납부 이자·세금 <span class="action" id="tax-itax">거래에서 수정 ▸</span></div>`;
+  if (years.length){
+    for (const y of years)
+      html+=`<div class="tax-line"><span>${y}년</span><span class="num">${fmtKRW(itaxYearTotal(y))}원</span></div>`;
+    html+=`<div class="tax-line tax-line-sum"><span>누적 합계</span><span class="num">${fmtKRW(itaxTotal())}원</span></div>`;
+  } else {
+    html+=`<div style="color:var(--text-2);font-size:13px;padding:6px 0">기록된 내역이 없습니다.</div>`;
+  }
+  html+=`</div>`;
+
+  html+=`<div class="tax-note">※ 예상 세금은 추정치입니다. 실제 세액은 보유기간, 종목 유형(국내주식형 ETF는 매매차익 비과세 등), 다른 소득과의 합산, 매도 시점 환율, 거래·환전 수수료에 따라 달라집니다. 해외주식 양도소득은 1년간 손익을 합산해 기본공제(현행 250만원)를 뺀 금액에 과세됩니다. 암호화폐 양도차익은 2026년 현재 비과세이며 2027년 1월부터 과세(연 250만원 공제, 22%)될 예정입니다. 정확한 세금은 세무 전문가나 국세청에 확인하세요.</div>`;
+
+  document.getElementById('tax-body').innerHTML=html;
+  document.getElementById('tax-edit').onclick=openTaxRateEditor;
+  document.getElementById('tax-itax').onclick=()=>switchView('transactions');
+}
+
+function openTaxRateEditor(){
+  const r=state.settings.taxRates||{};
+  const pct=x=>((x||0)*100).toFixed(1);
+  openModal(`<h3>양도세율 설정</h3>
+    <div class="modal-sub">정리 시 예상 세금 계산에 쓰이는 추정 세율입니다</div>
+    <div class="field"><label>해외주식 세율 % (US Stock·Leverage)</label>
+      <input id="tx-overseas" type="number" step="0.1" value="${pct(r.overseas)}"></div>
+    <div class="field"><label>해외주식 양도소득 기본공제 (원)</label>
+      <input id="tx-ded" type="number" step="500000" value="${state.settings.overseasDeduction||0}"></div>
+    <div class="field"><label>글로벌 ETF 세율 % (국내주식형이면 0)</label>
+      <input id="tx-etf" type="number" step="0.1" value="${pct(r.global_etf)}"></div>
+    <div class="field"><label>암호화폐 세율 % (2026년 비과세 → 0)</label>
+      <input id="tx-crypto" type="number" step="0.1" value="${pct(r.crypto)}"></div>
+    <div class="field"><label>채권 세율 % (매매차익)</label>
+      <input id="tx-bond" type="number" step="0.1" value="${pct(r.bond)}"></div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="closeModal()">취소</button>
+      <button class="btn btn-primary" onclick="saveTaxRates()">저장</button>
+    </div>`);
+}
+async function saveTaxRates(){
+  const g=id=>parseFloat(document.getElementById(id).value);
+  const norm=v=>(isNaN(v)||v<0)?0:v;
+  state.settings.taxRates={
+    overseas:norm(g('tx-overseas'))/100,
+    global_etf:norm(g('tx-etf'))/100,
+    crypto:norm(g('tx-crypto'))/100,
+    bond:norm(g('tx-bond'))/100,
+  };
+  state.settings.overseasDeduction=norm(g('tx-ded'));
+  await saveState(); closeModal(); toast('세율 저장됨'); switchView('tax');
+}
+window.openTaxRateEditor=openTaxRateEditor; window.saveTaxRates=saveTaxRates;
+
+/* ================================================================
    NAVIGATION
    ================================================================ */
 function switchView(v){
@@ -1895,6 +2049,7 @@ function switchView(v){
   if(v==='transactions')renderTransactions();
   if(v==='quickentry')renderQuickEntry();
   if(v==='quotes')renderQuotes();
+  if(v==='tax')renderTax();
 }
 let beforeQuotes='dashboard';
 document.getElementById('quotes-btn').onclick=()=>{
@@ -1902,6 +2057,12 @@ document.getElementById('quotes-btn').onclick=()=>{
   switchView('quotes');
 };
 document.getElementById('quotes-close').onclick=()=>switchView(beforeQuotes);
+let beforeTax='dashboard';
+document.getElementById('tax-btn').onclick=()=>{
+  if(currentView!=='tax' && currentView!=='quotes') beforeTax=currentView;
+  switchView('tax');
+};
+document.getElementById('tax-close').onclick=()=>switchView(beforeTax);
 document.getElementById('quotes-refresh').onclick=()=>refreshAllPrices();
 document.querySelectorAll('.nav-btn').forEach(b=>b.onclick=()=>switchView(b.dataset.view));
 document.getElementById('qe-save').onclick=saveQuickEntry;

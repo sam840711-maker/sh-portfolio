@@ -61,6 +61,9 @@ input,select,textarea{font-family:inherit;color:inherit}
 .hero-label{font-size:11px;color:var(--text-2);letter-spacing:0.14em;text-transform:uppercase;margin-bottom:6px}
 .hero-amount{font-size:38px;font-weight:700;letter-spacing:-0.025em;font-variant-numeric:tabular-nums;display:flex;align-items:baseline;gap:6px}
 .hero-amount .unit{font-size:16px;font-weight:500;color:var(--text-2)}
+.hero-sub2{display:flex;align-items:baseline;gap:8px;margin-top:15px}
+.hero-label2{font-size:10px;color:var(--text-2);letter-spacing:0.1em;text-transform:uppercase;flex-shrink:0}
+.hero-amount2{font-size:23px;font-weight:700;letter-spacing:-0.02em;font-variant-numeric:tabular-nums}
 .hero-sub{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:14px;font-variant-numeric:tabular-nums}
 .hero-sub .pill{padding:3px 9px;border-radius:999px;font-size:12px;font-weight:600}
 .hero-meta{display:flex;flex-wrap:wrap;gap:14px 18px;margin-top:14px}
@@ -313,14 +316,21 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div class="hero-label">총 자산</div>
       <div class="hero-amount"><span id="hero-total">—</span><span class="unit">원</span></div>
       <div class="hero-sub">
+        <span class="pill" id="hero-pill-total">—</span>
+        <span class="muted" id="hero-profit-total">—</span>
+      </div>
+      <div class="hero-sub2">
+        <span class="hero-label2">보유 평가액</span>
+        <span class="hero-amount2 num" id="hero-cur-value">—</span>
+      </div>
+      <div class="hero-sub">
         <span class="pill" id="hero-pill">—</span>
         <span class="muted" id="hero-pnl">—</span>
       </div>
       <div class="hero-meta">
         <div><span class="hm-label">총 납입금액</span><span class="hm-val num" id="hero-deposits">—</span></div>
-        <div><span class="hm-label">납입액 대비 손익</span><span class="hm-val num" id="hero-dep-profit">—</span></div>
         <div><span class="hm-label">총 투자금액</span><span class="hm-val num" id="hero-invested">—</span></div>
-        <div><span class="hm-label">보유 평가액</span><span class="hm-val num" id="hero-cur-value">—</span></div>
+        <div><span class="hm-label">예수금</span><span class="hm-val num" id="hero-cash">—</span></div>
         <div><span class="hm-label">달러 투자금액</span><span class="hm-val num" id="hero-usd-invested">—</span></div>
         <div><span class="hm-label">달러 평가액</span><span class="hm-val num" id="hero-usd-value">—</span></div>
         <div><span class="hm-label">달러자산 원화손익</span><span class="hm-val num" id="hero-usd-pnl">—</span></div>
@@ -893,19 +903,28 @@ function xirr(flows){
 function renderDashboard(){
   const s=portfolioStats(), st=state.settings, fx=st.fxRate;
   document.getElementById('hero-total').textContent=fmtKRW(s.totalWithCash);
-  const pill=document.getElementById('hero-pill'), sign=s.pnl>=0?'up':'down';
+  const totalDeposits=depositsTotal();
+
+  // 총자산 기준 (예수금 포함) — 납입원금 대비 손익·수익률
+  const depProfit=s.totalWithCash-totalDeposits;
+  const depRet=totalDeposits>0?depProfit/totalDeposits:0;
+  const tsign=depProfit>=0?'up':'down';
+  const pillT=document.getElementById('hero-pill-total');
+  pillT.className='pill '+tsign+'-pill'; pillT.textContent=fmtPctSigned(depRet);
+  document.getElementById('hero-profit-total').innerHTML=
+    `<span class="num ${tsign}">${depProfit>=0?'+':''}${fmtKRW(depProfit)}</span> <span style="font-size:12px">납입액 대비</span>`;
+
+  // 보유 평가액 (현금 제외) — 매입가 대비 평가손익·수익률
+  document.getElementById('hero-cur-value').textContent=fmtKRW(s.current);
+  const sign=s.pnl>=0?'up':'down';
+  const pill=document.getElementById('hero-pill');
   pill.className='pill '+sign+'-pill'; pill.textContent=fmtPctSigned(s.pnlPct);
-  document.getElementById('hero-pnl').innerHTML=`<span class="num ${sign}">${s.pnl>=0?'+':''}${fmtKRW(s.pnl)}</span> <span style="font-size:12px">평가손익</span>`;
+  document.getElementById('hero-pnl').innerHTML=
+    `<span class="num ${sign}">${s.pnl>=0?'+':''}${fmtKRW(s.pnl)}</span> <span style="font-size:12px">평가손익</span>`;
 
   document.getElementById('hero-invested').textContent=fmtKRW(s.invested);
-  document.getElementById('hero-cur-value').textContent=fmtKRW(s.current);
-  const totalDeposits=depositsTotal();
+  document.getElementById('hero-cash').textContent=fmtKRW(s.cash);
   document.getElementById('hero-deposits').textContent=fmtKRW(totalDeposits);
-  // 납입액 대비 손익 — 총자산(평가금) − 총 납입금액
-  const depProfit=s.totalWithCash-totalDeposits;
-  const dpEl=document.getElementById('hero-dep-profit');
-  dpEl.textContent=(depProfit>=0?'+':'')+fmtKRW(depProfit);
-  dpEl.className='hm-val num '+(depProfit>=0?'up':'down');
   const totalItax=itaxTotal();
   const itaxEl=document.getElementById('hero-itax');
   itaxEl.textContent=fmtKRW(totalItax);

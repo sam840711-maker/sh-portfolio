@@ -315,12 +315,13 @@ input,select,textarea{font-family:inherit;color:inherit}
       </div>
       <div class="hero-meta">
         <div><span class="hm-label">총 납입금액</span><span class="hm-val num" id="hero-deposits">—</span></div>
+        <div><span class="hm-label">납입액 대비 손익</span><span class="hm-val num" id="hero-dep-profit">—</span></div>
         <div><span class="hm-label">총 투자금액</span><span class="hm-val num" id="hero-invested">—</span></div>
         <div><span class="hm-label">달러 투자금액</span><span class="hm-val num" id="hero-usd-invested">—</span></div>
         <div><span class="hm-label">달러 평가액</span><span class="hm-val num" id="hero-usd-value">—</span></div>
         <div><span class="hm-label">달러자산 원화손익</span><span class="hm-val num" id="hero-usd-pnl">—</span></div>
         <div id="hero-fx-wrap"><span class="hm-label">환차손익</span><span class="hm-val num" id="hero-fxgain">—</span></div>
-        <div><span class="hm-label">환차익 제외 손익</span><span class="hm-val num" id="hero-exfx-pnl">—</span></div>
+        <div><span class="hm-label">달러 주가손익</span><span class="hm-val num" id="hero-exfx-pnl">—</span></div>
         <div><span class="hm-label">누적 이자·세금</span><span class="hm-val num" id="hero-itax">—</span></div>
       </div>
       <div class="freshness" id="freshness">
@@ -894,15 +895,21 @@ function renderDashboard(){
   document.getElementById('hero-invested').textContent=fmtKRW(s.invested);
   const totalDeposits=depositsTotal();
   document.getElementById('hero-deposits').textContent=fmtKRW(totalDeposits);
+  // 납입액 대비 손익 — 총자산(평가금) − 총 납입금액
+  const depProfit=s.totalWithCash-totalDeposits;
+  const dpEl=document.getElementById('hero-dep-profit');
+  dpEl.textContent=(depProfit>=0?'+':'')+fmtKRW(depProfit);
+  dpEl.className='hm-val num '+(depProfit>=0?'up':'down');
   const totalItax=itaxTotal();
   const itaxEl=document.getElementById('hero-itax');
   itaxEl.textContent=fmtKRW(totalItax);
   itaxEl.className='hm-val num';
-  let fxGain=0, usdInvested=0, usdCurrent=0, usdInvestedKRW=0, usdCurrentKRW=0;
+  let fxGain=0, usdInvested=0, usdCurrent=0, usdInvestedKRW=0, usdCurrentKRW=0, usdPriceGain=0;
   for (const h of state.holdings){
     if(isUSDcat(h.cat)){
       const bd=holdingGainBreakdown(h,fx);
       fxGain+=bd.fx;
+      usdPriceGain+=bd.price;     // 달러자산 주가손익 (현재환율 환산)
       usdInvested+=(h.qty||0)*(h.avgUSD||0);
       usdCurrent+=(h.qty||0)*(h.curUSD||0);
       usdInvestedKRW+=bd.krwInv;   // 매입환율 환산
@@ -923,11 +930,11 @@ function renderDashboard(){
   const usdPnlEl=document.getElementById('hero-usd-pnl');
   usdPnlEl.textContent=(usdKrwPnl>=0?'+':'')+fmtKRW(usdKrwPnl);
   usdPnlEl.className='hm-val num '+(usdKrwPnl>=0?'up':'down');
-  // 환차익 제외 손익 — 전체 평가손익에서 환차손익을 뺀, 순수 주가 손익
-  const exFxPnl=s.pnl-fxGain;
+  // 달러 주가손익 — 달러자산 원화손익에서 환차손익을 뺀, 순수 주가 변동분
+  // (달러 주가손익 + 환차손익 = 달러자산 원화손익)
   const exFxEl=document.getElementById('hero-exfx-pnl');
-  exFxEl.textContent=(exFxPnl>=0?'+':'')+fmtKRW(exFxPnl);
-  exFxEl.className='hm-val num '+(exFxPnl>=0?'up':'down');
+  exFxEl.textContent=(usdPriceGain>=0?'+':'')+fmtKRW(usdPriceGain);
+  exFxEl.className='hm-val num '+(usdPriceGain>=0?'up':'down');
 
   // 누적수익률 — (총자산 − 납입원금 − 누적이자세금) ÷ 납입원금  (실시간)
   const principal = totalDeposits>0 ? totalDeposits : (st.principal||0);

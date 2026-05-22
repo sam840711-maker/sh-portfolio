@@ -814,17 +814,22 @@ function renderDashboard(){
   const itaxEl=document.getElementById('hero-itax');
   itaxEl.textContent=fmtKRW(totalItax);
   itaxEl.className='hm-val num';
-  let fxGain=0, usdInvested=0, usdCurrent=0;
+  let fxGain=0, usdInvested=0, usdCurrent=0, usdInvestedKRW=0, usdCurrentKRW=0;
   for (const h of state.holdings){
     if(isUSDcat(h.cat)){
-      fxGain+=holdingGainBreakdown(h,fx).fx;
+      const bd=holdingGainBreakdown(h,fx);
+      fxGain+=bd.fx;
       usdInvested+=(h.qty||0)*(h.avgUSD||0);
       usdCurrent+=(h.qty||0)*(h.curUSD||0);
+      usdInvestedKRW+=bd.krwInv;   // 매입환율 환산
+      usdCurrentKRW+=bd.krwCur;    // 현재환율 환산
     }
   }
-  document.getElementById('hero-usd-invested').textContent='$'+Math.round(usdInvested).toLocaleString('en-US');
+  const krwParen=v=>' <span style="font-size:11px;color:var(--text-3);font-weight:400">(₩'+fmtKRW(v)+')</span>';
+  document.getElementById('hero-usd-invested').innerHTML=
+    '$'+Math.round(usdInvested).toLocaleString('en-US')+krwParen(usdInvestedKRW);
   const usdValEl=document.getElementById('hero-usd-value');
-  usdValEl.textContent='$'+Math.round(usdCurrent).toLocaleString('en-US');
+  usdValEl.innerHTML='$'+Math.round(usdCurrent).toLocaleString('en-US')+krwParen(usdCurrentKRW);
   usdValEl.className='hm-val num '+(usdCurrent>=usdInvested?'up':'down');
   const fxEl=document.getElementById('hero-fxgain');
   fxEl.textContent=(fxGain>=0?'+':'')+fmtKRW(fxGain);

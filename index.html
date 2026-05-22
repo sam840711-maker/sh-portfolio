@@ -334,7 +334,6 @@ input,select,textarea{font-family:inherit;color:inherit}
   <!-- ALLOCATION -->
   <div class="view hidden" id="view-allocation">
     <div style="padding:16px 4px 12px"><h2 style="font-size:24px;font-weight:700;letter-spacing:-0.02em">배분 · 리밸런싱</h2></div>
-    <div class="card"><div class="card-title">예수금 (현금)</div><div style="font-size:22px;font-weight:600" class="num" id="cash-amount">—</div><div class="muted" style="font-size:11px;margin-top:4px" id="cash-pct">—</div></div>
     <div class="card"><div class="card-title">자산군별 편차 <span class="action" id="edit-class-tw">목표 수정</span></div><div id="rebalance-list"></div></div>
     <div class="card">
       <div class="card-title">종목별 리밸런싱 <span class="action" id="edit-stock-tw">비중 수정</span></div>
@@ -354,15 +353,11 @@ input,select,textarea{font-family:inherit;color:inherit}
   <div class="view hidden" id="view-transactions">
     <div style="padding:16px 4px 12px"><h2 style="font-size:24px;font-weight:700;letter-spacing:-0.02em">거래</h2></div>
     <div class="card">
-      <div class="card-title">자산군별 예수금 <span class="action" id="edit-cash">수정</span></div>
-      <div id="cash-list"></div>
-    </div>
-    <div class="card">
       <div class="card-title">이자 · 세금 <span class="action" id="add-itax">＋ 추가</span></div>
       <div id="itax-list"></div>
     </div>
     <div class="card">
-      <div class="card-title">납입 기록 <span class="num action" id="txn-count">—</span></div>
+      <div class="card-title">납입 기록 <span class="action" id="add-deposit">＋ 추가</span></div>
       <div id="txn-list"></div>
     </div>
   </div>
@@ -462,6 +457,10 @@ input,select,textarea{font-family:inherit;color:inherit}
     </div>
     <div id="qe-list"></div>
     <button class="btn btn-primary" id="qe-save" style="width:100%;margin:4px 0 8px">전체 저장</button>
+    <div class="card">
+      <div class="card-title">자산군별 예수금 (현금) <span class="action" id="edit-cash">수정</span></div>
+      <div id="cash-list"></div>
+    </div>
   </div>
 
   <!-- QUOTES -->
@@ -637,6 +636,23 @@ function normalizeState(){
   }
   // 이자·세금은 itax에서 관리하므로 거래목록에서 제외
   state.transactions = (state.transactions||[]).filter(t=>t.type!=='interest'&&t.type!=='tax');
+  // 납입 — 연도별 월별(deposits) 구조로 일원화
+  if (!state.deposits){
+    state.deposits = {};
+    const src = (state.transactions||[]).some(t=>t.type==='deposit')
+      ? state.transactions : SEED.transactions;
+    for (const t of src){
+      if (t.type==='deposit'){
+        const y=(t.date||'').slice(0,4), m=parseInt((t.date||'').slice(5,7),10);
+        if (y && m>=1 && m<=12){
+          if (!state.deposits[y]) state.deposits[y]=new Array(12).fill(0);
+          state.deposits[y][m-1]+=(t.amount||0);
+        }
+      }
+    }
+  }
+  // 납입은 deposits에서 관리하므로 거래목록에서 제외
+  state.transactions = (state.transactions||[]).filter(t=>t.type!=='deposit');
   if (!state.settings.classTargets){
     state.settings.classTargets = {};
     for (const k in CATEGORIES) state.settings.classTargets[k] = CATEGORIES[k].target;
@@ -792,7 +808,7 @@ function renderDashboard(){
   document.getElementById('hero-pnl').innerHTML=`<span class="num ${sign}">${s.pnl>=0?'+':''}${fmtKRW(s.pnl)}</span> <span style="font-size:12px">평가손익</span>`;
 
   document.getElementById('hero-invested').textContent=fmtKRW(s.invested);
-  const totalDeposits=state.transactions.filter(t=>t.type==='deposit').reduce((a,t)=>a+t.amount,0);
+  const totalDeposits=depositsTotal();
   document.getElementById('hero-deposits').textContent=fmtKRW(totalDeposits);
   const totalItax=itaxTotal();
   const itaxEl=document.getElementById('hero-itax');
@@ -825,8 +841,7 @@ function renderDashboard(){
   months=Math.max(1,months);
   document.getElementById('stat-months').textContent=months+'개월';
   // 연평균 — 납입 시점 반영 연환산(XIRR), 실패 시 누적수익률 단순 연환산
-  const cfs=state.transactions.filter(t=>t.type==='deposit'&&t.date)
-    .map(t=>({date:new Date(t.date), amount:-(t.amount||0)}));
+  const cfs=depositFlows().map(d=>({date:d.date, amount:-d.amount}));
   cfs.push({date:new Date(), amount:s.totalWithCash-totalItax});
   let cagr=xirr(cfs);
   if(cagr==null||!isFinite(cagr)){
@@ -961,10 +976,10 @@ function renderTrendChart(){
   }
   const ctx=cv.getContext('2d');
   const note=document.getElementById('trend-note');
-  const deposits=state.transactions.filter(t=>t.type==='deposit');
+  const deposits=depositFlows();   // {ym, date, amount}
   const hist=(state.history||[]).slice().sort((a,b)=>a.ym.localeCompare(b.ym));
 
-  const allYms=[...deposits.map(d=>d.date.slice(0,7)), ...hist.map(h=>h.ym)].sort();
+  const allYms=[...deposits.map(d=>d.ym), ...hist.map(h=>h.ym)].sort();
   if (!allYms.length){
     if(chartTrend){chartTrend.destroy();chartTrend=null;}
     note.textContent='데이터가 없습니다.';
@@ -974,9 +989,8 @@ function renderTrendChart(){
   const months=monthRange(allYms[0], nowYm);
   const shortLabel=ym=>ym.slice(2).replace('-','.');
 
-  const sortedDep=deposits.slice().sort((a,b)=>a.date.localeCompare(b.date));
   const principal=months.map(ym=>
-    sortedDep.filter(d=>d.date.slice(0,7)<=ym).reduce((s,d)=>s+d.amount,0));
+    deposits.filter(d=>d.ym<=ym).reduce((s,d)=>s+d.amount,0));
 
   const histMap={}; hist.forEach(h=>histMap[h.ym]=h.total);
   const asset=months.map(ym=> histMap[ym]!=null ? histMap[ym] : null);
@@ -1161,8 +1175,6 @@ function renderAllocation(){
       <span>현재 <b class="num">${fmtKRW(s.cash)}</b> · 목표 없음</span>
       <span class="muted">리밸런싱 가용 현금</span></div></div>`;
   document.getElementById('rebalance-list').innerHTML=html;
-  document.getElementById('cash-amount').textContent=fmtKRWFull(s.cash);
-  document.getElementById('cash-pct').textContent='총 자산의 '+fmtPct(s.cash/total);
 
   renderStockRebalance();
 }
@@ -1396,7 +1408,7 @@ async function saveCashEditor(){
     };
   }
   state.settings.cashByClass=cb;
-  await saveState(); closeModal(); toast('예수금 저장됨'); switchView('transactions');
+  await saveState(); closeModal(); toast('예수금 저장됨'); switchView('quickentry');
 }
 window.openCashEditor=openCashEditor; window.saveCashEditor=saveCashEditor;
 
@@ -1455,8 +1467,74 @@ async function deleteItaxYear(year){
 window.openItaxYear=openItaxYear; window.itaxRecalc=itaxRecalc;
 window.saveItaxYear=saveItaxYear; window.deleteItaxYear=deleteItaxYear;
 
+/* === 납입 — 연도별 월별 입력 === */
+function depositYearTotal(y){
+  const a=(state.deposits||{})[y]||[];
+  return a.reduce((s,v)=>s+(v||0),0);
+}
+function depositsTotal(){
+  let s=0;
+  for (const y in (state.deposits||{})) s+=depositYearTotal(y);
+  return s;
+}
+/* 납입 현금흐름 — XIRR·추이차트용 (월 15일 기준) */
+function depositFlows(){
+  const out=[];
+  for (const y in (state.deposits||{})){
+    (state.deposits[y]||[]).forEach((amt,m)=>{
+      if(amt>0) out.push({ ym:y+'-'+String(m+1).padStart(2,'0'),
+                           date:new Date(Number(y),m,15), amount:amt });
+    });
+  }
+  out.sort((a,b)=>a.date-b.date);
+  return out;
+}
+function openDepositYear(year){
+  const y=String(year||new Date().getFullYear());
+  const exists=!!(state.deposits&&state.deposits[y]);
+  const arr=exists?state.deposits[y].slice():new Array(12).fill(0);
+  let grid='';
+  for (let m=0;m<12;m++){
+    grid+=`<div class="itax-m"><label>${m+1}월</label>
+      <input id="dep-m${m}" type="number" step="1" inputmode="numeric" value="${arr[m]||''}" placeholder="0" oninput="depositRecalc()"></div>`;
+  }
+  const delBtn=exists?`<button class="btn btn-danger btn-sm" onclick="deleteDepositYear('${y}')">삭제</button>`:'';
+  openModal(`<h3>납입 — 월별 입력</h3>
+    <div class="modal-sub">해당 연도의 월별 납입금액을 입력하면 연 합계로 자동 합산됩니다</div>
+    <div class="field"><label>연도</label><input id="dep-year" type="number" step="1" value="${y}"></div>
+    <div class="itax-grid">${grid}</div>
+    <div class="itax-sum">연 납입 합계 <b id="dep-total" class="num">₩0</b></div>
+    <div class="btn-row">
+      ${delBtn}
+      <button class="btn btn-secondary" onclick="closeModal()">취소</button>
+      <button class="btn btn-primary" onclick="saveDepositYear('${exists?y:''}')">저장</button>
+    </div>`);
+  depositRecalc();
+}
+function depositRecalc(){
+  let s=0;
+  for (let m=0;m<12;m++){ const e=document.getElementById('dep-m'+m); if(e) s+=parseFloat(e.value)||0; }
+  const t=document.getElementById('dep-total');
+  if(t) t.textContent='₩'+Math.round(s).toLocaleString('ko-KR');
+}
+async function saveDepositYear(origYear){
+  const y=String(parseInt(document.getElementById('dep-year').value,10)||0);
+  if(y.length!==4){ toast('연도를 4자리로 입력하세요'); return; }
+  const arr=new Array(12).fill(0);
+  for (let m=0;m<12;m++){ const e=document.getElementById('dep-m'+m); arr[m]=Math.round(parseFloat(e.value)||0); }
+  if(!state.deposits) state.deposits={};
+  if(origYear && origYear!==y) delete state.deposits[origYear];
+  state.deposits[y]=arr;
+  await saveState(); closeModal(); toast(y+'년 납입 저장됨'); switchView('transactions');
+}
+async function deleteDepositYear(year){
+  if(state.deposits) delete state.deposits[year];
+  await saveState(); closeModal(); toast(year+'년 납입 기록 삭제됨'); switchView('transactions');
+}
+window.openDepositYear=openDepositYear; window.depositRecalc=depositRecalc;
+window.saveDepositYear=saveDepositYear; window.deleteDepositYear=deleteDepositYear;
+
 function renderTransactions(){
-  renderCashList();
   renderItaxList();
   renderDepositList();
 }
@@ -1501,19 +1579,28 @@ function renderItaxList(){
       <div class="txn-amount num">${fmtKRW(yt)}</div></div>`;
   }).join('');
 }
-/* 납입 기록 */
+/* 납입 기록 — 연도별 (연도 탭 시 월별 입력) */
 function renderDepositList(){
   const el=document.getElementById('txn-list');
-  const list=state.transactions.filter(t=>t.type==='deposit').sort((a,b)=>b.date.localeCompare(a.date));
-  const tot=list.reduce((a,t)=>a+t.amount,0);
-  document.getElementById('txn-count').textContent='총 '+fmtKRW(tot);
-  if(!list.length){ el.innerHTML='<div class="empty">납입 기록이 없습니다.</div>'; return; }
-  el.innerHTML=list.map(t=>`<div class="txn">
-    <div class="txn-icon deposit">￦</div>
-    <div class="txn-info"><div class="txn-title">${t.memo||'납입'}</div><div class="txn-date">${t.date}</div></div>
-    <div class="txn-amount num up">+${fmtKRW(t.amount)}</div></div>`).join('');
+  const years=Object.keys(state.deposits||{}).filter(y=>depositYearTotal(y)>0||((state.deposits[y]||[]).length)).sort((a,b)=>b.localeCompare(a));
+  const tot=depositsTotal();
+  const sum=`<div style="background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:13px 14px;margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <span style="font-size:11px;color:var(--text-2)">누적 납입원금</span>
+      <span class="num" style="font-size:19px;font-weight:700;color:var(--gold)">${fmtKRWFull(tot)}</span>
+    </div>
+    <div style="font-size:10.5px;color:var(--text-3);margin-top:5px">${years.length}개 연도 · 연도를 눌러 월별로 입력</div>
+  </div>`;
+  if(!years.length){ el.innerHTML=sum+'<div class="empty">납입 기록이 없습니다. ＋ 추가로 연도를 입력하세요.</div>'; return; }
+  el.innerHTML=sum+years.map(y=>{
+    const yt=depositYearTotal(y);
+    const months=(state.deposits[y]||[]).filter(v=>v>0).length;
+    return `<div class="txn" onclick="openDepositYear('${y}')" style="cursor:pointer">
+      <div class="txn-icon deposit">￦</div>
+      <div class="txn-info"><div class="txn-title">${y}년 납입</div><div class="txn-date">${months}개월 입력 · 탭하여 월별 수정</div></div>
+      <div class="txn-amount num up">+${fmtKRW(yt)}</div></div>`;
+  }).join('');
 }
-/* 납입 기록 */
 
 /* ================================================================
    QUICK ENTRY — 자산군별 보유 종목 일괄 입력
@@ -1588,6 +1675,7 @@ function renderQuickEntry(){
   } else {
     el.innerHTML = html;
   }
+  renderCashList();
 }
 /* 엔터 → 같은 칸(열) 아래 종목으로 이동 (수량 쭉 → 매입금액 쭉) */
 function qeKey(e){
@@ -1780,6 +1868,7 @@ document.querySelectorAll('#holding-sort button').forEach(b=>b.onclick=()=>{
 });
 document.getElementById('edit-cash').onclick=openCashEditor;
 document.getElementById('add-itax').onclick=()=>openItaxYear();
+document.getElementById('add-deposit').onclick=()=>openDepositYear();
 
 /* ================================================================
    TOAST & MODAL
@@ -1848,11 +1937,7 @@ function renderFabFields(){
       <div class="field"><label>총 매입금액 (₩) — 입력 시 평균단가 자동 계산</label><input id="m-tot" type="number" step="1" placeholder="0" oninput="syncPurchase('m','tot')"><small>수량과 총 매입금액을 넣으면 평균단가가 자동 계산됩니다</small></div>`}
       <div class="field"><label>현재가 ${isUSDcat(fabCat)?'($)':'(₩)'}</label><input id="m-cur" type="number" step="0.00000001" placeholder="조회 시 자동 입력"></div>`;
   } else if (t==='deposit'){
-    d.innerHTML=`
-      <div class="field"><label>금액 (원)</label><input id="m-amount" type="number" placeholder="10000000"></div>
-      <div class="field"><label>메모</label><input id="m-memo" type="text" placeholder="추가 납입"></div>
-      <div class="field"><label>날짜</label><input id="m-date" type="date" value="${today}"></div>
-      <small style="color:var(--text-3)">납입은 원금 기록용입니다 · 예수금은 거래 탭에서 따로 입력하세요</small>`;
+    d.innerHTML=`<div class="info-text">납입은 연도별 월별 입력 화면에서 관리합니다. 저장을 누르면 월별 입력 화면이 열립니다.</div>`;
   } else if (t==='itax'){
     d.innerHTML=`<div class="info-text">이자·세금은 연도별 월별 입력 화면에서 관리합니다. 저장을 누르면 월별 입력 화면이 열립니다.</div>`;
   } else {
@@ -1942,11 +2027,7 @@ async function submitFab(){
     return;
   }
   if (t==='deposit'){
-    const amt=parseFloat(document.getElementById('m-amount').value);
-    if(!(amt>0)){ toast('금액을 확인하세요'); return; }
-    state.transactions.push({id:'tx'+Date.now(),type:'deposit',date:document.getElementById('m-date').value,
-      amount:amt,memo:document.getElementById('m-memo').value||'추가 납입'});
-    await saveState(); closeModal(); toast('납입 기록됨'); switchView('transactions');
+    closeModal(); openDepositYear();
     return;
   }
   if (t==='itax'){

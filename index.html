@@ -1150,6 +1150,16 @@ function renderAllocation(){
         <span>현재 <b class="num">${fmtPct(cur)}</b> · 목표 <b class="num">${fmtPct(tgt,0)}</b></span>
         <span class="num ${devCls}">${action}</span></div></div>`;
   }
+  // 예수금 — 목표 비중이 없는 현금, 현재 비중을 별도 행으로 표시
+  const cashCur = total>0 ? s.cash/total : 0;
+  html+=`<div class="rb-row">
+    <div class="rb-head"><span class="rb-name">예수금 (현금)</span>
+      <span class="num muted" style="font-weight:600">${fmtPct(cashCur)}</span></div>
+    <div class="rb-bar-wrap">
+      <div class="rb-bar-current" style="width:${Math.min(100,cashCur*100)}%;background:#56596799"></div></div>
+    <div class="rb-detail">
+      <span>현재 <b class="num">${fmtKRW(s.cash)}</b> · 목표 없음</span>
+      <span class="muted">리밸런싱 가용 현금</span></div></div>`;
   document.getElementById('rebalance-list').innerHTML=html;
   document.getElementById('cash-amount').textContent=fmtKRWFull(s.cash);
   document.getElementById('cash-pct').textContent='총 자산의 '+fmtPct(s.cash/total);

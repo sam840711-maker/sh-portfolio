@@ -441,6 +441,7 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div class="info-text" style="margin-bottom:10px">설정한 주기마다 시세를 자동으로 가져옵니다. 화면이 보일 때만 동작하며, 다시 열 때 오래됐으면 즉시 갱신합니다.</div>
       <div class="seg" id="auto-seg">
         <button data-min="0" class="active">끄기</button>
+        <button data-min="1">1분</button>
         <button data-min="5">5분</button>
         <button data-min="15">15분</button>
         <button data-min="30">30분</button>
@@ -2581,10 +2582,10 @@ async function refreshAllPrices(quiet){
   if(!quiet) toast('시세 갱신 중...');
   let ok=0,fail=0; lastFailed=new Set();
 
-  // 1) FX
-  try { state.settings.fxRate=await fetchFx(); } catch(e){}
+  // FX — 주식·코인 시세와 동시에 진행
+  const fxPromise=fetchFx().then(v=>{ if(v>0) state.settings.fxRate=v; }).catch(()=>{});
 
-  // 2) Stocks / ETFs via Yahoo (concurrency 4)
+  // 주식·ETF — Yahoo, 동시 8개
   const stocks=state.holdings.filter(h=>h.cat!=='crypto');
   let idx=0;
   async function worker(){
@@ -2601,11 +2602,12 @@ async function refreshAllPrices(quiet){
       } catch(e){ lastFailed.add(h.symbol); fail++; }
     }
   }
-  await Promise.all(Array.from({length:6},()=>worker()));
+  const stockPromise=Promise.all(Array.from({length:8},()=>worker()));
 
-  // 3) Crypto via Upbit (batch)
+  // 코인 — Upbit 일괄
   const cryptos=state.holdings.filter(h=>h.cat==='crypto');
-  if (cryptos.length){
+  const cryptoPromise=(async()=>{
+    if (!cryptos.length) return;
     try {
       const r=await fetchUpbit(cryptos.map(h=>h.symbol));
       for (const h of cryptos){
@@ -2614,7 +2616,10 @@ async function refreshAllPrices(quiet){
         else { lastFailed.add(h.symbol); fail++; }
       }
     } catch(e){ cryptos.forEach(h=>{lastFailed.add(h.symbol);fail++;}); }
-  }
+  })();
+
+  // FX·주식·코인 동시 완료 대기
+  await Promise.all([fxPromise, stockPromise, cryptoPromise]);
 
   state.prices.lastFetch=Date.now();
   isFetching=false; setRefreshSpin(false);
@@ -2667,14 +2672,17 @@ function applyAutoRefresh(){
     }, m*60*1000);
   }
 }
+/* 앱을 다시 볼 때마다 시세가 오래됐으면 즉시 갱신 — 자동갱신 설정과 무관 */
+function freshenIfStale(maxAgeSec){
+  if (isFetching) return;
+  const lf=state.prices&&state.prices.lastFetch;
+  if (!lf || (Date.now()-lf) > maxAgeSec*1000) refreshAllPrices(true);
+}
 document.addEventListener('visibilitychange',()=>{
-  if (document.visibilityState!=='visible') return;
-  const m=state.prices.autoMin;
-  if (m>0 && !isFetching){
-    const stale=!state.prices.lastFetch || (Date.now()-state.prices.lastFetch)>m*60*1000;
-    if (stale) refreshAllPrices(true);
-  }
+  if (document.visibilityState==='visible') freshenIfStale(60);
 });
+window.addEventListener('focus',()=>freshenIfStale(60));
+window.addEventListener('pageshow',()=>freshenIfStale(60));
 
 /* ================================================================
    SETTINGS
@@ -2795,6 +2803,7 @@ window.doReset=doReset;
   renderTopbar();
   renderDashboard();
   applyAutoRefresh();       // 자동 갱신 주기 적용
+  freshenIfStale(60);       // 실행 시 시세가 60초 이상 묵었으면 즉시 갱신
 })();
 </script>
 </body>

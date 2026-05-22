@@ -279,6 +279,8 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div class="hero-meta">
         <div><span class="hm-label">총 납입금액</span><span class="hm-val num" id="hero-deposits">—</span></div>
         <div><span class="hm-label">총 투자금액</span><span class="hm-val num" id="hero-invested">—</span></div>
+        <div><span class="hm-label">달러 투자금액</span><span class="hm-val num" id="hero-usd-invested">—</span></div>
+        <div><span class="hm-label">달러 평가액</span><span class="hm-val num" id="hero-usd-value">—</span></div>
         <div id="hero-fx-wrap"><span class="hm-label">환차손익</span><span class="hm-val num" id="hero-fxgain">—</span></div>
         <div><span class="hm-label">누적 이자·세금</span><span class="hm-val num" id="hero-itax">—</span></div>
       </div>
@@ -796,8 +798,18 @@ function renderDashboard(){
   const itaxEl=document.getElementById('hero-itax');
   itaxEl.textContent=fmtKRW(totalItax);
   itaxEl.className='hm-val num';
-  let fxGain=0;
-  for (const h of state.holdings){ if(isUSDcat(h.cat)) fxGain+=holdingGainBreakdown(h,fx).fx; }
+  let fxGain=0, usdInvested=0, usdCurrent=0;
+  for (const h of state.holdings){
+    if(isUSDcat(h.cat)){
+      fxGain+=holdingGainBreakdown(h,fx).fx;
+      usdInvested+=(h.qty||0)*(h.avgUSD||0);
+      usdCurrent+=(h.qty||0)*(h.curUSD||0);
+    }
+  }
+  document.getElementById('hero-usd-invested').textContent='$'+Math.round(usdInvested).toLocaleString('en-US');
+  const usdValEl=document.getElementById('hero-usd-value');
+  usdValEl.textContent='$'+Math.round(usdCurrent).toLocaleString('en-US');
+  usdValEl.className='hm-val num '+(usdCurrent>=usdInvested?'up':'down');
   const fxEl=document.getElementById('hero-fxgain');
   fxEl.textContent=(fxGain>=0?'+':'')+fmtKRW(fxGain);
   fxEl.className='hm-val num '+(fxGain>=0?'up':'down');

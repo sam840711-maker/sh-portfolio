@@ -411,13 +411,13 @@ input,select,textarea{font-family:inherit;color:inherit}
   <div class="view hidden" id="view-allocation">
     <div style="padding:16px 4px 12px"><h2 style="font-size:24px;font-weight:700;letter-spacing:-0.02em">배분 · 리밸런싱</h2></div>
     <div class="card">
-      <div class="card-title">납입 배분 계산기</div>
-      <p class="muted" style="font-size:11.5px;margin:-4px 0 12px">추가 납입금을 목표 비중에 맞춰 자산군별 예수금에 어떻게 나눌지 계산합니다</p>
+      <div class="card-title">납입 · 출금 배분 계산기</div>
+      <p class="muted" style="font-size:11.5px;margin:-4px 0 12px">양수는 자산군별 예수금에 납입 배분, 음수(−)는 현금에서 출금 차감 — 둘 다 목표 비중 기준</p>
       <div class="field" style="margin-bottom:0">
-        <label>배분할 금액 (₩)</label>
-        <input id="ds-amount" type="number" placeholder="예: 50000000">
+        <label>금액 (₩) — 출금은 마이너스</label>
+        <input id="ds-amount" type="number" placeholder="납입 50000000 · 출금 -30000000">
       </div>
-      <button class="btn btn-secondary" style="width:100%;margin-top:10px" onclick="calcDepositSplit()">배분 계산</button>
+      <button class="btn btn-secondary" style="width:100%;margin-top:10px" onclick="calcDepositSplit()">계산</button>
       <div id="ds-result" style="margin-top:12px"></div>
     </div>
     <div class="card">
@@ -1369,58 +1369,148 @@ function renderAllocation(){
   const dsAmt=document.getElementById('ds-amount');
   if(dsAmt) dsAmt.value=Math.round(state.settings.cashAccount||0)||'';
   const dsRes=document.getElementById('ds-result');
-  if(dsRes) dsRes.innerHTML='<div class="modal-sub">금액을 확인하고 "배분 계산"을 누르세요 · 현금 계정 잔액이 기본값입니다</div>';
+  if(dsRes) dsRes.innerHTML='<div class="modal-sub">금액 입력 후 "계산" — 양수는 납입 배분, 음수(−)는 출금 차감입니다</div>';
   renderStockRebalance();
 }
 
-/* 납입 배분 계산기 — 목표 비중에 부족한 자산군부터 채우는 매수 기준 배분 */
+/* 납입·출금 배분 계산기 */
 let lastDepositSplit=null;
 function calcDepositSplit(){
-  const amount=Math.round(parseFloat(document.getElementById('ds-amount').value)||0);
+  const raw=Math.round(parseFloat(document.getElementById('ds-amount').value)||0);
   const box=document.getElementById('ds-result');
-  if(!(amount>0)){ box.innerHTML='<div class="modal-sub">배분할 금액을 입력하세요</div>'; lastDepositSplit=null; return; }
+  if(raw===0){ box.innerHTML='<div class="modal-sub">금액을 입력하세요 · 출금은 음수(−)로</div>'; lastDepositSplit=null; return; }
+  if(raw>0) calcDepositIn(raw,box); else calcDepositOut(-raw,box);
+}
+
+/* 납입 — 목표 비중에 부족한 자산군부터 채우는 매수 기준 배분 */
+function calcDepositIn(amount,box){
   const s=portfolioStats();
   const keys=Object.keys(CATEGORIES);
   const cur={}, tgt={}; let curTotal=0,tgtSum=0;
   keys.forEach(k=>{ cur[k]=s.totals[k].current; tgt[k]=classTarget(k); curTotal+=cur[k]; tgtSum+=tgt[k]; });
   const w=k=>tgtSum>0?tgt[k]/tgtSum:0;
   const newTotal=curTotal+amount;
-  // 각 자산군이 목표에 도달하려면 부족한 금액(gap)
   const gap={}; let gapSum=0;
   keys.forEach(k=>{ gap[k]=Math.max(0, w(k)*newTotal-cur[k]); gapSum+=gap[k]; });
   const alloc={};
-  if(gapSum<=0){
-    keys.forEach(k=>alloc[k]=amount*w(k));               // 모두 목표 이상 → 목표 비중대로
-  } else if(gapSum>=amount){
-    keys.forEach(k=>alloc[k]=amount*gap[k]/gapSum);       // 부분 리밸런싱 → 부족분 비례
-  } else {
-    const leftover=amount-gapSum;                          // 부족분 다 채우고 남으면 목표 비중대로
-    keys.forEach(k=>alloc[k]=gap[k]+leftover*w(k));
-  }
+  if(gapSum<=0){ keys.forEach(k=>alloc[k]=amount*w(k)); }
+  else if(gapSum>=amount){ keys.forEach(k=>alloc[k]=amount*gap[k]/gapSum); }
+  else { const lo=amount-gapSum; keys.forEach(k=>alloc[k]=gap[k]+lo*w(k)); }
   let used=0;
   keys.forEach(k=>{ alloc[k]=Math.round(alloc[k]); used+=alloc[k]; });
-  const diff=amount-used;                                  // 반올림 잔차 보정
+  const diff=amount-used;
   if(diff!==0){ let mk=keys[0]; keys.forEach(k=>{ if(alloc[k]>alloc[mk]) mk=k; }); alloc[mk]+=diff; }
-  lastDepositSplit={amount,alloc};
+  lastDepositSplit={mode:'in',amount,alloc};
   const rows=keys.filter(k=>cur[k]>0||tgt[k]>0).map(k=>{
     const afterW=newTotal>0?(cur[k]+alloc[k])/newTotal*100:0;
-    return `<div class="ds-row">
-      <div class="ds-head">
+    return `<div class="ds-row"><div class="ds-head">
         <span class="abar-name"><span class="abar-dot" style="background:${CATEGORIES[k].color}"></span>${CATEGORIES[k].label}</span>
-        <span class="ds-amt" style="color:var(--gold)">+${fmtKRW(alloc[k])}</span>
-      </div>
-      <div class="ds-sub">목표 ${(w(k)*100).toFixed(2)}% · 배분 후 ${afterW.toFixed(2)}%</div>
-    </div>`;
+        <span class="ds-amt" style="color:var(--gold)">+${fmtKRW(alloc[k])}</span></div>
+      <div class="ds-sub">목표 ${(w(k)*100).toFixed(2)}% · 배분 후 ${afterW.toFixed(2)}%</div></div>`;
   }).join('');
-  box.innerHTML=`${rows}
+  box.innerHTML=`<div style="font-size:11px;color:var(--text-3);margin-bottom:4px">납입 — 목표 비중에 부족한 자산군부터 채웁니다</div>
+    ${rows}
     <div class="ds-total"><span>합계 배분</span><span class="num">${fmtKRW(amount)}</span></div>
     <button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="applyDepositSplit()">이 배분대로 예수금에 반영</button>
     <div class="modal-sub" style="margin-top:8px">반영하면 각 자산군 예수금(원화)에 더해지고 현금 계정에서 차감됩니다</div>`;
 }
-async function applyDepositSplit(){
-  if(!lastDepositSplit){ toast('먼저 배분 계산을 하세요'); return; }
-  const {amount,alloc}=lastDepositSplit;
+
+/* 출금 — 현금 계정 → 목표 초과 자산군 예수금 → 종목 매도 순 */
+function calcDepositOut(amount,box){
+  const s=portfolioStats();
+  const keys=Object.keys(CATEGORIES);
   const cb=state.settings.cashByClass||{};
+  const fx=state.settings.fxRate;
+  const total=s.totalWithCash||1;
+  let tgtSum=0; const tgt={};
+  keys.forEach(k=>{ tgt[k]=classTarget(k); tgtSum+=tgt[k]; });
+  const w=k=>tgtSum>0?tgt[k]/tgtSum:0;
+  const dev=k=> s.totals[k].current/total - w(k);   // 양수 = 목표 초과
+  const order=keys.slice().sort((a,b)=>dev(b)-dev(a));
+  let need=amount;
+  const fromCashAcc=Math.min(need,Math.max(0,Math.round(state.settings.cashAccount||0)));
+  need-=fromCashAcc;
+  const fromClass={};
+  order.forEach(k=>{
+    if(need<=0) return;
+    const avail=Math.max(0,Math.round((cb[k]&&cb[k].krw)||0));
+    const take=Math.min(need,avail);
+    if(take>0){ fromClass[k]=take; need-=take; }
+  });
+  const shortfall=need, cashUsed=amount-shortfall;
+  lastDepositSplit={mode:'out',fromCashAcc,fromClass};
+  let rows='';
+  if(fromCashAcc>0) rows+=`<div class="ds-row"><div class="ds-head">
+    <span class="abar-name"><span class="abar-dot" style="background:#565967"></span>현금 계정</span>
+    <span class="ds-amt down">−${fmtKRW(fromCashAcc)}</span></div>
+    <div class="ds-sub">미배정 현금에서 우선 차감</div></div>`;
+  order.forEach(k=>{ if(fromClass[k]) rows+=`<div class="ds-row"><div class="ds-head">
+    <span class="abar-name"><span class="abar-dot" style="background:${CATEGORIES[k].color}"></span>${CATEGORIES[k].label}</span>
+    <span class="ds-amt down">−${fmtKRW(fromClass[k])}</span></div>
+    <div class="ds-sub">예수금에서 차감 · 목표 초과 자산군 우선</div></div>`; });
+  if(!rows) rows='<div class="modal-sub">차감할 현금 예수금이 없습니다 — 전액 종목 매도가 필요합니다</div>';
+  // 부족분 → 종목별 매도 수량 산출
+  let sellBlock='';
+  if(shortfall>0){
+    const postTotal=Math.max(1,total-amount);   // 출금 후 총자산
+    const list=state.holdings.filter(h=>h.qty>0).map(h=>{
+      const v=holdingValue(h,fx).current;
+      const targetVal=postTotal*classTarget(h.cat)*(h.targetWt||0);
+      const priceKRW=isUSDcat(h.cat)?h.curUSD*fx:h.curKRW;
+      return {h,v,over:v-targetVal,priceKRW};   // over>0 = 목표 초과
+    });
+    let overSum=0,valSum=0;
+    list.forEach(x=>{ if(x.over>0) overSum+=x.over; valSum+=x.v; });
+    const sellAmt={};
+    if(overSum>=shortfall){                       // 초과 종목만 비례 매도
+      list.forEach(x=>{ sellAmt[x.h.id]= x.over>0?shortfall*x.over/overSum:0; });
+    } else {                                      // 초과분 전량 + 나머지는 평가액 비례
+      const rest=shortfall-overSum;
+      list.forEach(x=>{ sellAmt[x.h.id]= Math.max(0,x.over)+(valSum>0?rest*x.v/valSum:0); });
+    }
+    let proceeds=0;
+    const sells=list.map(x=>{
+      const amt=sellAmt[x.h.id]||0;
+      if(amt<=0||x.priceKRW<=0) return null;
+      const sh=x.h.cat==='crypto'?Math.round(amt/x.priceKRW*10000)/10000:Math.round(amt/x.priceKRW);
+      if(sh<=0) return null;
+      const proc=sh*x.priceKRW; proceeds+=proc;
+      return {sym:x.h.symbol,name:x.h.name,sh,proc};
+    }).filter(Boolean).sort((a,b)=>b.proc-a.proc);
+    const sellRows=sells.map(x=>`<div class="ds-row"><div class="ds-head">
+      <span class="abar-name">${x.sym}</span>
+      <span class="ds-amt down">${x.sh.toLocaleString()}주 매도</span></div>
+      <div class="ds-sub">예상 회수 약 ${fmtKRW(x.proc)}</div></div>`).join('');
+    sellBlock=`<div style="margin-top:14px;font-size:11px;color:var(--text-3)">현금이 <b class="num down">${fmtKRW(shortfall)}</b> 부족 — 아래 종목을 매도해 충당하세요 (목표 초과 종목 우선)</div>
+      ${sellRows||'<div class="modal-sub">매도할 종목이 없습니다</div>'}
+      <div class="ds-total"><span>매도 예상 회수</span><span class="num">${fmtKRW(proceeds)}</span></div>
+      <div class="modal-sub" style="margin-top:6px">매도 후 빠른 입력에서 보유 수량을 줄여주세요</div>`;
+  }
+  box.innerHTML=`<div style="font-size:11px;color:var(--text-3);margin-bottom:4px">출금 — 현금 계정 → 목표 초과 자산군 예수금 → 종목 매도 순으로 충당</div>
+    ${rows}
+    <div class="ds-total"><span>현금 차감 합계</span><span class="num">${fmtKRW(cashUsed)}</span></div>
+    ${cashUsed>0?`<button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="applyDepositSplit()">현금 차감분 예수금에 반영</button>`:''}
+    ${sellBlock}
+    <div class="modal-sub" style="margin-top:8px">수익률 반영은 거래 페이지에 출금(−)으로 기록하세요</div>`;
+}
+
+async function applyDepositSplit(){
+  if(!lastDepositSplit){ toast('먼저 계산을 하세요'); return; }
+  const cb=state.settings.cashByClass||{};
+  if(lastDepositSplit.mode==='out'){
+    const {fromCashAcc,fromClass}=lastDepositSplit;
+    state.settings.cashAccount=Math.max(0,(state.settings.cashAccount||0)-fromCashAcc);
+    let used=fromCashAcc;
+    for(const k in fromClass){
+      if(!cb[k]) cb[k]={krw:0,usd:0};
+      cb[k].krw=Math.max(0,(cb[k].krw||0)-fromClass[k]); used+=fromClass[k];
+    }
+    state.settings.cashByClass=cb;
+    lastDepositSplit=null;
+    await saveState(); toast('출금 차감 반영됨 · 현금 −'+fmtKRW(used));
+    switchView('allocation'); return;
+  }
+  const {amount,alloc}=lastDepositSplit;
   for(const k in alloc){
     if(!cb[k]) cb[k]={krw:0,usd:0};
     cb[k].krw=(cb[k].krw||0)+alloc[k];
@@ -1428,8 +1518,7 @@ async function applyDepositSplit(){
   state.settings.cashByClass=cb;
   state.settings.cashAccount=Math.max(0,(state.settings.cashAccount||0)-amount);
   lastDepositSplit=null;
-  await saveState();
-  toast('예수금에 배분 반영됨 · 현금 계정 −'+fmtKRW(amount));
+  await saveState(); toast('예수금에 배분 반영됨 · 현금 계정 −'+fmtKRW(amount));
   switchView('allocation');
 }
 window.calcDepositSplit=calcDepositSplit; window.applyDepositSplit=applyDepositSplit;
@@ -1738,12 +1827,12 @@ function depositsTotal(){
   for (const y in (state.deposits||{})) s+=depositYearTotal(y);
   return s;
 }
-/* 납입 현금흐름 — XIRR·추이차트용 (월 15일 기준) */
+/* 납입·출금 현금흐름 — XIRR·추이차트용 (월 15일 기준, 출금은 음수) */
 function depositFlows(){
   const out=[];
   for (const y in (state.deposits||{})){
     (state.deposits[y]||[]).forEach((amt,m)=>{
-      if(amt>0) out.push({ ym:y+'-'+String(m+1).padStart(2,'0'),
+      if(amt!==0) out.push({ ym:y+'-'+String(m+1).padStart(2,'0'),
                            date:new Date(Number(y),m,15), amount:amt });
     });
   }
@@ -1772,11 +1861,11 @@ function openDepositYear(year){
       <input id="dep-m${m}" type="number" step="1" inputmode="numeric" value="${arr[m]||''}" placeholder="0" oninput="depositRecalc()"></div>`;
   }
   const delBtn=exists?`<button class="btn btn-danger btn-sm" onclick="deleteDepositYear('${y}')">삭제</button>`:'';
-  openModal(`<h3>납입 — 월별 입력</h3>
-    <div class="modal-sub">해당 연도의 월별 납입금액을 입력하면 연 합계로 자동 합산됩니다</div>
+  openModal(`<h3>납입 · 출금 — 월별 입력</h3>
+    <div class="modal-sub">월별 납입금액을 입력하세요 · <b>출금(인출)은 마이너스(−)로</b> 입력 — 예: -30000000</div>
     <div class="field"><label>연도</label><input id="dep-year" type="number" step="1" value="${y}"></div>
     <div class="itax-grid">${grid}</div>
-    <div class="itax-sum">연 납입 합계 <b id="dep-total" class="num">₩0</b></div>
+    <div class="itax-sum">연 순납입 합계 <b id="dep-total" class="num">₩0</b></div>
     <div class="btn-row">
       ${delBtn}
       <button class="btn btn-secondary" onclick="closeModal()">취소</button>
@@ -1788,7 +1877,10 @@ function depositRecalc(){
   let s=0;
   for (let m=0;m<12;m++){ const e=document.getElementById('dep-m'+m); if(e) s+=parseFloat(e.value)||0; }
   const t=document.getElementById('dep-total');
-  if(t) t.textContent='₩'+Math.round(s).toLocaleString('ko-KR');
+  if(t){
+    const r=Math.round(s);
+    t.textContent=(r<0?'−₩':'₩')+Math.abs(r).toLocaleString('ko-KR');
+  }
 }
 async function saveDepositYear(origYear){
   const y=String(parseInt(document.getElementById('dep-year').value,10)||0);
@@ -1803,15 +1895,15 @@ async function saveDepositYear(origYear){
   if(origYear && origYear!==y) delete state.deposits[origYear];
   state.deposits[y]=arr;
   const delta=sumArr(state.deposits[curY])-beforeCur;
-  if(delta!==0) state.settings.cashAccount=Math.max(0,(state.settings.cashAccount||0)+delta);
+  if(delta>0) state.settings.cashAccount=(state.settings.cashAccount||0)+delta;
   await saveState(); closeModal();
-  toast(y+'년 납입 저장됨'+(delta>0?` · 현금 계정 +${fmtKRW(delta)}`:''));
+  toast(y+'년 저장됨'+(delta>0?` · 현금 계정 +${fmtKRW(delta)}`:(delta<0?' · 출금 차감은 배분 계산기에서':'')));
   switchView('transactions');
 }
 async function deleteDepositYear(year){
   const curY=String(new Date().getFullYear());
   if(year===curY && state.deposits && state.deposits[year]){
-    const t=(state.deposits[year]||[]).reduce((s,v)=>s+(v||0),0);
+    const t=Math.max(0,(state.deposits[year]||[]).reduce((s,v)=>s+(v||0),0));
     state.settings.cashAccount=Math.max(0,(state.settings.cashAccount||0)-t);
   }
   if(state.deposits) delete state.deposits[year];
@@ -1880,11 +1972,12 @@ function renderDepositList(){
   if(!years.length){ el.innerHTML=sum+'<div class="empty">납입 기록이 없습니다. ＋ 추가로 연도를 입력하세요.</div>'; return; }
   el.innerHTML=sum+years.map(y=>{
     const yt=depositYearTotal(y);
-    const months=(state.deposits[y]||[]).filter(v=>v>0).length;
+    const months=(state.deposits[y]||[]).filter(v=>v!==0).length;
+    const cls=yt<0?'down':'up';
     return `<div class="txn" onclick="openDepositYear('${y}')" style="cursor:pointer">
       <div class="txn-icon deposit">￦</div>
       <div class="txn-info"><div class="txn-title">${y}년 납입</div><div class="txn-date">${months}개월 입력 · 탭하여 월별 수정</div></div>
-      <div class="txn-amount num up">+${fmtKRW(yt)}</div></div>`;
+      <div class="txn-amount num ${cls}">${yt<0?'−':'+'}${fmtKRW(Math.abs(yt))}</div></div>`;
   }).join('');
 }
 

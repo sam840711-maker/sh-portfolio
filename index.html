@@ -297,6 +297,10 @@ input,select,textarea{font-family:inherit;color:inherit}
 .itax-m label{font-size:10px;color:var(--text-2)}
 .itax-m input{width:100%;background:var(--frame);border:1px solid var(--hairline);border-radius:9px;padding:9px 10px;font-size:14px;font-variant-numeric:tabular-nums;color:var(--text)}
 .itax-m input:focus{outline:none;border-color:var(--gold)}
+.dep-row{display:flex;gap:5px}
+.dep-row input{flex:1;min-width:0}
+.dep-pm{flex:none;width:38px;background:var(--surface);border:1px solid var(--hairline);border-radius:9px;color:var(--text-2);font-size:16px;font-weight:700;line-height:1}
+.dep-pm:active{background:var(--gold-soft);color:var(--gold)}
 .itax-sum{display:flex;justify-content:space-between;align-items:baseline;padding:11px 14px;background:var(--surface);border:1px solid var(--hairline);border-radius:11px;margin-bottom:14px;font-size:13px;font-weight:600}
 .itax-sum b{font-size:17px;font-weight:700;color:var(--gold)}
 .toast.show{opacity:1}
@@ -1858,11 +1862,14 @@ function openDepositYear(year){
   let grid='';
   for (let m=0;m<12;m++){
     grid+=`<div class="itax-m"><label>${m+1}월</label>
-      <input id="dep-m${m}" type="number" step="1" inputmode="numeric" value="${arr[m]||''}" placeholder="0" oninput="depositRecalc()"></div>`;
+      <div class="dep-row">
+        <input id="dep-m${m}" type="number" step="1" inputmode="numeric" value="${arr[m]||''}" placeholder="0" oninput="depositRecalc()">
+        <button type="button" class="dep-pm" onclick="depFlipSign(${m})">±</button>
+      </div></div>`;
   }
   const delBtn=exists?`<button class="btn btn-danger btn-sm" onclick="deleteDepositYear('${y}')">납입 취소</button>`:'';
   openModal(`<h3>납입 · 출금 — 월별 입력</h3>
-    <div class="modal-sub">월별 납입금액을 입력하세요 · <b>출금(인출)은 마이너스(−)로</b> 입력 — 예: -30000000</div>
+    <div class="modal-sub">월별 납입금액을 입력하세요 · <b>출금(인출)</b>은 금액 입력 후 <b>±</b> 버튼으로 마이너스(−)로 바꾸세요</div>
     <div class="field"><label>연도</label><input id="dep-year" type="number" step="1" value="${y}"></div>
     <div class="itax-grid">${grid}</div>
     <div class="itax-sum">연 순납입 합계 <b id="dep-total" class="num">₩0</b></div>
@@ -1882,6 +1889,14 @@ function depositRecalc(){
     t.textContent=(r<0?'−₩':'₩')+Math.abs(r).toLocaleString('ko-KR');
   }
 }
+function depFlipSign(m){
+  const e=document.getElementById('dep-m'+m);
+  if(!e) return;
+  const v=parseFloat(e.value)||0;
+  if(v!==0) e.value=-v;
+  depositRecalc();
+}
+window.depFlipSign=depFlipSign;
 async function saveDepositYear(origYear){
   const y=String(parseInt(document.getElementById('dep-year').value,10)||0);
   if(y.length!==4){ toast('연도를 4자리로 입력하세요'); return; }

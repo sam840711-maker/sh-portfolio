@@ -1534,14 +1534,13 @@ async function applyDepositSplit(){
 }
 window.calcDepositSplit=calcDepositSplit; window.applyDepositSplit=applyDepositSplit;
 
-/* 종목별 리밸런싱 — 각 종목을 카테고리 내 목표 비중에 맞추기 위한 매수/매도 수량
-   기준: 카테고리 목표금액(= 총자산 × 카테고리 목표%) × 종목 목표비중  (시트의 리밸런싱 로직과 동일) */
+/* 종목별 리밸런싱 — 각 종목을 목표 비중에 맞추기 위한 매수/매도 수량
+   portfolio: 총자산(평가액+예수금) 기준 → 예수금 자동 반영
+   within   : 그 자산군의 보유 평가액만 기준 → 예수금 제외, 종목 재분배만 */
 function stockRebalance(cat, mode){
   const fx=state.settings.fxRate;
   const holdings=state.holdings.filter(h=>h.cat===cat&&h.qty>0);
   const catCurrent=holdings.reduce((s,h)=>s+holdingValue(h,fx).current,0);
-  // 'within' = 자산군 현재 평가액을 기준으로 종목 재분배
-  // 그 외(전체) = 총자산 × 자산군 목표비중
   const catTargetVal = mode==='within'
     ? catCurrent
     : portfolioStats().totalWithCash*classTarget(cat);
@@ -1572,10 +1571,10 @@ function renderStockRebalance(){
   chipsEl.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{rbStockCat=c.dataset.rbcat;renderStockRebalance();});
   document.querySelectorAll('#rb-mode-seg button').forEach(b=>b.classList.toggle('active',b.dataset.rbmode===rbMode));
   document.getElementById('rb-mode-desc').textContent = rbMode==='within'
-    ? '이 자산군의 현재 평가액을 종목 목표비중대로 재분배합니다 (자산군 총액 유지)'
-    : '총자산의 목표 배분 기준으로 계산합니다 (자산군 크기까지 조정)';
+    ? '그 자산군의 보유 평가액만 기준으로 종목을 재분배합니다 (예수금 제외)'
+    : '총자산(보유 평가액 + 예수금) 기준 — 예수금이 매수에 자동 반영됩니다';
 
-  const rows=stockRebalance(rbStockCat, rbMode);   // 자산 페이지 카테고리 순서와 동일
+  const rows=stockRebalance(rbStockCat, rbMode);
   let html='';
   for(const r of rows){
     const h=r.h;
@@ -1608,11 +1607,16 @@ function renderStockRebalance(){
   const buyN=rows.filter(r=>r.adjustShares>0).length;
   const sellN=rows.filter(r=>r.adjustShares<0).length;
   const wtWarn=Math.abs(wtSum-1)>0.001?`<span class="up"> · 비중합 ${fmtPct(wtSum,1)} ⚠</span>`:'';
+  const buyTotal=rows.filter(r=>r.adjustShares>0).reduce((s,r)=>s+r.adjustShares*r.priceKRW,0);
   const tgtLabel=rbMode==='within'?'평가액':'목표';
+  const note=rbMode==='within'
+    ? '보유 평가액 안에서 종목 비중만 재분배합니다 (예수금 미반영)'
+    : `이 자산군 매수 ${fmtKRW(buyTotal)} — 매수를 실행하면 예수금이 그만큼 줄어듭니다`;
   footEl.innerHTML=`<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-2);padding-top:12px;border-top:1px solid var(--hairline);margin-top:6px">
     <span>${CATEGORIES[rbStockCat].label} ${tgtLabel} <b class="num">₩${fmtKRW(catTgt)}</b>${wtWarn}</span>
     <span><span class="down">매수 ${buyN}</span> · <span class="up">매도 ${sellN}</span></span>
-  </div>`;
+  </div>
+  <div style="font-size:10.5px;color:var(--text-3);margin-top:6px">${note}</div>`;
 }
 
 /* === 자산군 목표 비중 수정 === */

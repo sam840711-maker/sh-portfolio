@@ -1860,7 +1860,7 @@ function openDepositYear(year){
     grid+=`<div class="itax-m"><label>${m+1}월</label>
       <input id="dep-m${m}" type="number" step="1" inputmode="numeric" value="${arr[m]||''}" placeholder="0" oninput="depositRecalc()"></div>`;
   }
-  const delBtn=exists?`<button class="btn btn-danger btn-sm" onclick="deleteDepositYear('${y}')">삭제</button>`:'';
+  const delBtn=exists?`<button class="btn btn-danger btn-sm" onclick="deleteDepositYear('${y}')">납입 취소</button>`:'';
   openModal(`<h3>납입 · 출금 — 월별 입력</h3>
     <div class="modal-sub">월별 납입금액을 입력하세요 · <b>출금(인출)은 마이너스(−)로</b> 입력 — 예: -30000000</div>
     <div class="field"><label>연도</label><input id="dep-year" type="number" step="1" value="${y}"></div>
@@ -1868,7 +1868,7 @@ function openDepositYear(year){
     <div class="itax-sum">연 순납입 합계 <b id="dep-total" class="num">₩0</b></div>
     <div class="btn-row">
       ${delBtn}
-      <button class="btn btn-secondary" onclick="closeModal()">취소</button>
+      <button class="btn btn-secondary" onclick="closeModal()">닫기</button>
       <button class="btn btn-primary" onclick="saveDepositYear('${exists?y:''}')">저장</button>
     </div>`);
   depositRecalc();
@@ -1888,26 +1888,34 @@ async function saveDepositYear(origYear){
   const arr=new Array(12).fill(0);
   for (let m=0;m<12;m++){ const e=document.getElementById('dep-m'+m); arr[m]=Math.round(parseFloat(e.value)||0); }
   if(!state.deposits) state.deposits={};
-  // 현금 계정 자동 연동 — 올해 납입 증감분만큼 현금 계정에 반영
+  // 현금 계정 자동 연동 — 올해 납입(양수분) 증감만큼 반영 (출금=음수는 미반영, 출금 계산기 담당)
   const curY=String(new Date().getFullYear());
-  const sumArr=a=>(a||[]).reduce((s,v)=>s+(v||0),0);
-  const beforeCur=sumArr(state.deposits[curY]);
+  const posSum=a=>(a||[]).reduce((s,v)=>s+Math.max(0,v||0),0);
+  const beforeCur=posSum(state.deposits[curY]);
   if(origYear && origYear!==y) delete state.deposits[origYear];
   state.deposits[y]=arr;
-  const delta=sumArr(state.deposits[curY])-beforeCur;
-  if(delta>0) state.settings.cashAccount=(state.settings.cashAccount||0)+delta;
+  const delta=posSum(state.deposits[curY])-beforeCur;
+  if(delta!==0) state.settings.cashAccount=Math.max(0,(state.settings.cashAccount||0)+delta);
   await saveState(); closeModal();
-  toast(y+'년 저장됨'+(delta>0?` · 현금 계정 +${fmtKRW(delta)}`:(delta<0?' · 출금 차감은 배분 계산기에서':'')));
+  toast(y+'년 저장됨'+(delta>0?` · 현금 계정 +${fmtKRW(delta)}`:(delta<0?` · 현금 계정 −${fmtKRW(-delta)}`:'')));
   switchView('transactions');
 }
 async function deleteDepositYear(year){
   const curY=String(new Date().getFullYear());
-  if(year===curY && state.deposits && state.deposits[year]){
-    const t=Math.max(0,(state.deposits[year]||[]).reduce((s,v)=>s+(v||0),0));
-    state.settings.cashAccount=Math.max(0,(state.settings.cashAccount||0)-t);
+  const arr=(state.deposits&&state.deposits[year])||[];
+  if(year===curY){
+    // 올해 납입 — 현금 계정에 그 금액이 그대로 남아 있을 때만 취소 가능
+    const posSum=arr.reduce((s,v)=>s+Math.max(0,v||0),0);
+    if(posSum>0){
+      if((state.settings.cashAccount||0) < posSum){
+        toast('납입금 일부가 이미 예수금·종목으로 이동했습니다 — 먼저 정리 후 취소하세요');
+        return;
+      }
+      state.settings.cashAccount=(state.settings.cashAccount||0)-posSum;
+    }
   }
   if(state.deposits) delete state.deposits[year];
-  await saveState(); closeModal(); toast(year+'년 납입 기록 삭제됨'); switchView('transactions');
+  await saveState(); closeModal(); toast(year+'년 납입 기록 취소됨'); switchView('transactions');
 }
 window.openDepositYear=openDepositYear; window.depositRecalc=depositRecalc;
 window.saveDepositYear=saveDepositYear; window.deleteDepositYear=deleteDepositYear;

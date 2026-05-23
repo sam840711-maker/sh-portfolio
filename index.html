@@ -172,7 +172,7 @@ input,select,textarea{font-family:inherit;color:inherit}
 
 .modal-bg{position:absolute;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(8px);z-index:20;display:none;align-items:flex-end}
 .modal-bg.show{display:flex;animation:fadeIn .2s}
-.modal{width:100%;background:var(--frame);border-radius:24px 24px 0 0;padding:24px;max-height:85vh;overflow-y:auto;animation:slideUp .3s cubic-bezier(.4,0,.2,1)}
+.modal{width:100%;background:var(--frame);border-radius:24px 24px 0 0;padding:24px 24px 40px;max-height:90%;overflow-y:auto;animation:slideUp .3s cubic-bezier(.4,0,.2,1)}
 .modal::-webkit-scrollbar{display:none}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
@@ -2366,9 +2366,25 @@ function toast(msg){
 function openModal(html){
   const bg=document.getElementById('modal-bg');
   const wasOpen=bg.classList.contains('show');
-  document.getElementById('modal-content').innerHTML=html;
+  const mc=document.getElementById('modal-content');
+  mc.innerHTML=html;
+  mc.scrollTop=0;
   bg.classList.add('show');
+  syncModalViewport();
   if(!wasOpen) history.pushState({modal:true},'');   // 뒤로가기로 닫을 수 있게
+}
+/* 모바일 키보드가 떠도 모달(저장 버튼)이 가려지지 않게 — 보이는 영역에 맞춤 */
+function syncModalViewport(){
+  const bg=document.getElementById('modal-bg');
+  const vv=window.visualViewport;
+  if(!bg||!vv) return;
+  bg.style.top=vv.offsetTop+'px';
+  bg.style.height=vv.height+'px';
+  bg.style.bottom='auto';
+}
+if(window.visualViewport){
+  window.visualViewport.addEventListener('resize',syncModalViewport);
+  window.visualViewport.addEventListener('scroll',syncModalViewport);
 }
 function closeModal(){
   const bg=document.getElementById('modal-bg');

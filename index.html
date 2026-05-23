@@ -380,16 +380,15 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div class="chart-wrap"><canvas id="chart-trend"></canvas></div>
       <div id="trend-note" style="font-size:11px;color:var(--text-3);margin-top:8px;text-align:center"></div>
     </div>
-
-    <div class="card">
-      <div class="card-title">자산 배분 · 현재 vs 목표</div>
-      <div id="alloc-bars"></div>
-    </div>
   </div>
 
   <!-- HOLDINGS -->
   <div class="view hidden" id="view-holdings">
     <div style="padding:16px 4px 12px"><h2 style="font-size:24px;font-weight:700;letter-spacing:-0.02em">자산</h2></div>
+    <div class="card">
+      <div class="card-title">자산 배분 · 현재 vs 목표</div>
+      <div id="alloc-bars"></div>
+    </div>
     <div id="holdings-summary"></div>
     <div class="chips" id="category-chips"></div>
     <div class="seg" id="holding-sort" style="margin:4px 0 14px">
@@ -1065,7 +1064,6 @@ function renderDashboard(){
     +`<span class="num ${paceCls}">${paceGap>=0?'+':'-'}₩${fmtKRW(Math.abs(paceGap))} `
     +`(${fmtPctSigned(pacePct,1)}) ${paceWord}</span></div>`;
 
-  renderAllocChart(s);
   renderTrendChart();
   renderTopbar();
   renderRebalAlert(s);
@@ -1105,6 +1103,7 @@ function renderRebalAlert(s){
 
 function renderAllocChart(s){
   const el=document.getElementById('alloc-bars');
+  if(!el) return;
   const total=s.totalWithCash||1;
   const items=[];
   for (const k in CATEGORIES){
@@ -1306,6 +1305,7 @@ function renderHoldingsSummary(){
 }
 function renderHoldings(){
   const fx=state.settings.fxRate;
+  renderAllocChart(portfolioStats());
   renderHoldingsSummary();
   const chips=document.getElementById('category-chips');
   chips.innerHTML=`<button class="chip ${activeCategory==='all'?'active':''}" data-cat="all">전체</button>`+

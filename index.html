@@ -1369,11 +1369,18 @@ function renderHoldings(){
   el.querySelectorAll('.holding').forEach(r=>r.onclick=()=>openHoldingDetail(r.dataset.id));
 }
 
+let pendingWithdraw=0;   // 거래 페이지에서 방금 기록한 출금액 (배분 계산기 자동 입력용)
 function renderAllocation(){
   const dsAmt=document.getElementById('ds-amount');
-  if(dsAmt) dsAmt.value=Math.round(state.settings.cashAccount||0)||'';
   const dsRes=document.getElementById('ds-result');
-  if(dsRes) dsRes.innerHTML='<div class="modal-sub">금액 입력 후 "계산" — 양수는 납입 배분, 음수(−)는 출금 차감입니다</div>';
+  if(pendingWithdraw>0){
+    if(dsAmt) dsAmt.value=-pendingWithdraw;
+    if(dsRes) dsRes.innerHTML='<div class="modal-sub">방금 기록한 출금액이 입력되었습니다 — "계산"을 눌러 차감 내역을 확인하세요</div>';
+    pendingWithdraw=0;
+  } else {
+    if(dsAmt) dsAmt.value=Math.round(state.settings.cashAccount||0)||'';
+    if(dsRes) dsRes.innerHTML='<div class="modal-sub">금액 입력 후 "계산" — 양수는 납입 배분, 음수(−)는 출금 차감입니다</div>';
+  }
   renderStockRebalance();
 }
 
@@ -1906,13 +1913,22 @@ async function saveDepositYear(origYear){
   // 현금 계정 자동 연동 — 올해 납입(양수분) 증감만큼 반영 (출금=음수는 미반영, 출금 계산기 담당)
   const curY=String(new Date().getFullYear());
   const posSum=a=>(a||[]).reduce((s,v)=>s+Math.max(0,v||0),0);
+  const negSum=a=>(a||[]).reduce((s,v)=>s+Math.min(0,v||0),0);
   const beforeCur=posSum(state.deposits[curY]);
+  const beforeNeg=negSum(state.deposits[y]);
   if(origYear && origYear!==y) delete state.deposits[origYear];
   state.deposits[y]=arr;
   const delta=posSum(state.deposits[curY])-beforeCur;
   if(delta!==0) state.settings.cashAccount=Math.max(0,(state.settings.cashAccount||0)+delta);
+  // 새로 입력된 출금액 → 배분 계산기에 자동 채우기 (차감은 계산기에서 직접 실행)
+  const negDelta=negSum(state.deposits[y])-beforeNeg;
+  if(negDelta<0) pendingWithdraw=-negDelta;
   await saveState(); closeModal();
-  toast(y+'년 저장됨'+(delta>0?` · 현금 계정 +${fmtKRW(delta)}`:(delta<0?` · 현금 계정 −${fmtKRW(-delta)}`:'')));
+  let msg=y+'년 저장됨';
+  if(delta>0) msg+=` · 현금 계정 +${fmtKRW(delta)}`;
+  else if(delta<0) msg+=` · 현금 계정 −${fmtKRW(-delta)}`;
+  if(negDelta<0) msg+=' · 출금은 배분 계산기에서 차감';
+  toast(msg);
   switchView('transactions');
 }
 async function deleteDepositYear(year){

@@ -533,6 +533,8 @@ input,select,textarea{font-family:inherit;color:inherit}
 
     <div class="card">
       <div class="card-title">데이터 관리</div>
+      <button class="btn btn-primary" style="width:100%;margin-bottom:8px" id="backup-btn">☁ 구글 드라이브에 백업</button>
+      <div id="backup-meta" style="font-size:11px;text-align:center;margin-bottom:14px"></div>
       <button class="btn btn-secondary" style="width:100%;margin-bottom:10px" id="export-btn">데이터 내보내기 (JSON)</button>
       <button class="btn btn-secondary" style="width:100%;margin-bottom:10px" id="import-btn">데이터 가져오기 (JSON)</button>
       <input type="file" id="import-file" accept="application/json,.json" style="display:none">
@@ -3053,6 +3055,7 @@ function renderSettings(){
     b.classList.toggle('active',Number(b.dataset.min)===state.prices.autoMin));
   const meta=document.getElementById('last-fetch-meta');
   meta.textContent=state.prices.lastFetch?'최근 시세 갱신: '+new Date(state.prices.lastFetch).toLocaleString('ko-KR'):'시세를 아직 갱신하지 않았습니다';
+  renderBackupMeta();
 }
 document.getElementById('gear-btn').onclick=()=>{
   document.querySelectorAll('.view').forEach(el=>el.classList.add('hidden'));
@@ -3092,6 +3095,46 @@ document.getElementById('export-btn').onclick=()=>{
   a.href=URL.createObjectURL(blob); a.download='sh_portfolio_backup.json'; a.click();
   toast('데이터 내보냄');
 };
+
+/* === 구글 드라이브 백업 (공유시트) + 리마인더 === */
+function backupFileName(){ return 'SH_Portfolio_'+new Date().toISOString().slice(0,10)+'.json'; }
+function renderBackupMeta(){
+  const el=document.getElementById('backup-meta');
+  if(!el) return;
+  const lb=state.settings&&state.settings.lastBackup;
+  if(!lb){ el.innerHTML='<span class="up">아직 백업한 적이 없습니다 — 백업을 권장합니다</span>'; return; }
+  const days=Math.floor((Date.now()-lb)/86400000);
+  const stale=days>=7;
+  const txt=days<=0?'오늘':days+'일 전';
+  el.innerHTML=`<span ${stale?'class="up"':'style="color:var(--text-3)"'}>마지막 백업: ${txt}${stale?' — 백업을 권장합니다':''}</span>`;
+}
+async function markBackup(){
+  state.settings.lastBackup=Date.now();
+  await saveState();
+  renderBackupMeta();
+}
+async function backupToDrive(){
+  const json=JSON.stringify(state,null,2);
+  const fname=backupFileName();
+  try{
+    const file=new File([json],fname,{type:'application/json'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({files:[file],title:fname});
+      await markBackup();
+      toast('백업 완료 — 구글 드라이브를 선택했는지 확인하세요');
+      return;
+    }
+  }catch(err){
+    if(err && err.name==='AbortError'){ return; }   // 사용자가 공유 취소
+  }
+  // 폴백 — 파일 다운로드 후 직접 드라이브로
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([json],{type:'application/json'}));
+  a.download=fname; a.click();
+  await markBackup();
+  toast('백업 파일 저장됨 — 구글 드라이브 앱으로 옮겨주세요');
+}
+document.getElementById('backup-btn').onclick=backupToDrive;
 let pendingImport=null;
 document.getElementById('import-btn').onclick=()=>document.getElementById('import-file').click();
 document.getElementById('import-file').onchange=function(e){
@@ -3160,6 +3203,12 @@ window.doReset=doReset;
   renderDashboard();
   applyAutoRefresh();       // 자동 갱신 주기 적용
   freshenIfStale(60);       // 실행 시 시세가 60초 이상 묵었으면 즉시 갱신
+  // 백업 리마인더 — 마지막 백업 후 7일 이상이면 안내
+  const lb=state.settings&&state.settings.lastBackup;
+  const days=lb?Math.floor((Date.now()-lb)/86400000):999;
+  if(days>=7){
+    setTimeout(()=>toast(lb?`백업한 지 ${days}일 됐어요 — 설정에서 백업하세요`:'데이터 백업을 한 번도 안 했어요 — 설정에서 백업하세요'),1400);
+  }
 })();
 </script>
 </body>

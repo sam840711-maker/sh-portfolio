@@ -824,8 +824,8 @@ function recordSnapshot(){
   const s = portfolioStats();
   const d = new Date().toISOString().slice(0,10);   // YYYY-MM-DD (일단위)
   const found = state.history.find(h => h.d === d);
-  // 같은 날은 본 것 중 가장 높은 평가액으로 기록
-  if (found){ found.total = Math.max(found.total||0, s.totalWithCash); found.ts = Date.now(); }
+  // 같은 날은 마지막으로 본 평가액으로 갱신 (종가에 가장 가까움)
+  if (found){ found.total = s.totalWithCash; found.ts = Date.now(); }
   else { state.history.push({ d, total: s.totalWithCash, ts: Date.now() }); }
   state.history.sort((a,b)=>(a.d||'').localeCompare(b.d||''));
 }
@@ -1250,8 +1250,8 @@ function renderTrendChart(){
 
   const recorded=hist.length;
   note.textContent = recorded<=1
-    ? '평가 자산은 매일 그날 본 최고치로 자동 기록됩니다'
-    : `평가 자산 ${recorded}개 일자 기록 누적 (그날 최고치) · 납입 원금은 거래내역 기준`;
+    ? '평가 자산은 매일 마지막으로 본 값으로 기록됩니다'
+    : `평가 자산 ${recorded}개 일자 기록 누적 (그날 마지막 값) · 납입 원금은 거래내역 기준`;
 }
 
 let activeCategory='all';
@@ -3089,11 +3089,21 @@ document.getElementById('copy-worker').onclick=()=>{
   const code=document.getElementById('worker-code').textContent.replace('복사','').trim();
   navigator.clipboard.writeText(code).then(()=>toast('Worker 코드 복사됨')).catch(()=>toast('복사 실패'));
 };
-document.getElementById('export-btn').onclick=()=>{
-  const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
+/* 안정적인 파일 다운로드 — DOM에 붙여 클릭 (PWA·웹뷰 대응) */
+function downloadFile(text, fname){
   const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob); a.download='sh_portfolio_backup.json'; a.click();
-  toast('데이터 내보냄');
+  let url;
+  try{ url=URL.createObjectURL(new Blob([text],{type:'application/json'})); }
+  catch(e){ url='data:application/json;charset=utf-8,'+encodeURIComponent(text); }
+  a.href=url; a.download=fname; a.rel='noopener';
+  a.style.display='none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>{ try{ document.body.removeChild(a); URL.revokeObjectURL(url); }catch(e){} },2000);
+}
+document.getElementById('export-btn').onclick=()=>{
+  downloadFile(JSON.stringify(state,null,2),'sh_portfolio_backup.json');
+  toast('데이터 내보냄 — 다운로드 폴더를 확인하세요');
 };
 
 /* === 구글 드라이브 백업 (공유시트) + 리마인더 === */
@@ -3116,23 +3126,25 @@ async function markBackup(){
 async function backupToDrive(){
   const json=JSON.stringify(state,null,2);
   const fname=backupFileName();
-  try{
-    const file=new File([json],fname,{type:'application/json'});
-    if(navigator.canShare && navigator.canShare({files:[file]})){
-      await navigator.share({files:[file],title:fname});
-      await markBackup();
-      toast('백업 완료 — 구글 드라이브를 선택했는지 확인하세요');
-      return;
+  // 1) 공유 시트 — 구글 드라이브로 바로 저장
+  if(navigator.canShare){
+    try{
+      const file=new File([json],fname,{type:'application/json'});
+      if(navigator.canShare({files:[file]})){
+        await navigator.share({files:[file]});
+        await markBackup();
+        toast('백업 완료 — 구글 드라이브를 선택했는지 확인하세요');
+        return;
+      }
+    }catch(err){
+      if(err && err.name==='AbortError') return;   // 사용자가 공유 취소 → 중단
+      // 그 외 오류 → 다운로드로 폴백
     }
-  }catch(err){
-    if(err && err.name==='AbortError'){ return; }   // 사용자가 공유 취소
   }
-  // 폴백 — 파일 다운로드 후 직접 드라이브로
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(new Blob([json],{type:'application/json'}));
-  a.download=fname; a.click();
+  // 2) 폴백 — 파일 다운로드
+  downloadFile(json,fname);
   await markBackup();
-  toast('백업 파일 저장됨 — 구글 드라이브 앱으로 옮겨주세요');
+  toast('백업 파일이 다운로드됐어요 — 구글 드라이브 앱으로 옮겨주세요');
 }
 document.getElementById('backup-btn').onclick=backupToDrive;
 let pendingImport=null;

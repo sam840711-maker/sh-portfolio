@@ -58,6 +58,7 @@ input,select,textarea{font-family:inherit;color:inherit}
 .up{color:var(--up)} .down{color:var(--down)} .muted{color:var(--text-2)}
 
 .hero{padding:8px 4px 16px}
+.mkt-banner{margin:0 4px 10px;padding:8px 12px;background:var(--gold-soft);border:1px solid rgba(201,166,107,0.25);border-radius:10px;font-size:11.5px;color:var(--gold);text-align:center;line-height:1.45}
 .hero-label{font-size:11px;color:var(--text-2);letter-spacing:0.14em;text-transform:uppercase;margin-bottom:6px}
 .hero-amount{font-size:38px;font-weight:700;letter-spacing:-0.025em;font-variant-numeric:tabular-nums;display:flex;align-items:baseline;gap:6px}
 .hero-amount .unit{font-size:16px;font-weight:500;color:var(--text-2)}
@@ -338,6 +339,7 @@ input,select,textarea{font-family:inherit;color:inherit}
 
   <!-- DASHBOARD -->
   <div class="view" id="view-dashboard">
+    <div id="market-banner" class="mkt-banner" style="display:none"></div>
     <div class="hero">
       <div class="hero-label">총 자산</div>
       <div class="hero-amount"><span id="hero-total">—</span><span class="unit">원</span></div>
@@ -938,6 +940,38 @@ function renderTopbar(){
   ft.textContent = state.prices.lastFetch ? '시세 '+relTime(state.prices.lastFetch) : '탭하여 시세 갱신';
 }
 
+/* === 증시 휴장일 배너 (출처: KRX·NYSE 공식 2026 일정) === */
+const MARKET_HOLIDAYS={
+  kr:{ // 한국거래소 2026 휴장일 (평일 기준 · 주말은 별도)
+    '2026-01-01':'신정','2026-02-16':'설날','2026-02-17':'설날','2026-02-18':'설날',
+    '2026-03-02':'삼일절 대체공휴일','2026-05-05':'어린이날','2026-05-25':'부처님오신날 대체',
+    '2026-06-03':'지방선거일','2026-08-17':'광복절 대체공휴일','2026-09-24':'추석','2026-09-25':'추석',
+    '2026-10-05':'개천절 대체공휴일','2026-10-09':'한글날','2026-12-25':'성탄절','2026-12-31':'연말 휴장일'
+  },
+  us:{ // NYSE/NASDAQ 2026~2027 휴장일
+    '2026-01-01':'신정','2026-01-19':'마틴 루서 킹 데이','2026-02-16':'프레지던트 데이',
+    '2026-04-03':'성금요일','2026-05-25':'메모리얼 데이','2026-06-19':'준틴스','2026-07-03':'독립기념일',
+    '2026-09-07':'노동절','2026-11-26':'추수감사절','2026-12-25':'성탄절',
+    '2027-01-01':'신정','2027-01-18':'마틴 루서 킹 데이','2027-02-15':'프레지던트 데이',
+    '2027-03-26':'성금요일','2027-05-31':'메모리얼 데이','2027-06-18':'준틴스','2027-07-05':'독립기념일',
+    '2027-09-06':'노동절','2027-11-25':'추수감사절','2027-12-24':'성탄절'
+  }
+};
+function renderMarketBanner(){
+  const el=document.getElementById('market-banner');
+  if(!el) return;
+  const krD=new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Seoul'});
+  const usD=new Date().toLocaleDateString('en-CA',{timeZone:'America/New_York'});
+  const krH=MARKET_HOLIDAYS.kr[krD];
+  const usH=MARKET_HOLIDAYS.us[usD];
+  let msg='';
+  if(krH&&usH) msg=`오늘 국내·미국 증시 휴장 · ${krH} / ${usH}`;
+  else if(krH) msg=`오늘 국내 증시 휴장 — ${krH}`;
+  else if(usH) msg=`오늘 미국 증시 휴장 — ${usH}`;
+  if(msg){ el.textContent=msg; el.style.display='block'; }
+  else { el.style.display='none'; }
+}
+
 /* XIRR — 납입 시점을 반영한 연환산 수익률 (이분법) */
 function xirr(flows){
   if(!flows||flows.length<2) return null;
@@ -956,6 +990,7 @@ function xirr(flows){
 }
 function renderDashboard(){
   const s=portfolioStats(), st=state.settings, fx=st.fxRate;
+  renderMarketBanner();
   document.getElementById('hero-total').textContent=fmtKRW(s.totalWithCash);
   const totalDeposits=depositsTotal();
 

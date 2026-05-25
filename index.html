@@ -807,7 +807,9 @@ async function saveState(){
   try {
     if (state && state.holdings){ recordSnapshot(); maybeUpdatePick(); }
     await window.storage.set(STORE_KEY, JSON.stringify(state));
-  } catch(e){}
+  } catch(e){
+    try{ toast('⚠ 저장에 실패했습니다 — 데이터 백업을 권장합니다'); }catch(_){}
+  }
 }
 
 /* 고점(pick value) 갱신 — 현재 총자산이 기존 고점을 넘으면 갱신 (고수위선) */
@@ -838,6 +840,11 @@ function recordSnapshot(){
 function fmtKRW(n){
   if (n==null||isNaN(n)) return '—';
   return Math.round(n).toLocaleString('ko-KR');
+}
+/* HTML 이스케이프 — 종목명 등 사용자 입력을 화면에 안전하게 삽입 */
+function esc(s){
+  return String(s==null?'':s).replace(/[&<>"']/g,c=>(
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 function fmtKRWFull(n){ return (n==null||isNaN(n))?'—':Math.round(n).toLocaleString('ko-KR')+'원'; }
 function fmtPct(n,d=2){ return (n==null||isNaN(n))?'—':(n*100).toFixed(d)+'%'; }
@@ -1319,7 +1326,7 @@ function holdingRowHTML(h, moveInfo){
     <div class="hd-main">
       <div class="hd-r1">
         <span class="hd-tk">${sym}${warn}</span>
-        <span class="hd-nm">${h.name}</span>
+        <span class="hd-nm">${esc(h.name)}</span>
         <span class="hd-val">${fmtKRW(v.current)}</span>
       </div>
       <div class="hd-r2">
@@ -1636,7 +1643,7 @@ function renderStockRebalance(){
     html+=`<div class="rbx-row" data-id="${h.id}">
       <div class="rbx-accent" style="background:${accent}"></div>
       <div class="rbx-main">
-        <div class="rbx-l1"><span class="rbx-tk">${tk}</span><span class="rbx-nm">${h.name||''}</span></div>
+        <div class="rbx-l1"><span class="rbx-tk">${tk}</span><span class="rbx-nm">${esc(h.name)}</span></div>
         <div class="rbx-wt">현재 ${fmtPct(r.curWtInCat,1)} → 목표 ${fmtPct(r.tw,1)}</div>
       </div>
       <div class="rbx-right">
@@ -1748,7 +1755,7 @@ function openStockWeightEditor(){
   const hs=state.holdings.filter(h=>h.cat===cat&&h.qty>0);
   if(!hs.length){ toast('보유 종목이 없습니다'); return; }
   const rows=hs.map(h=>`
-    <div class="field"><label>${h.symbol.replace('.KS','').replace('.L','')} · ${h.name}</label>
+    <div class="field"><label>${esc(h.symbol.replace('.KS','').replace('.L',''))} · ${esc(h.name)}</label>
       <input id="sw-${h.id}" type="number" step="0.1" value="${((h.targetWt||0)*100).toFixed(1)}" oninput="updateSwSum()"></div>`).join('');
   openModal(`<h3>${CATEGORIES[cat].label} 종목 목표 비중</h3>
     <div class="modal-sub">카테고리 내 비중 · 합계 100% 권장</div>
@@ -2038,6 +2045,16 @@ async function deleteDepositYear(year){
         trendFixed=true;
       }
     });
+    // 고점(고수위선) 보정 — 취소로 부풀려진 고점을 실제 기록 최고치로 되돌림
+    if((state.settings.pickValue||0) > postTotal){
+      const histMax=Math.max(0,...state.history.map(h=>h.total||0));
+      const newPick=Math.max(postTotal, histMax);
+      if(newPick < state.settings.pickValue){
+        state.settings.pickValue=newPick;
+        const top=state.history.filter(h=>(h.total||0)>=newPick).sort((a,b)=>(b.d||'').localeCompare(a.d||''))[0];
+        if(top) state.settings.pickDate=top.d;
+      }
+    }
   }
   await saveState(); closeModal();
   toast(year+'년 납입 기록 취소됨'+(trendFixed?' · 자산 추이도 보정됨':''));
@@ -2165,7 +2182,7 @@ function renderQuickEntry(){
     // 종목명 (2열)
     rows.forEach((r,gi)=>{
       const sym=r.h.symbol.replace('.KS','').replace('.L','');
-      cells+=`<span class="qe-csym" style="grid-column:2;grid-row:${gi+2}" title="${r.h.name}">${sym}</span>`;
+      cells+=`<span class="qe-csym" style="grid-column:2;grid-row:${gi+2}" title="${esc(r.h.name)}">${esc(sym)}</span>`;
     });
     // 수량 입력칸 (3열) — DOM에 세로로 연속 배치 → 키보드 '다음'이 같은 열 아래로 이동
     rows.forEach((r,gi)=>{
@@ -2304,7 +2321,7 @@ function quoteRowHTML(h){
     <div class="h-icon" style="background:${col}22;color:${col}">${ini}</div>
     <div class="h-info">
       <div class="h-ticker">${h.symbol.replace('.KS','').replace('.L','')}</div>
-      <div class="h-name">${h.name}</div>
+      <div class="h-name">${esc(h.name)}</div>
     </div>
     <div class="h-val">
       <div class="h-amount">${priceStr}</div>
@@ -2752,7 +2769,7 @@ function openHoldingDetail(id){
       <input id="d-tot" type="number" step="1" value="${krwTotVal}" oninput="syncPurchase('d','tot')">
       <small>수량과 총 매입금액을 넣으면 평균단가가 자동 계산됩니다</small></div>`:'';
   openModal(`<h3>${h.symbol.replace('.KS','').replace('.L','')}</h3>
-    <div class="modal-sub">${h.name} · ${CATEGORIES[h.cat].label}</div>
+    <div class="modal-sub">${esc(h.name)} · ${CATEGORIES[h.cat].label}</div>
     <div class="detail-grid">
       <div class="detail-cell"><div class="dl">평가액</div><div class="dv">${fmtKRW(v.current)}</div></div>
       <div class="detail-cell"><div class="dl">평가손익</div><div class="dv ${pnl>=0?'up':'down'}">${pnl>=0?'+':''}${fmtKRW(pnl)}</div></div>

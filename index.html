@@ -131,6 +131,13 @@ input,select,textarea{font-family:inherit;color:inherit}
 .h-ticker{font-size:14px;font-weight:600;display:flex;align-items:center;gap:5px}
 .h-warn{font-size:10px;color:var(--gold)}
 .h-name{font-size:11px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.mkt-strip{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px}
+.mkt-chip{display:flex;align-items:center;gap:6px;padding:6px 11px;border-radius:999px;background:var(--surface);border:1px solid var(--hairline);font-size:11px;font-weight:600;color:var(--text-2)}
+.mkt-chip .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.ses-badge{font-size:9px;font-weight:700;padding:1.5px 6px;border-radius:5px;margin-left:6px;letter-spacing:0.02em}
+.ses-open{background:rgba(63,185,80,0.16);color:#56C964}
+.ses-ext{background:var(--gold-soft);color:var(--gold)}
+.ses-closed{background:rgba(255,255,255,0.06);color:var(--text-3)}
 .h-val{text-align:right;font-variant-numeric:tabular-nums;flex-shrink:0}
 .h-amount{font-size:14px;font-weight:600}
 .h-pct{font-size:11px;font-weight:600;margin-top:1px}
@@ -949,11 +956,15 @@ function renderTopbar(){
 
 /* === 증시 휴장일 배너 (출처: KRX·NYSE 공식 2026 일정) === */
 const MARKET_HOLIDAYS={
-  kr:{ // 한국거래소 2026 휴장일 (평일 기준 · 주말은 별도)
+  kr:{ // 한국거래소 2026~2027 휴장일 (평일 기준 · 주말은 별도)
     '2026-01-01':'신정','2026-02-16':'설날','2026-02-17':'설날','2026-02-18':'설날',
     '2026-03-02':'삼일절 대체공휴일','2026-05-05':'어린이날','2026-05-25':'부처님오신날 대체',
     '2026-06-03':'지방선거일','2026-08-17':'광복절 대체공휴일','2026-09-24':'추석','2026-09-25':'추석',
-    '2026-10-05':'개천절 대체공휴일','2026-10-09':'한글날','2026-12-25':'성탄절','2026-12-31':'연말 휴장일'
+    '2026-10-05':'개천절 대체공휴일','2026-10-09':'한글날','2026-12-25':'성탄절','2026-12-31':'연말 휴장일',
+    '2027-01-01':'신정','2027-02-08':'설날','2027-02-09':'설날 대체공휴일','2027-03-01':'삼일절',
+    '2027-05-05':'어린이날','2027-05-13':'부처님오신날','2027-08-16':'광복절 대체공휴일',
+    '2027-09-14':'추석','2027-09-15':'추석','2027-09-16':'추석','2027-10-04':'개천절 대체공휴일',
+    '2027-10-11':'한글날 대체공휴일','2027-12-27':'성탄절 대체공휴일','2027-12-31':'연말 휴장일'
   },
   us:{ // NYSE/NASDAQ 2026~2027 휴장일
     '2026-01-01':'신정','2026-01-19':'마틴 루서 킹 데이','2026-02-16':'프레지던트 데이',
@@ -962,6 +973,14 @@ const MARKET_HOLIDAYS={
     '2027-01-01':'신정','2027-01-18':'마틴 루서 킹 데이','2027-02-15':'프레지던트 데이',
     '2027-03-26':'성금요일','2027-05-31':'메모리얼 데이','2027-06-18':'준틴스','2027-07-05':'독립기념일',
     '2027-09-06':'노동절','2027-11-25':'추수감사절','2027-12-24':'성탄절'
+  },
+  uk:{ // 런던증권거래소(LSE) 2026~2027 휴장일 (영국 공휴일 · 종일 휴장만)
+    '2026-01-01':'신정','2026-04-03':'성금요일','2026-04-06':'부활절 월요일',
+    '2026-05-04':'5월 초 뱅크홀리데이','2026-05-25':'봄 뱅크홀리데이','2026-08-31':'여름 뱅크홀리데이',
+    '2026-12-25':'성탄절','2026-12-28':'박싱데이 대체휴일',
+    '2027-01-01':'신정','2027-03-26':'성금요일','2027-03-29':'부활절 월요일',
+    '2027-05-03':'5월 초 뱅크홀리데이','2027-05-31':'봄 뱅크홀리데이','2027-08-30':'여름 뱅크홀리데이',
+    '2027-12-27':'성탄절 대체휴일','2027-12-28':'박싱데이 대체휴일'
   }
 };
 function renderMarketBanner(){
@@ -977,6 +996,61 @@ function renderMarketBanner(){
   else if(usH) msg=`오늘 미국 증시 휴장 — ${usH}`;
   if(msg){ el.textContent=msg; el.style.display='block'; }
   else { el.style.display='none'; }
+}
+
+/* === 종목별 시장 세션 판별 (시계 기반 · API 불필요) === */
+function marketOf(h){
+  if(h.cat==='crypto') return 'crypto';
+  const s=(h.symbol||'').toUpperCase();
+  if(s.endsWith('.KS')||s.endsWith('.KQ')) return 'kr';
+  if(s.endsWith('.L')) return 'london';
+  if(isUSDcat(h.cat)) return 'us';
+  return h.cat==='bond' ? 'kr' : 'us';   // 접미사 없는 글로벌 ETF는 미국 상장으로 간주
+}
+/* 해당 시장의 현재 세션 → {label, cls} */
+function marketSession(mkt){
+  if(mkt==='crypto') return {label:'24시간',cls:'ses-open'};
+  const tz={us:'America/New_York',kr:'Asia/Seoul',london:'Europe/London'}[mkt];
+  if(!tz) return {label:'',cls:''};
+  const parts=new Intl.DateTimeFormat('en-US',{timeZone:tz,weekday:'short',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date());
+  const gv=t=>(parts.find(p=>p.type===t)||{}).value;
+  let h=parseInt(gv('hour'),10); if(h===24)h=0;
+  const t=h*60+parseInt(gv('minute'),10);   // 자정 기준 분
+  const wd=gv('weekday');
+  if(wd==='Sat'||wd==='Sun') return {label:'주말 휴장',cls:'ses-closed'};
+  const ymd=new Date().toLocaleDateString('en-CA',{timeZone:tz});
+  const holKey={us:'us',kr:'kr',london:'uk'}[mkt];
+  const hol=(MARKET_HOLIDAYS[holKey]||{})[ymd];
+  if(hol) return {label:'휴장',cls:'ses-closed'};
+  if(mkt==='us'){
+    if(t>=240&&t<570)  return {label:'프리장',cls:'ses-ext'};   // 04:00–09:30
+    if(t>=570&&t<960)  return {label:'장중',cls:'ses-open'};    // 09:30–16:00
+    if(t>=960&&t<1200) return {label:'애프터',cls:'ses-ext'};   // 16:00–20:00
+    return {label:'장마감',cls:'ses-closed'};
+  }
+  if(mkt==='kr'){
+    if(t>=510&&t<540)  return {label:'장전',cls:'ses-ext'};     // 08:30–09:00
+    if(t>=540&&t<930)  return {label:'장중',cls:'ses-open'};    // 09:00–15:30
+    if(t>=930&&t<1080) return {label:'장후',cls:'ses-ext'};     // 15:30–18:00
+    return {label:'장마감',cls:'ses-closed'};
+  }
+  if(mkt==='london'){
+    if(t>=480&&t<990) return {label:'장중',cls:'ses-open'};     // 08:00–16:30
+    return {label:'장마감',cls:'ses-closed'};
+  }
+  return {label:'',cls:''};
+}
+/* 보유 시장들의 세션 요약 바 */
+function marketStripHTML(holdings){
+  const order={us:0,kr:1,london:2,crypto:3};
+  const name={us:'미국',kr:'국내',london:'런던',crypto:'코인'};
+  const dotCol={'ses-open':'#56C964','ses-ext':'var(--gold)','ses-closed':'var(--text-3)'};
+  const mkts=[...new Set(holdings.map(marketOf))].sort((a,b)=>(order[a]??9)-(order[b]??9));
+  if(!mkts.length) return '';
+  return '<div class="mkt-strip">'+mkts.map(mk=>{
+    const ss=marketSession(mk);
+    return `<div class="mkt-chip"><span class="dot" style="background:${dotCol[ss.cls]||'var(--text-3)'}"></span>${name[mk]} ${ss.label}</div>`;
+  }).join('')+'</div>';
 }
 
 /* XIRR — 납입 시점을 반영한 연환산 수익률 (이분법) */
@@ -2305,6 +2379,7 @@ function quoteRowHTML(h){
   const priceStr=usd?fmtUSD(price):'₩'+Math.round(price).toLocaleString();
   const ini=h.symbol.replace(/\..*/,'').slice(0,2).toUpperCase();
   const col=CATEGORIES[h.cat].color;
+  const ses=marketSession(marketOf(h));
   let chgHtml='<div class="h-pct" style="color:var(--text-3)">시세 없음</div>';
   if(h._mkt && h._mkt.dayChangePct!=null){
     const dc=h._mkt.dayChangePct, cls=dc>=0?'up':'down';
@@ -2313,14 +2388,12 @@ function quoteRowHTML(h){
       const abs=price-h._mkt.prevClose;
       absStr=usd?`${abs>=0?'+':''}${abs.toFixed(2)}`:`${abs>=0?'+':''}${Math.round(abs).toLocaleString()}`;
     }
-    const msl=marketStateLabel(h._mkt.marketState);
-    chgHtml=`<div class="h-pct ${cls}">${fmtPctSigned(dc)}${absStr?`<span class="q-abs">${absStr}</span>`:''}</div>`
-           +(msl?`<div class="h-ms">${msl}</div>`:'');
+    chgHtml=`<div class="h-pct ${cls}">${fmtPctSigned(dc)}${absStr?`<span class="q-abs">${absStr}</span>`:''}</div>`;
   }
   return `<div class="holding" data-id="${h.id}">
     <div class="h-icon" style="background:${col}22;color:${col}">${ini}</div>
     <div class="h-info">
-      <div class="h-ticker">${h.symbol.replace('.KS','').replace('.L','')}</div>
+      <div class="h-ticker">${esc(h.symbol.replace('.KS','').replace('.L',''))}${ses.label?`<span class="ses-badge ${ses.cls}">${ses.label}</span>`:''}</div>
       <div class="h-name">${esc(h.name)}</div>
     </div>
     <div class="h-val">
@@ -2347,7 +2420,7 @@ function renderQuotes(){
   if(!holdings.length){ el.innerHTML='<div class="empty">보유 종목이 없습니다.</div>'; return; }
   const groups={};
   for(const h of holdings){ (groups[h.cat]=groups[h.cat]||[]).push(h); }
-  let html='';
+  let html=marketStripHTML(holdings);
   for(const cat in groups){
     html+=`<div class="card"><div class="card-title">${CATEGORIES[cat].label} <span style="color:var(--text-3);font-weight:400;margin-left:4px">${groups[cat].length}종</span></div>`;
     html+=groups[cat].map(quoteRowHTML).join('');

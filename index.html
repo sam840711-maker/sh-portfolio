@@ -138,6 +138,11 @@ input,select,textarea{font-family:inherit;color:inherit}
 .ses-open{background:rgba(63,185,80,0.16);color:#56C964}
 .ses-ext{background:var(--gold-soft);color:var(--gold)}
 .ses-closed{background:rgba(255,255,255,0.06);color:var(--text-3)}
+.imp-cat{display:flex;align-items:center;gap:9px;padding:11px 12px;background:var(--surface);border:1px solid var(--hairline);border-radius:10px;margin-bottom:8px;cursor:pointer}
+.imp-cb{width:17px;height:17px;flex-shrink:0;accent-color:var(--gold)}
+.imp-dot{width:9px;height:9px;border-radius:3px;flex-shrink:0}
+.imp-cl-name{font-size:13px;font-weight:600}
+.imp-cl-cnt{margin-left:auto;font-size:11px;color:var(--text-3);font-variant-numeric:tabular-nums}
 .h-val{text-align:right;font-variant-numeric:tabular-nums;flex-shrink:0}
 .h-amount{font-size:14px;font-weight:600}
 .h-pct{font-size:11px;font-weight:600;margin-top:1px}
@@ -3273,6 +3278,7 @@ async function backupToDrive(){
 }
 document.getElementById('backup-btn').onclick=backupToDrive;
 let pendingImport=null;
+let impMode='full';
 document.getElementById('import-btn').onclick=()=>document.getElementById('import-file').click();
 document.getElementById('import-file').onchange=function(e){
   const file=e.target.files&&e.target.files[0];
@@ -3287,32 +3293,77 @@ document.getElementById('import-file').onchange=function(e){
       toast('올바른 백업 파일이 아닙니다'); return;
     }
     pendingImport=data;
+    impMode='full';
     const nH=data.holdings.length;
     const nT=Array.isArray(data.transactions)?data.transactions.length:0;
     const nHist=Array.isArray(data.history)?data.history.length:0;
+    const catRows=Object.keys(CATEGORIES).map(cat=>{
+      const bCount=data.holdings.filter(h=>h.cat===cat).length;
+      const cCount=state.holdings.filter(h=>h.cat===cat).length;
+      return `<label class="imp-cat">
+        <input type="checkbox" class="imp-cb" value="${cat}" checked>
+        <span class="imp-dot" style="background:${CATEGORIES[cat].color}"></span>
+        <span class="imp-cl-name">${CATEGORIES[cat].label}</span>
+        <span class="imp-cl-cnt">백업 ${bCount}종 · 현재 ${cCount}종</span>
+      </label>`;
+    }).join('');
     openModal(`<h3>데이터 가져오기</h3>
-      <div class="modal-sub">아래 백업으로 현재 데이터를 모두 덮어씁니다. 되돌릴 수 없으니, 현재 데이터를 먼저 내보내 두는 것을 권장합니다.</div>
-      <div class="field"><label>백업 파일 내용</label>
-        <div style="background:var(--surface);border:1px solid var(--hairline);border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.7">
-          보유 종목 <b class="num">${nH}</b>개<br>
-          거래 기록 <b class="num">${nT}</b>건<br>
-          자산 추이 기록 <b class="num">${nHist}</b>개월
-        </div></div>
+      <div class="modal-sub">백업 내용 — 보유 종목 <b class="num">${nH}</b>종 · 거래 <b class="num">${nT}</b>건 · 자산 추이 <b class="num">${nHist}</b>개</div>
+      <div class="seg" id="imp-mode-seg">
+        <button class="active" onclick="setImpMode('full',this)">전체 복원</button>
+        <button onclick="setImpMode('partial',this)">자산군 선택</button>
+      </div>
+      <div id="imp-full-note" class="info-text" style="margin-bottom:14px">백업 전체로 현재 데이터(거래·자산 추이·설정 포함)를 모두 덮어씁니다. 되돌릴 수 없으니 현재 데이터를 먼저 내보내 두는 것을 권장합니다.</div>
+      <div id="imp-partial" style="display:none">
+        <div class="info-text" style="margin-bottom:12px">선택한 자산군의 <b>종목·예수금·목표비중</b>만 백업값으로 교체합니다. 선택하지 않은 자산군과 거래·자산 추이 기록은 그대로 유지됩니다.</div>
+        ${catRows}
+      </div>
       <div class="btn-row">
         <button class="btn btn-secondary" onclick="closeModal()">취소</button>
-        <button class="btn btn-primary" onclick="confirmImport()">가져오기</button>
+        <button class="btn btn-primary" onclick="confirmImport()">복원</button>
       </div>`);
   };
   reader.onerror=()=>toast('파일을 읽지 못했습니다');
   reader.readAsText(file);
 };
+function setImpMode(mode,btn){
+  impMode=mode;
+  document.querySelectorAll('#imp-mode-seg button').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('imp-full-note').style.display = mode==='full'?'block':'none';
+  document.getElementById('imp-partial').style.display   = mode==='partial'?'block':'none';
+}
+window.setImpMode=setImpMode;
 async function confirmImport(){
   if(!pendingImport) return;
-  state=pendingImport; pendingImport=null;
-  normalizeState();
-  lastFailed=new Set();
-  await saveState();
-  closeModal(); toast('데이터를 가져왔습니다'); switchView('dashboard');
+  if(impMode==='partial'){
+    const cats=[...document.querySelectorAll('.imp-cb:checked')].map(cb=>cb.value);
+    if(!cats.length){ toast('복원할 자산군을 하나 이상 선택하세요'); return; }
+    // 선택 자산군의 종목을 백업값으로 교체 (나머지 자산군은 유지)
+    state.holdings=state.holdings.filter(h=>!cats.includes(h.cat))
+      .concat((pendingImport.holdings||[]).filter(h=>cats.includes(h.cat)));
+    // 해당 자산군의 예수금·목표비중도 함께 복원
+    const ps=pendingImport.settings||{};
+    cats.forEach(cat=>{
+      if(ps.cashByClass && ps.cashByClass[cat]!=null){
+        state.settings.cashByClass=state.settings.cashByClass||{};
+        state.settings.cashByClass[cat]=ps.cashByClass[cat];
+      }
+      if(ps.classTargets && ps.classTargets[cat]!=null){
+        state.settings.classTargets=state.settings.classTargets||{};
+        state.settings.classTargets[cat]=ps.classTargets[cat];
+      }
+    });
+    pendingImport=null;
+    normalizeState(); lastFailed=new Set();
+    await saveState(); closeModal();
+    toast(cats.length+'개 자산군을 복원했습니다'); switchView('dashboard');
+  } else {
+    state=pendingImport; pendingImport=null;
+    normalizeState(); lastFailed=new Set();
+    await saveState(); closeModal();
+    toast('전체 데이터를 가져왔습니다'); switchView('dashboard');
+  }
 }
 window.confirmImport=confirmImport;
 document.getElementById('reset-btn').onclick=async()=>{

@@ -953,6 +953,7 @@ function taxEstimate(){
    RENDERING
    ================================================================ */
 let chartAlloc=null, chartRb=null, chartTrend=null, currentView='dashboard';
+let priceChartObj=null, pcHolding=null, pcRange='3mo';
 
 function renderTopbar(){
   document.getElementById('fx-val').textContent = state.settings.fxRate.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -1379,6 +1380,85 @@ function renderTrendChart(){
 
 let activeCategory='all';
 let holdingSort='cat';
+
+/* === 종목 시세 흐름 차트 (야후 일별 종가 / 코인은 업비트 일봉) === */
+const PC_RANGES=[['1mo','1M',30],['3mo','3M',90],['6mo','6M',180],['1y','1Y',365]];
+async function fetchPriceHistory(h, range){
+  if(h.cat==='crypto'){
+    const cnt=(PC_RANGES.find(r=>r[0]===range)||[])[2]||90;
+    const mk=UPBIT_MARKET[(h.symbol||'').toUpperCase()]||('KRW-'+(h.symbol||'').toUpperCase());
+    const url=`https://api.upbit.com/v1/candles/days?market=${mk}&count=${cnt}`;
+    let arr;
+    try{ const r=await fetch(url); if(!r.ok) throw 0; arr=await r.json(); }
+    catch(e){ arr=await proxyFetchJson(url); }
+    return arr.map(c=>({t:(c.candle_date_time_kst||'').slice(0,10), v:c.trade_price})).reverse();
+  }
+  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(h.symbol)}?interval=1d&range=${range}&t=${Date.now()}`;
+  const data=await proxyFetchJson(url);
+  const r=data&&data.chart&&data.chart.result&&data.chart.result[0];
+  if(!r||!r.timestamp) throw new Error('no data');
+  const close=(r.indicators&&r.indicators.quote&&r.indicators.quote[0]&&r.indicators.quote[0].close)||[];
+  const out=[];
+  for(let i=0;i<r.timestamp.length;i++){
+    if(close[i]!=null) out.push({t:new Date(r.timestamp[i]*1000).toISOString().slice(0,10), v:close[i]});
+  }
+  return out;
+}
+function openPriceChart(id){
+  const h=state.holdings.find(x=>String(x.id)===String(id));
+  if(!h) return;
+  pcHolding=h; pcRange='3mo';
+  const usd=isUSDcat(h.cat);
+  const cur=usd?fmtUSD(h.curUSD||0):'₩'+Math.round(h.curKRW||0).toLocaleString();
+  const seg=PC_RANGES.map(([rk,lbl])=>`<button data-rk="${rk}" class="${rk==='3mo'?'active':''}" onclick="setPriceRange('${rk}',this)">${lbl}</button>`).join('');
+  openModal(`<h3>${esc(h.symbol.replace('.KS','').replace('.L',''))}</h3>
+    <div class="modal-sub">${esc(h.name)} · 현재가 ${cur}</div>
+    <div class="seg pc-seg" style="margin-bottom:12px">${seg}</div>
+    <div class="chart-wrap" style="height:230px"><canvas id="pc-canvas"></canvas></div>
+    <div id="pc-note" style="font-size:11px;color:var(--text-3);text-align:center;margin-top:10px">불러오는 중…</div>`);
+  loadPriceChart();
+}
+function setPriceRange(rk,btn){
+  pcRange=rk;
+  document.querySelectorAll('.pc-seg button').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  loadPriceChart();
+}
+async function loadPriceChart(){
+  const note=document.getElementById('pc-note');
+  if(!pcHolding) return;
+  if(note) note.textContent='불러오는 중…';
+  if(priceChartObj){ priceChartObj.destroy(); priceChartObj=null; }
+  let series;
+  try{ series=await fetchPriceHistory(pcHolding, pcRange); }
+  catch(e){ if(document.getElementById('pc-note')) document.getElementById('pc-note').textContent='차트 데이터를 불러올 수 없습니다'; return; }
+  const cv=document.getElementById('pc-canvas');   // 그새 모달이 닫혔는지 확인
+  if(!cv) return;
+  if(!series || series.length<2){ if(note) note.textContent='차트 데이터가 없습니다'; return; }
+  const usd=isUSDcat(pcHolding.cat);
+  const first=series[0].v, last=series[series.length-1].v;
+  const col=last>=first?'#E5484D':'#4A90E2';
+  const ctx=cv.getContext('2d');
+  const grad=ctx.createLinearGradient(0,0,0,220);
+  grad.addColorStop(0,col+'40'); grad.addColorStop(1,col+'00');
+  priceChartObj=new Chart(ctx,{type:'line',
+    data:{labels:series.map(p=>p.t),datasets:[{data:series.map(p=>p.v),borderColor:col,backgroundColor:grad,borderWidth:2,fill:true,tension:0.25,pointRadius:0,pointHoverRadius:4,pointBackgroundColor:col}]},
+    options:{interaction:{mode:'index',intersect:false},maintainAspectRatio:false,
+      scales:{
+        x:{ticks:{color:'#565967',font:{size:9,family:'Pretendard'},maxTicksLimit:5,autoSkip:true},grid:{display:false}},
+        y:{ticks:{color:'#565967',font:{size:9,family:'Pretendard'},
+          callback:v=>usd?'$'+(v>=1000?(v/1000).toFixed(1)+'k':v):(v>=1e6?(v/1e6).toFixed(1)+'M':Math.round(v).toLocaleString())},grid:{color:'rgba(255,255,255,0.04)'}}},
+      plugins:{legend:{display:false},
+        tooltip:{backgroundColor:'#1B2030',padding:10,
+          callbacks:{title:items=>series[items[0].dataIndex].t,
+            label:c=>usd?' $'+c.raw.toLocaleString(undefined,{maximumFractionDigits:2}):' ₩'+Math.round(c.raw).toLocaleString()}}}
+    }});
+  const chg=first?((last-first)/first*100):0;
+  const ccls=chg>=0?'up':'down';
+  if(note) note.innerHTML=`${series[0].t} → ${series[series.length-1].t} · 기간 변동 <b class="${ccls}">${chg>=0?'+':''}${chg.toFixed(1)}%</b>`;
+}
+window.openPriceChart=openPriceChart; window.setPriceRange=setPriceRange;
+
 function holdingRowHTML(h, moveInfo){
   const fx=state.settings.fxRate;
   const v=holdingValue(h,fx), pnl=v.current-v.invested, pct=v.invested>0?pnl/v.invested:0;
@@ -2433,7 +2513,7 @@ function renderQuotes(){
     html+='</div>';
   }
   el.innerHTML=html;
-  el.querySelectorAll('.holding').forEach(r=>r.onclick=()=>openHoldingDetail(r.dataset.id));
+  el.querySelectorAll('.holding').forEach(r=>r.onclick=()=>openPriceChart(r.dataset.id));
 }
 
 /* ================================================================
@@ -2611,6 +2691,7 @@ if(window.visualViewport){
 function closeModal(){
   const bg=document.getElementById('modal-bg');
   if(!bg.classList.contains('show')) return;
+  if(priceChartObj){ priceChartObj.destroy(); priceChartObj=null; pcHolding=null; }
   if(history.state && history.state.modal) history.back();  // popstate가 실제로 닫음
   else bg.classList.remove('show');
 }

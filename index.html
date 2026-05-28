@@ -74,10 +74,10 @@ input,select,textarea{font-family:inherit;color:inherit}
 .hm-val{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums}
 .pill.up-pill{background:var(--up-soft);color:var(--up)}
 .pill.down-pill{background:var(--down-soft);color:var(--down)}
-.freshness{margin-top:14px;padding:9px 12px;background:var(--surface);border:1px solid var(--hairline);border-radius:10px;display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--text-2);cursor:pointer;transition:border-color .15s}
+.freshness{margin:0 0 12px;padding:12px 15px;background:var(--surface);border:1px solid var(--hairline);border-radius:10px;display:flex;align-items:center;justify-content:space-between;font-size:14px;color:var(--text-2);cursor:pointer;transition:border-color .15s}
 .freshness:active{border-color:var(--gold)}
-.freshness .fx-val{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
-.freshness .refresh-hint{color:var(--gold);display:flex;align-items:center;gap:4px}
+.freshness .fx-val{color:var(--text);font-weight:700;font-variant-numeric:tabular-nums;font-size:16px}
+.freshness .refresh-hint{color:var(--gold);display:flex;align-items:center;gap:4px;font-size:13px}
 
 .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
 .stat{background:var(--surface);border:1px solid var(--hairline);border-radius:14px;padding:14px}
@@ -354,6 +354,10 @@ input,select,textarea{font-family:inherit;color:inherit}
   <div class="view" id="view-dashboard">
     <div class="card rebal-alert" id="rebal-alert" style="display:none"></div>
     <div id="market-banner" class="mkt-banner" style="display:none"></div>
+    <div class="freshness" id="freshness">
+      <span>USD/KRW <span class="fx-val" id="fx-val">—</span></span>
+      <span class="refresh-hint" id="fresh-text">탭하여 시세 갱신</span>
+    </div>
     <div class="hero">
       <div class="hero-label">총 자산</div>
       <div class="hero-amount"><span id="hero-total">—</span><span class="unit">원</span></div>
@@ -379,10 +383,6 @@ input,select,textarea{font-family:inherit;color:inherit}
         <div id="hero-fx-wrap"><span class="hm-label">환차손익</span><span class="hm-val num" id="hero-fxgain">—</span></div>
         <div><span class="hm-label">달러 주가손익</span><span class="hm-val num" id="hero-exfx-pnl">—</span></div>
         <div><span class="hm-label">누적 이자·세금</span><span class="hm-val num" id="hero-itax">—</span></div>
-      </div>
-      <div class="freshness" id="freshness">
-        <span>USD/KRW <span class="fx-val" id="fx-val">—</span></span>
-        <span class="refresh-hint" id="fresh-text">탭하여 시세 갱신</span>
       </div>
     </div>
 

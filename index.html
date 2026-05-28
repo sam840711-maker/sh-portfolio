@@ -410,6 +410,8 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div class="goal-pace" id="goal-pace"></div>
     </div>
 
+    <div id="holdings-summary"></div>
+
     <div class="card">
       <div class="card-title">자산 추이 <span class="action" id="trend-add">기록 관리</span></div>
       <div class="chart-wrap"><canvas id="chart-trend"></canvas></div>
@@ -424,7 +426,6 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div class="card-title">자산 배분 · 현재 vs 목표 <span class="action" id="edit-class-tw">목표 수정</span></div>
       <div id="alloc-bars"></div>
     </div>
-    <div id="holdings-summary"></div>
     <div class="chips" id="category-chips"></div>
     <div class="seg" id="holding-sort" style="margin:4px 0 14px">
       <button data-hs="cat" class="active">카테고리</button>
@@ -1216,6 +1217,7 @@ function renderDashboard(){
     +`<span class="num ${paceCls}">${paceGap>=0?'+':'-'}₩${fmtKRW(Math.abs(paceGap))} `
     +`(${fmtPctSigned(pacePct,1)}) ${paceWord}</span></div>`;
 
+  renderHoldingsSummary();
   renderTrendChart();
   renderTopbar();
   renderRebalAlert(s);
@@ -1462,7 +1464,6 @@ function renderHoldingsSummary(){
 function renderHoldings(){
   const fx=state.settings.fxRate;
   renderAllocChart(portfolioStats());
-  renderHoldingsSummary();
   const chips=document.getElementById('category-chips');
   chips.innerHTML=`<button class="chip ${activeCategory==='all'?'active':''}" data-cat="all">전체</button>`+
     Object.keys(CATEGORIES).map(k=>`<button class="chip ${activeCategory===k?'active':''}" data-cat="${k}">${CATEGORIES[k].label}</button>`).join('');

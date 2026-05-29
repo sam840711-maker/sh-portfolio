@@ -952,7 +952,7 @@ function taxEstimate(){
    RENDERING
    ================================================================ */
 let chartAlloc=null, chartRb=null, chartTrend=null, currentView='dashboard';
-let priceChartObj=null, pcHolding=null, pcRange='3mo';
+let priceChartObj=null, pcHolding=null, pcRange='1y';
 
 function renderTopbar(){
   document.getElementById('fx-val').textContent = state.settings.fxRate.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -1336,12 +1336,15 @@ function renderTrendChart(){
     note.textContent='데이터가 없습니다.';
     return;
   }
-  const shortLabel=d=>d.slice(2).replace(/-/g,'.');   // 26.04.15
-  const labels=hist.map(h=>h.d);
-  const asset=hist.map(h=>h.total);
+  const toMs=d=>new Date(d+'T00:00:00').getTime();
+  const fmtDateShort=ms=>{ const d=new Date(ms); return String(d.getFullYear()).slice(2)+'.'+String(d.getMonth()+1).padStart(2,'0')+'.'+String(d.getDate()).padStart(2,'0'); };
+  const fmtDateLong=ms=>{ const d=new Date(ms); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
   const ymd=dt=>dt.toISOString().slice(0,10);
-  const principal=hist.map(h=>
-    deposits.filter(dp=>ymd(dp.date)<=h.d).reduce((s,dp)=>s+dp.amount,0));
+  const assetPts=hist.map(h=>({x:toMs(h.d), y:h.total}));
+  const principalPts=hist.map(h=>({
+    x:toMs(h.d),
+    y:deposits.filter(dp=>ymd(dp.date)<=h.d).reduce((s,dp)=>s+dp.amount,0)
+  }));
 
   const grad=ctx.createLinearGradient(0,0,0,210);
   grad.addColorStop(0,'rgba(201,166,107,0.32)');
@@ -1349,32 +1352,35 @@ function renderTrendChart(){
 
   if (chartTrend) chartTrend.destroy();
   chartTrend=new Chart(ctx,{type:'line',
-    data:{labels:labels.map(shortLabel),datasets:[
-      {label:'평가 자산',data:asset,borderColor:'#C9A66B',backgroundColor:grad,
+    data:{datasets:[
+      {label:'평가 자산',data:assetPts,borderColor:'#C9A66B',backgroundColor:grad,
        borderWidth:2,fill:true,tension:0.3,spanGaps:true,
        pointRadius:0,pointHoverRadius:4,pointBackgroundColor:'#C9A66B'},
-      {label:'납입 원금',data:principal,borderColor:'#565967',borderWidth:1.5,
-       borderDash:[4,3],fill:false,tension:0,pointRadius:0,pointHoverRadius:3},
+      {label:'납입 원금',data:principalPts,borderColor:'#565967',borderWidth:1.5,
+       borderDash:[4,3],fill:false,stepped:true,pointRadius:0,pointHoverRadius:3},
     ]},
     options:{
       interaction:{mode:'index',intersect:false},
       scales:{
-        x:{ticks:{color:'#565967',font:{size:9,family:'Pretendard'},maxTicksLimit:6,autoSkip:true},grid:{display:false}},
+        x:{type:'linear',
+           ticks:{color:'#565967',font:{size:9,family:'Pretendard'},maxTicksLimit:6,
+                  callback:v=>fmtDateShort(v)},
+           grid:{display:false}},
         y:{ticks:{color:'#565967',font:{size:9,family:'Pretendard'},
             callback:v=>(v/1e8).toFixed(1)+'억'},grid:{color:'rgba(255,255,255,0.04)'}},
       },
       plugins:{
         legend:{labels:{color:'#8A8E9B',font:{size:10,family:'Pretendard'},boxWidth:10,boxHeight:10,padding:12}},
         tooltip:{backgroundColor:'#1B2030',padding:10,
-          callbacks:{title:items=>labels[items[0].dataIndex]||'',
-            label:c=> c.raw==null?null:` ${c.dataset.label}: ${fmtKRWFull(c.raw)}`}}
+          callbacks:{title:items=>fmtDateLong(items[0].parsed.x),
+            label:c=>(c.raw==null||c.raw.y==null)?null:` ${c.dataset.label}: ${fmtKRWFull(c.raw.y)}`}}
       }
     }});
 
   const recorded=hist.length;
   note.textContent = recorded<=1
     ? '평가 자산은 매일 마지막으로 본 값으로 기록됩니다'
-    : `평가 자산 ${recorded}개 일자 기록 누적 (그날 마지막 값) · 납입 원금은 거래내역 기준`;
+    : `평가 자산 ${recorded}개 일자 기록 누적 (그날 마지막 값 · 시간 비례 표시)`;
 }
 
 let activeCategory='all';
@@ -1419,10 +1425,10 @@ async function fetchPriceHistory(h, range){
 function openPriceChart(id){
   const h=state.holdings.find(x=>String(x.id)===String(id));
   if(!h) return;
-  pcHolding=h; pcRange='3mo';
+  pcHolding=h; pcRange='1y';
   const usd=isUSDcat(h.cat);
   const cur=usd?fmtUSD(h.curUSD||0):'₩'+Math.round(h.curKRW||0).toLocaleString();
-  const seg=PC_RANGES.map(([rk,lbl])=>`<button data-rk="${rk}" class="${rk==='3mo'?'active':''}" onclick="setPriceRange('${rk}',this)">${lbl}</button>`).join('');
+  const seg=PC_RANGES.map(([rk,lbl])=>`<button data-rk="${rk}" class="${rk==='1y'?'active':''}" onclick="setPriceRange('${rk}',this)">${lbl}</button>`).join('');
   openModal(`<h3>${esc(h.symbol.replace('.KS','').replace('.L',''))}</h3>
     <div class="modal-sub">${esc(h.name)} · 현재가 ${cur}</div>
     <div class="seg pc-seg" style="margin-bottom:12px">${seg}</div>

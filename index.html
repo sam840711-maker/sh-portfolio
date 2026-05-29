@@ -1465,6 +1465,16 @@ function renderTrendChart(){
     y:deposits.filter(dp=>ymd(dp.date)<=h.d).reduce((s,dp)=>s+dp.amount,0)
   }));
 
+  // x축 범위 — 선택한 기간이 그대로 보이도록 (데이터가 짧아도 빈 공간 둠)
+  const lastDataMs = assetPts.length ? assetPts[assetPts.length-1].x : Date.now();
+  let xMin, xMax = lastDataMs;
+  if (trendRange === 'all'){
+    xMin = assetPts.length ? assetPts[0].x : lastDataMs;
+  } else {
+    const days = {'2w':14,'1m':30,'3m':90,'6m':180,'1y':365}[trendRange] || 0;
+    xMin = lastDataMs - days * 86400000;
+  }
+
   const grad=ctx.createLinearGradient(0,0,0,210);
   grad.addColorStop(0,'rgba(201,166,107,0.32)');
   grad.addColorStop(1,'rgba(201,166,107,0.0)');
@@ -1482,8 +1492,7 @@ function renderTrendChart(){
       interaction:{mode:'index',intersect:false},
       scales:{
         x:{type:'linear',
-           min:assetPts.length?assetPts[0].x:undefined,
-           max:assetPts.length?assetPts[assetPts.length-1].x:undefined,
+           min:xMin, max:xMax,
            ticks:{color:'#565967',font:{size:9,family:'Pretendard'},maxTicksLimit:6,
                   callback:v=>fmtDateShort(v)},
            grid:{display:false}},

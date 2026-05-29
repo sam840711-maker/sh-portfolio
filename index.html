@@ -460,6 +460,11 @@ input,select,textarea{font-family:inherit;color:inherit}
         <label>금액 (₩) — 출금은 마이너스</label>
         <input id="ds-amount" type="number" placeholder="납입 50000000 · 출금 -30000000">
       </div>
+      <div class="seg" id="ds-dest-seg" style="margin-top:10px">
+        <button data-dest="external" class="active" onclick="setDsDest('external',this)">외부 출금</button>
+        <button data-dest="reserve" onclick="setDsDest('reserve',this)">대기 자금 이체</button>
+      </div>
+      <small class="muted" style="font-size:11px;display:block;margin-top:4px">출금(−)에만 적용 · 대기 자금 이체는 총자산이 유지됩니다</small>
       <button class="btn btn-secondary" style="width:100%;margin-top:10px" onclick="calcDepositSplit()">계산</button>
       <div id="ds-result" style="margin-top:12px"></div>
     </div>
@@ -823,6 +828,7 @@ function normalizeState(){
   }
   // 현금 계정 — 자산군에 배정 안 된 순수 현금 (추가납입이 자동으로 들어옴)
   if (state.settings.cashAccount==null) state.settings.cashAccount=0;
+  if (state.settings.reserveCash==null) state.settings.reserveCash=0;
   if (!state.settings.pickDate) state.settings.pickDate = '2025-08-15';
   // USD 보유 종목에 매입환율(avgFx)이 없으면 카테고리 기준값으로 보정
   for (const h of state.holdings){
@@ -922,12 +928,12 @@ function categoryTotals(){
   for (const h of state.holdings){ const v=holdingValue(h,fx); t[h.cat].invested+=v.invested; t[h.cat].current+=v.current; }
   return t;
 }
-/* 예수금 합계 — 자산군별 예수금(원화 환산) + 현금 계정 */
+/* 예수금 합계 — 자산군별 예수금(원화 환산) + 현금 계정 + 대기 자금 */
 function totalCash(){
   const fx=state.settings.fxRate, cb=state.settings.cashByClass||{};
   let sum=0;
   for (const k in cb){ sum += (cb[k].krw||0) + (cb[k].usd||0)*fx; }
-  sum += (state.settings.cashAccount||0);
+  sum += (state.settings.cashAccount||0) + (state.settings.reserveCash||0);
   return sum;
 }
 function portfolioStats(){
@@ -1683,9 +1689,11 @@ function renderHoldingsSummary(){
   let cashUSD=0;
   for (const k in cb){ if(cb[k]) cashUSD += (cb[k].usd||0); }
   const cashKRW=totalCash();
+  const reserve=state.settings.reserveCash||0;
   html+=`<div class="sum-row">
     <div class="sum-top"><span class="sum-name">예수금</span><span class="sum-cash">₩${fmtKRW(cashKRW)}</span></div>
     ${cashUSD>0?`<div class="sum-usd">달러 예수금 $${Math.round(cashUSD).toLocaleString()}</div>`:''}
+    ${reserve>0?`<div class="sum-usd">└ 대기 자금 ₩${fmtKRW(reserve)} (단기 예금·MMF)</div>`:''}
   </div>`;
 
   const tRet=tInv>0?(tCur-tInv)/tInv:0, tcls=tRet>=0?'up':'down', tPnl=tCur-tInv;
@@ -1755,6 +1763,16 @@ function renderAllocation(){
 
 /* 납입·출금 배분 계산기 */
 let lastDepositSplit=null;
+let dsDest='external';   // 'external'=외부 출금 / 'reserve'=대기 자금 이체
+function setDsDest(d,btn){
+  dsDest=d;
+  document.querySelectorAll('#ds-dest-seg button').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  // 음수(출금) 계산 중이면 destination에 맞게 다시 그리기
+  const amt=parseFloat((document.getElementById('ds-amount')||{}).value)||0;
+  if(amt<0) calcDepositSplit();
+}
+window.setDsDest=setDsDest;
 function calcDepositSplit(){
   const raw=Math.round(parseFloat(document.getElementById('ds-amount').value)||0);
   const box=document.getElementById('ds-result');
@@ -1866,18 +1884,43 @@ function calcDepositOut(amount,box){
       <div class="ds-total"><span>매도 예상 회수</span><span class="num">${fmtKRW(proceeds)}</span></div>
       <div class="modal-sub" style="margin-top:6px">매도 후 빠른 입력에서 보유 수량을 줄여주세요</div>`;
   }
-  box.innerHTML=`<div style="font-size:11px;color:var(--text-3);margin-bottom:4px">출금 — 현금 계정 → 목표 초과 자산군 예수금 → 종목 매도 순으로 충당</div>
+  const isReserve = dsDest==='reserve';
+  const headNote = isReserve
+    ? '대기 자금 이체 — 계산은 <b>가이드</b>입니다. 실제 매도·이체 후 잔액을 직접 갱신해 주세요'
+    : '출금 — 현금 계정 → 목표 초과 자산군 예수금 → 종목 매도 순으로 충당';
+  const applyBlock = (!isReserve && cashUsed>0)
+    ? `<button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="applyDepositSplit()">현금 차감분 예수금에 반영</button>`
+    : isReserve
+      ? `<div class="info-text" style="margin-top:12px;line-height:1.6">
+           1) 위 안내대로 증권사에서 실제 매도·이체를 진행하세요<br>
+           2) 매도 후 <b>빠른 입력</b>에서 보유 수량 정정<br>
+           3) <b>예수금 편집</b>에서 대기 자금에 실제 회수금 입력 · 예수금/현금 계정도 함께 갱신
+         </div>
+         <div class="btn-row" style="margin-top:10px">
+           <button class="btn btn-secondary" onclick="switchView('quickentry')">빠른 입력 열기</button>
+           <button class="btn btn-primary" onclick="openCashEditor()">예수금 편집 열기</button>
+         </div>`
+      : '';
+  const footNote = isReserve
+    ? '예상값과 실제 회수금은 시세·환율·호가 차이로 약간 다를 수 있습니다 — 실제 값으로 입력하세요'
+    : '수익률 반영은 거래 페이지에 출금(−)으로 기록하세요';
+  box.innerHTML=`<div style="font-size:11px;color:var(--text-3);margin-bottom:4px">${headNote}</div>
     ${rows}
     <div class="ds-total"><span>현금 차감 합계</span><span class="num">${fmtKRW(cashUsed)}</span></div>
-    ${cashUsed>0?`<button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="applyDepositSplit()">현금 차감분 예수금에 반영</button>`:''}
+    ${applyBlock}
     ${sellBlock}
-    <div class="modal-sub" style="margin-top:8px">수익률 반영은 거래 페이지에 출금(−)으로 기록하세요</div>`;
+    <div class="modal-sub" style="margin-top:8px">${footNote}</div>`;
 }
 
 async function applyDepositSplit(){
   if(!lastDepositSplit){ toast('먼저 계산을 하세요'); return; }
   const cb=state.settings.cashByClass||{};
   if(lastDepositSplit.mode==='out'){
+    // 대기 자금 이체는 자동 적용 안 함 (가이드 전용)
+    if(dsDest==='reserve'){
+      toast('대기 자금은 실제 매도 후 직접 입력해 주세요');
+      return;
+    }
     const {fromCashAcc,fromClass}=lastDepositSplit;
     state.settings.cashAccount=Math.max(0,(state.settings.cashAccount||0)-fromCashAcc);
     let used=fromCashAcc;
@@ -2149,10 +2192,13 @@ function openCashEditor(){
       <small>왼쪽 = 원화 예수금(₩) · 오른쪽 = 달러 예수금($)</small></div>`;
   }).join('');
   openModal(`<h3>예수금 관리</h3>
-    <div class="modal-sub">현금 계정 + 각 자산군의 현금 잔액</div>
+    <div class="modal-sub">현금 계정 + 대기 자금 + 각 자산군의 현금 잔액</div>
     <div class="field"><label>현금 계정 (₩) — 추가납입이 자동으로 적립됨</label>
       <input id="cash-account" type="number" step="1" value="${state.settings.cashAccount||0}" placeholder="원화 ₩">
       <small>자산군에 배정 안 된 순수 현금 · 종목 매수에 쓰면 직접 줄여주세요</small></div>
+    <div class="field"><label>대기 자금 (₩) — 단기 예금·MMF 거치 자금</label>
+      <input id="cash-reserve" type="number" step="1" value="${state.settings.reserveCash||0}" placeholder="원화 ₩">
+      <small>예수금이 아닌 별도 현금 · 하락장 매수 대비용 (드라이파우더)</small></div>
     <div style="height:1px;background:var(--hairline);margin:14px 0"></div>
     ${rows}
     <div class="btn-row">
@@ -2170,6 +2216,7 @@ async function saveCashEditor(){
   }
   state.settings.cashByClass=cb;
   state.settings.cashAccount=Math.max(0,parseFloat(document.getElementById('cash-account').value)||0);
+  state.settings.reserveCash=Math.max(0,parseFloat(document.getElementById('cash-reserve').value)||0);
   await saveState(); closeModal(); toast('예수금 저장됨'); switchView('quickentry');
 }
 window.openCashEditor=openCashEditor; window.saveCashEditor=saveCashEditor;

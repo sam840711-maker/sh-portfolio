@@ -422,11 +422,12 @@ input,select,textarea{font-family:inherit;color:inherit}
     <div class="card">
       <div class="card-title">자산 추이 <span class="action" id="trend-add">기록 관리</span></div>
       <div class="seg trend-seg" id="trend-seg" style="margin-top:6px;margin-bottom:6px">
-        <button data-rk="1m" onclick="setTrendRange('1m',this)">1M</button>
+        <button data-rk="2w" onclick="setTrendRange('2w',this)">2W</button>
+        <button data-rk="1m" class="active" onclick="setTrendRange('1m',this)">1M</button>
         <button data-rk="3m" onclick="setTrendRange('3m',this)">3M</button>
         <button data-rk="6m" onclick="setTrendRange('6m',this)">6M</button>
         <button data-rk="1y" onclick="setTrendRange('1y',this)">1Y</button>
-        <button data-rk="all" class="active" onclick="setTrendRange('all',this)">전체</button>
+        <button data-rk="all" onclick="setTrendRange('all',this)">전체</button>
       </div>
       <div class="chart-wrap"><canvas id="chart-trend"></canvas></div>
       <div id="trend-note" style="font-size:11px;color:var(--text-3);margin-top:8px;text-align:center"></div>
@@ -968,7 +969,7 @@ function taxEstimate(){
    ================================================================ */
 let chartAlloc=null, chartRb=null, chartTrend=null, currentView='dashboard';
 let priceChartObj=null, pcHolding=null, pcRange='1y';
-let trendRange='all';   // 자산 추이 차트 기간 ('1m'·'3m'·'6m'·'1y'·'all')
+let trendRange='1m';   // 자산 추이 차트 기간 ('1m'·'3m'·'6m'·'1y'·'all')
 function setTrendRange(rk,btn){
   trendRange=rk;
   document.querySelectorAll('#trend-seg button').forEach(b=>b.classList.remove('active'));
@@ -1435,12 +1436,12 @@ function renderTrendChart(){
   const deposits=depositFlows();   // {ym, date, amount}
   let hist=(state.history||[]).filter(h=>h.d).slice().sort((a,b)=>a.d.localeCompare(b.d));
 
-  // 기간 필터 — 마지막 기록 기준 N개월 이내
+  // 기간 필터 — 마지막 기록 기준 N일/N개월 이내
   if(trendRange!=='all' && hist.length){
-    const mo={'1m':1,'3m':3,'6m':6,'1y':12}[trendRange]||0;
-    if(mo){
+    const days={'2w':14,'1m':30,'3m':90,'6m':180,'1y':365}[trendRange]||0;
+    if(days){
       const lastMs=new Date(hist[hist.length-1].d+'T00:00:00').getTime();
-      const cutoff=lastMs-mo*30*86400000;
+      const cutoff=lastMs-days*86400000;
       hist=hist.filter(h=>new Date(h.d+'T00:00:00').getTime()>=cutoff);
     }
   }
@@ -1496,7 +1497,7 @@ function renderTrendChart(){
     }});
 
   const recorded=hist.length;
-  const rangeLbl={'1m':'최근 1개월','3m':'최근 3개월','6m':'최근 6개월','1y':'최근 1년','all':'전체 기간'}[trendRange]||'';
+  const rangeLbl={'2w':'최근 2주','1m':'최근 1개월','3m':'최근 3개월','6m':'최근 6개월','1y':'최근 1년','all':'전체 기간'}[trendRange]||'';
   const dsTxt = beforeDS!==afterDS ? ` · 점 ${beforeDS}→${afterDS}개로 축약(${beforeDS>1200?'월 평균':'주 평균'})` : '';
   note.textContent = recorded<=1
     ? '평가 자산은 매일 마지막으로 본 값으로 기록됩니다'

@@ -64,6 +64,7 @@ input,select,textarea{font-family:inherit;color:inherit}
 .mkt-banner .mb-row{display:flex;align-items:center;gap:8px}
 .mkt-banner .mb-name{color:var(--text-2);font-weight:600;min-width:34px}
 .mkt-banner .mb-time{color:var(--text);font-variant-numeric:tabular-nums;font-weight:500}
+.mkt-banner .mb-pre{color:var(--gold);font-weight:500}
 .mkt-banner .mb-hol{color:var(--up);font-weight:700}
 .mkt-banner .mb-sub{color:var(--text-2);font-size:11px}
 .hero-label{font-size:11px;color:var(--text-2);letter-spacing:0.14em;text-transform:uppercase;margin-bottom:6px}
@@ -1077,7 +1078,13 @@ function renderMarketBanner(){
     } else {
       const o=toKSTfromLocal(h.tz,ymd,h.open[0],h.open[1]);
       const c=toKSTfromLocal(h.tz,ymd,h.close[0],h.close[1]);
-      lines.push(`<span class="mb-name">${name}</span> <span class="mb-time">${o} – ${c}</span>`);
+      let timeStr=`${o} – ${c}`;
+      if(mk==='us'){
+        const po=toKSTfromLocal(h.tz,ymd,4,0);
+        const pc=toKSTfromLocal(h.tz,ymd,9,30);
+        timeStr=`<span class="mb-pre">프리 ${po} – ${pc}</span> · ${o} – ${c}`;
+      }
+      lines.push(`<span class="mb-name">${name}</span> <span class="mb-time">${timeStr}</span>`);
     }
   }
   if(!lines.length){ el.style.display='none'; return; }

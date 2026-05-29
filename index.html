@@ -358,6 +358,13 @@ input,select,textarea{font-family:inherit;color:inherit}
       <span>USD/KRW <span class="fx-val" id="fx-val">—</span></span>
       <span class="refresh-hint" id="fresh-text">탭하여 시세 갱신</span>
     </div>
+    <div class="card">
+      <div class="card-title">10년 투자 목표 <span class="action" id="goal-year">—</span></div>
+      <div style="font-size:22px;font-weight:600;font-variant-numeric:tabular-nums" id="goal-current">—</div>
+      <div class="goal-progress"><div class="goal-gap" id="goal-gap" style="display:none"></div><div class="goal-fill" id="goal-fill" style="width:0%"></div><div class="goal-mark" id="goal-mark"></div></div>
+      <div class="goal-stats"><span>달성률 <b class="num" id="goal-pct">—</b></span><span>10년 목표 <span class="num" id="goal-target">—</span></span></div>
+      <div class="goal-pace" id="goal-pace"></div>
+    </div>
     <div class="hero">
       <div class="hero-label">총 자산</div>
       <div class="hero-amount"><span id="hero-total">—</span><span class="unit">원</span></div>
@@ -400,14 +407,6 @@ input,select,textarea{font-family:inherit;color:inherit}
         <div class="stat-goal" id="stat-cagr-sub">목표 —</div></div>
       <div class="stat"><div class="stat-label">투자 개월</div><div class="stat-value num" id="stat-months">—</div><div class="stat-sub" id="stat-startdate">—</div></div>
       <div class="stat"><div class="stat-label">MDD</div><div class="stat-value num down" id="stat-mdd">—</div><div class="stat-sub num" id="stat-mdd-amt">—</div></div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">10년 투자 목표 <span class="action" id="goal-year">—</span></div>
-      <div style="font-size:22px;font-weight:600;font-variant-numeric:tabular-nums" id="goal-current">—</div>
-      <div class="goal-progress"><div class="goal-gap" id="goal-gap" style="display:none"></div><div class="goal-fill" id="goal-fill" style="width:0%"></div><div class="goal-mark" id="goal-mark"></div></div>
-      <div class="goal-stats"><span>달성률 <b class="num" id="goal-pct">—</b></span><span>10년 목표 <span class="num" id="goal-target">—</span></span></div>
-      <div class="goal-pace" id="goal-pace"></div>
     </div>
 
     <div id="holdings-summary"></div>
@@ -1383,6 +1382,19 @@ let holdingSort='cat';
 
 /* === 종목 시세 흐름 차트 (야후 일별 종가 / 코인은 업비트 일봉) === */
 const PC_RANGES=[['1mo','1M',30],['3mo','3M',90],['6mo','6M',180],['1y','1Y',365]];
+async function pcProxyJson(url){
+  // 설정된 프록시 → 공개 프록시 순으로 시도 (차트 데이터는 폴백을 넉넉히)
+  const proxies=[...getProxies(), ...PUBLIC_PROXIES];
+  let lastErr;
+  for(const base of proxies){
+    try{
+      const res=await fetch(base+encodeURIComponent(url));
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      return JSON.parse(await res.text());
+    }catch(e){ lastErr=e; }
+  }
+  throw lastErr||new Error('proxy failed');
+}
 async function fetchPriceHistory(h, range){
   if(h.cat==='crypto'){
     const cnt=(PC_RANGES.find(r=>r[0]===range)||[])[2]||90;
@@ -1390,11 +1402,11 @@ async function fetchPriceHistory(h, range){
     const url=`https://api.upbit.com/v1/candles/days?market=${mk}&count=${cnt}`;
     let arr;
     try{ const r=await fetch(url); if(!r.ok) throw 0; arr=await r.json(); }
-    catch(e){ arr=await proxyFetchJson(url); }
+    catch(e){ arr=await pcProxyJson(url); }
     return arr.map(c=>({t:(c.candle_date_time_kst||'').slice(0,10), v:c.trade_price})).reverse();
   }
   const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(h.symbol)}?interval=1d&range=${range}&t=${Date.now()}`;
-  const data=await proxyFetchJson(url);
+  const data=await pcProxyJson(url);
   const r=data&&data.chart&&data.chart.result&&data.chart.result[0];
   if(!r||!r.timestamp) throw new Error('no data');
   const close=(r.indicators&&r.indicators.quote&&r.indicators.quote[0]&&r.indicators.quote[0].close)||[];
@@ -1427,14 +1439,19 @@ function setPriceRange(rk,btn){
 async function loadPriceChart(){
   const note=document.getElementById('pc-note');
   if(!pcHolding) return;
+  if(typeof Chart==='undefined'){ if(note) note.textContent='차트 라이브러리를 불러오지 못했습니다 · 인터넷 연결을 확인하세요'; return; }
   if(note) note.textContent='불러오는 중…';
   if(priceChartObj){ priceChartObj.destroy(); priceChartObj=null; }
   let series;
   try{ series=await fetchPriceHistory(pcHolding, pcRange); }
-  catch(e){ if(document.getElementById('pc-note')) document.getElementById('pc-note').textContent='차트 데이터를 불러올 수 없습니다'; return; }
+  catch(e){
+    const n=document.getElementById('pc-note');
+    if(n) n.textContent='차트 데이터를 불러올 수 없습니다 — 시세 갱신과 동일한 프록시가 필요합니다';
+    return;
+  }
   const cv=document.getElementById('pc-canvas');   // 그새 모달이 닫혔는지 확인
   if(!cv) return;
-  if(!series || series.length<2){ if(note) note.textContent='차트 데이터가 없습니다'; return; }
+  if(!series || series.length<2){ if(document.getElementById('pc-note')) document.getElementById('pc-note').textContent='이 종목은 차트 데이터가 없습니다'; return; }
   const usd=isUSDcat(pcHolding.cat);
   const first=series[0].v, last=series[series.length-1].v;
   const col=last>=first?'#E5484D':'#4A90E2';
@@ -1458,6 +1475,7 @@ async function loadPriceChart(){
   if(note) note.innerHTML=`${series[0].t} → ${series[series.length-1].t} · 기간 변동 <b class="${ccls}">${chg>=0?'+':''}${chg.toFixed(1)}%</b>`;
 }
 window.openPriceChart=openPriceChart; window.setPriceRange=setPriceRange;
+
 
 function holdingRowHTML(h, moveInfo){
   const fx=state.settings.fxRate;

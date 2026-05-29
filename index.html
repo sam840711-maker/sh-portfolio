@@ -413,6 +413,13 @@ input,select,textarea{font-family:inherit;color:inherit}
 
     <div class="card">
       <div class="card-title">자산 추이 <span class="action" id="trend-add">기록 관리</span></div>
+      <div class="seg trend-seg" id="trend-seg" style="margin-top:6px;margin-bottom:6px">
+        <button data-rk="1m" onclick="setTrendRange('1m',this)">1M</button>
+        <button data-rk="3m" onclick="setTrendRange('3m',this)">3M</button>
+        <button data-rk="6m" onclick="setTrendRange('6m',this)">6M</button>
+        <button data-rk="1y" onclick="setTrendRange('1y',this)">1Y</button>
+        <button data-rk="all" class="active" onclick="setTrendRange('all',this)">전체</button>
+      </div>
       <div class="chart-wrap"><canvas id="chart-trend"></canvas></div>
       <div id="trend-note" style="font-size:11px;color:var(--text-3);margin-top:8px;text-align:center"></div>
     </div>
@@ -953,6 +960,38 @@ function taxEstimate(){
    ================================================================ */
 let chartAlloc=null, chartRb=null, chartTrend=null, currentView='dashboard';
 let priceChartObj=null, pcHolding=null, pcRange='1y';
+let trendRange='all';   // 자산 추이 차트 기간 ('1m'·'3m'·'6m'·'1y'·'all')
+function setTrendRange(rk,btn){
+  trendRange=rk;
+  document.querySelectorAll('#trend-seg button').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  renderTrendChart();
+}
+window.setTrendRange=setTrendRange;
+/* 다운샘플링 — 점 개수가 너무 많아지면 자동으로 주/월 평균으로 축약 (장기 누적 대비)
+   ≤600점: 그대로 / ~1200점: 주 평균 / 그 이상: 월 평균 */
+function downsampleHistory(hist){
+  if(hist.length<=600) return hist;
+  const bucket=hist.length>1200?'month':'week';
+  const key=d=>{
+    const dt=new Date(d+'T00:00:00');
+    if(bucket==='month') return d.slice(0,7);   // YYYY-MM
+    // 주 단위: ISO 연도-주 번호 대신 단순화 — 월요일 기준 그 주의 월요일 날짜
+    const day=dt.getDay()||7;   // 일=7
+    const mon=new Date(dt); mon.setDate(dt.getDate()-(day-1));
+    return mon.toISOString().slice(0,10);
+  };
+  const groups={};
+  for(const h of hist){
+    const k=key(h.d); (groups[k]=groups[k]||[]).push(h);
+  }
+  const out=[];
+  for(const k of Object.keys(groups).sort()){
+    const arr=groups[k];
+    out.push({ d:arr[arr.length-1].d, total:arr.reduce((s,x)=>s+x.total,0)/arr.length });
+  }
+  return out;
+}
 
 function renderTopbar(){
   document.getElementById('fx-val').textContent = state.settings.fxRate.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -1329,7 +1368,21 @@ function renderTrendChart(){
   const ctx=cv.getContext('2d');
   const note=document.getElementById('trend-note');
   const deposits=depositFlows();   // {ym, date, amount}
-  const hist=(state.history||[]).filter(h=>h.d).slice().sort((a,b)=>a.d.localeCompare(b.d));
+  let hist=(state.history||[]).filter(h=>h.d).slice().sort((a,b)=>a.d.localeCompare(b.d));
+
+  // 기간 필터 — 마지막 기록 기준 N개월 이내
+  if(trendRange!=='all' && hist.length){
+    const mo={'1m':1,'3m':3,'6m':6,'1y':12}[trendRange]||0;
+    if(mo){
+      const lastMs=new Date(hist[hist.length-1].d+'T00:00:00').getTime();
+      const cutoff=lastMs-mo*30*86400000;
+      hist=hist.filter(h=>new Date(h.d+'T00:00:00').getTime()>=cutoff);
+    }
+  }
+  // 다운샘플링 (점이 600개 초과면 주/월 평균)
+  const beforeDS=hist.length;
+  hist=downsampleHistory(hist);
+  const afterDS=hist.length;
 
   if (!hist.length && !deposits.length){
     if(chartTrend){chartTrend.destroy();chartTrend=null;}
@@ -1378,9 +1431,11 @@ function renderTrendChart(){
     }});
 
   const recorded=hist.length;
+  const rangeLbl={'1m':'최근 1개월','3m':'최근 3개월','6m':'최근 6개월','1y':'최근 1년','all':'전체 기간'}[trendRange]||'';
+  const dsTxt = beforeDS!==afterDS ? ` · 점 ${beforeDS}→${afterDS}개로 축약(${beforeDS>1200?'월 평균':'주 평균'})` : '';
   note.textContent = recorded<=1
     ? '평가 자산은 매일 마지막으로 본 값으로 기록됩니다'
-    : `평가 자산 ${recorded}개 일자 기록 누적 (그날 마지막 값 · 시간 비례 표시)`;
+    : `${rangeLbl} · ${recorded}개 점 · 시간 비례 표시${dsTxt}`;
 }
 
 let activeCategory='all';

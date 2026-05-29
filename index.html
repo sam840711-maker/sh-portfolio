@@ -1082,16 +1082,21 @@ function renderMarketBanner(){
       const sess=marketSession(mk);
       let timeHtml;
       if(mk==='us'){
-        const po=toKSTfromLocal(h.tz,ymd,4,0);
-        const pc=toKSTfromLocal(h.tz,ymd,9,30);
-        // 프리장 시간대 현재 = 골드 / 그 외 = 회색
-        const preCls = sess.label==='프리장' ? 'ses-ext' : 'ses-closed';
-        // 정규장 시간대 현재 = 초록 / 애프터 = 골드 / 그 외 = 회색
-        const regCls = sess.label==='장중' ? 'ses-open'
-                     : sess.label==='애프터' ? 'ses-ext' : 'ses-closed';
-        timeHtml=`<span class="mb-chip ${preCls}">프리 ${po} – ${pc}</span> <span class="mb-chip ${regCls}">${o} – ${c}</span>`;
+        const po=toKSTfromLocal(h.tz,ymd,4,0);   // 프리장 시작
+        const pc=toKSTfromLocal(h.tz,ymd,9,30);  // 프리장 끝 = 정규장 시작
+        const ao=toKSTfromLocal(h.tz,ymd,16,0);  // 애프터 시작 = 정규장 끝
+        const ac=toKSTfromLocal(h.tz,ymd,20,0);  // 애프터 끝
+        const preCls = sess.label==='프리장'  ? 'ses-ext'  : 'ses-closed';
+        const regCls = sess.label==='장중'    ? 'ses-open' : 'ses-closed';
+        const aftCls = sess.label==='애프터'  ? 'ses-ext'  : 'ses-closed';
+        timeHtml=`<span class="mb-chip ${preCls}">프리 ${po} – ${pc}</span> <span class="mb-chip ${regCls}">${o} – ${c}</span> <span class="mb-chip ${aftCls}">애프터 ${ao} – ${ac}</span>`;
+      } else if(mk==='kr'){
+        const ac=toKSTfromLocal(h.tz,ymd,18,0);  // 장후 끝 (15:30 + 2.5h)
+        const regCls = sess.label==='장중' ? 'ses-open' : 'ses-closed';
+        const aftCls = sess.label==='장후' ? 'ses-ext'  : 'ses-closed';
+        timeHtml=`<span class="mb-chip ${regCls}">${o} – ${c}</span> <span class="mb-chip ${aftCls}">장후 ${c} – ${ac}</span>`;
       } else {
-        // 장중=초록 / 장전·장후=골드 / 장마감=회색 (시세창 배지와 동일)
+        // 영국: 정규장만 (장중=초록 / 장마감=회색)
         timeHtml=`<span class="mb-chip ${sess.cls||'ses-closed'}">${o} – ${c}</span>`;
       }
       lines.push(`<span class="mb-name">${name}</span> ${timeHtml}`);

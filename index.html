@@ -1482,6 +1482,8 @@ function renderTrendChart(){
       interaction:{mode:'index',intersect:false},
       scales:{
         x:{type:'linear',
+           min:assetPts.length?assetPts[0].x:undefined,
+           max:assetPts.length?assetPts[assetPts.length-1].x:undefined,
            ticks:{color:'#565967',font:{size:9,family:'Pretendard'},maxTicksLimit:6,
                   callback:v=>fmtDateShort(v)},
            grid:{display:false}},

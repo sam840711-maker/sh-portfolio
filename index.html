@@ -1521,47 +1521,41 @@ async function backfillEstimate(){
     );
     const [fxHist, ...holdingSeries]=await Promise.all([fxFetch, ...histFetches]);
 
-    // 일자를 그 주의 월요일로 정규화
-    const mondayOf=(d)=>{
-      const x=new Date(d.getTime());
-      const dow=x.getDay()||7;
-      x.setHours(0,0,0,0);
-      return new Date(x.getTime()-(dow-1)*86400000);
-    };
-    const weeklyKey=ymd=>mondayOf(new Date(ymd+'T00:00:00')).toISOString().slice(0,10);
-    const toWeekMap=series=>{
+    // 일별 맵 (날짜 → 종가)
+    const toDayMap=series=>{
       if(!series) return null;
       const m=new Map();
-      for(const d of series) m.set(weeklyKey(d.t), d.v);
+      for(const d of series) m.set(d.t, d.v);
       return m;
     };
-    const fxMap=toWeekMap(fxHist);
-    const seriesMaps=holdingSeries.map(x=>({h:x.h, m:toWeekMap(x.series)}));
+    const fxMap=toDayMap(fxHist);
+    const seriesMaps=holdingSeries.map(x=>({h:x.h, m:toDayMap(x.series)}));
     const currentCash=totalCash();
 
-    // 52주 전 ~ 오늘 (월요일 기준)
-    const lastMon=mondayOf(new Date());
+    // 365일 전 ~ 오늘 (일 단위)
+    const today=new Date(); today.setHours(0,0,0,0);
     const points=[];
     let lastFx=state.settings.fxRate;
     const lastPriceFor=new Map(seriesMaps.map(x=>[x.h.id, null]));
-    for(let i=52; i>=0; i--){
-      const mon=new Date(lastMon.getTime()-i*7*86400000);
-      const wkKey=mon.toISOString().slice(0,10);
-      const fxWk=fxMap?fxMap.get(wkKey):null;
-      if(fxWk!=null) lastFx=fxWk;
+    for(let i=365; i>=0; i--){
+      const day=new Date(today.getTime()-i*86400000);
+      const dayKey=day.toISOString().slice(0,10);
+      const fxDay=fxMap?fxMap.get(dayKey):null;
+      if(fxDay!=null) lastFx=fxDay;
       let total=currentCash;
-      let anyData=false;
+      let anyData=false;   // 이 날 시세 데이터가 있는 종목이 하나라도 있나 (거래일 판별)
       for(const {h,m} of seriesMaps){
         if(!m) continue;
-        const wkP=m.get(wkKey);
-        if(wkP!=null){ lastPriceFor.set(h.id, wkP); anyData=true; }
+        const dayP=m.get(dayKey);
+        if(dayP!=null){ lastPriceFor.set(h.id, dayP); anyData=true; }
         const price=lastPriceFor.get(h.id);
         if(price==null) continue;
         if(isUSDcat(h.cat)) total += h.qty*price*lastFx;
         else total += h.qty*price;
       }
-      if(anyData || points.length>0){
-        points.push({d:wkKey, total:Math.round(total)});
+      // 거래일(시세 있는 날)만 점 추가 — 주말·공휴일은 건너뜀 (첫 데이터 이전도 스킵)
+      if(anyData){
+        points.push({d:dayKey, total:Math.round(total)});
       }
     }
 
@@ -1641,7 +1635,7 @@ function renderTrendChart(){
     y:deposits.filter(dp=>ymd(dp.date)<=h.d).reduce((s,dp)=>s+dp.amount,0)
   }));
 
-  // x축 범위 — 선택한 기간이 그대로 보이도록 (데이터가 짧아도 빈 공간 둠)
+  // x축 범위 — 선택 기간 표시. 단, 데이터가 그보다 짧으면 첫 데이터에 맞춰 왼쪽 빈 공간 제거
   const lastDataMs = assetPts.length ? assetPts[assetPts.length-1].x : Date.now();
   let xMin, xMax = lastDataMs;
   if (trendRange === 'all'){
@@ -1649,6 +1643,8 @@ function renderTrendChart(){
   } else {
     const days = {'2w':14,'1m':30,'3m':90,'6m':180,'1y':365}[trendRange] || 0;
     xMin = lastDataMs - days * 86400000;
+    // 보유 데이터가 선택 기간보다 짧으면 첫 데이터 지점에 맞춤 (왼쪽 잘림 방지)
+    if (assetPts.length && assetPts[0].x > xMin) xMin = assetPts[0].x;
   }
 
   const grad=ctx.createLinearGradient(0,0,0,210);

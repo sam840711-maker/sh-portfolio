@@ -1734,11 +1734,21 @@ function renderTrendChart(){
   }
 
   const datasets=[];
+  // 표시 중인 주(主) 라인의 최고점 (종합=평가 자산 / 단일=해당 자산군)
+  const mainPts = (trendView==='all')
+    ? assetPts
+    : hist.map(h=>({x:toMs(h.d), y:(h.byClass&&h.byClass[trendView]!=null)?h.byClass[trendView]:null}));
+  let peakPt=null;
+  for(const p of mainPts){ if(p.y!=null && (!peakPt || p.y>peakPt.y)) peakPt={x:p.x, y:p.y}; }
+  const peakColor = trendView==='all' ? '#C9A66B' : CATEGORIES[trendView].color;
+
   if(trendView==='all'){
     // 종합 — 총 평가 자산 + 납입 원금 + 자산군별 얇은 선
     datasets.push({label:'평가 자산',data:assetPts,borderColor:'#C9A66B',backgroundColor:grad,
       borderWidth:2,fill:true,tension:0.3,spanGaps:true,
-      pointRadius:0,pointHoverRadius:4,pointBackgroundColor:'#C9A66B',order:1,
+      pointRadius:ctx=>(peakPt && ctx.raw && ctx.raw.x===peakPt.x)?4.5:0,
+      pointBackgroundColor:'#C9A66B',pointBorderColor:'#0E1117',pointBorderWidth:1.5,
+      pointHoverRadius:4,order:1,
       segment: firstActualMs ? { borderDash: ctx => (ctx.p0.parsed.x < firstActualMs) ? [3,3] : undefined } : undefined});
     // 자산군별 얇은 선 (byClass 있는 기록만)
     const cats=Object.keys(CATEGORIES).filter(k=>(state.holdings.some(h=>h.cat===k&&h.qty>0)) || hist.some(h=>h.byClass&&h.byClass[k]>0));
@@ -1760,13 +1770,46 @@ function renderTrendChart(){
     const pts=hist.map(h=>({x:toMs(h.d), y:(h.byClass&&h.byClass[trendView]!=null)?h.byClass[trendView]:null}));
     datasets.push({label:CATEGORIES[trendView].label,data:pts,borderColor:col,backgroundColor:cgrad,
       borderWidth:2,fill:true,tension:0.3,spanGaps:true,
-      pointRadius:0,pointHoverRadius:4,pointBackgroundColor:col,
+      pointRadius:ctx=>(peakPt && ctx.raw && ctx.raw.x===peakPt.x)?4.5:0,
+      pointBackgroundColor:col,pointBorderColor:'#0E1117',pointBorderWidth:1.5,
+      pointHoverRadius:4,
       segment: firstActualMs ? { borderDash: ctx => (ctx.p0.parsed.x < firstActualMs) ? [3,3] : undefined } : undefined});
   }
 
   if (chartTrend) chartTrend.destroy();
+  const fmtEok=v=>(v/1e8).toFixed(2)+'억';
+  // 최고점 라벨을 그리는 인라인 플러그인
+  const peakPlugin={
+    id:'peakLabel',
+    afterDatasetsDraw(chart){
+      if(!peakPt) return;
+      const xs=chart.scales.x, ys=chart.scales.y;
+      if(peakPt.x<xs.min || peakPt.x>xs.max) return;   // 화면 밖이면 생략
+      const px=xs.getPixelForValue(peakPt.x), py=ys.getPixelForValue(peakPt.y);
+      const g=chart.ctx;
+      const label='최고점 '+fmtEok(peakPt.y);
+      g.save();
+      g.font='600 10px Pretendard';
+      const w=g.measureText(label).width+12;
+      let bx=px-w/2;
+      bx=Math.max(chart.chartArea.left+2, Math.min(bx, chart.chartArea.right-w-2));
+      let by=py-22; if(by<chart.chartArea.top+2) by=py+10;
+      // 라벨 배경
+      g.fillStyle='rgba(27,32,48,0.92)';
+      g.strokeStyle=peakColor; g.lineWidth=1;
+      const r=5;
+      g.beginPath();
+      g.roundRect(bx, by, w, 17, r);
+      g.fill(); g.stroke();
+      g.fillStyle=peakColor;
+      g.textAlign='left'; g.textBaseline='middle';
+      g.fillText(label, bx+6, by+9);
+      g.restore();
+    }
+  };
   chartTrend=new Chart(ctx,{type:'line',
     data:{datasets},
+    plugins:[peakPlugin],
     options:{
       interaction:{mode:'index',intersect:false},
       scales:{
@@ -1779,10 +1822,12 @@ function renderTrendChart(){
             callback:v=>(v/1e8).toFixed(1)+'억'},grid:{color:'rgba(255,255,255,0.04)'}},
       },
       plugins:{
-        legend:{labels:{color:'#8A8E9B',font:{size:10,family:'Pretendard'},boxWidth:10,boxHeight:10,padding:12}},
-        tooltip:{backgroundColor:'#1B2030',padding:10,
+        legend:{labels:{color:'#8A8E9B',font:{size:10,family:'Pretendard'},boxWidth:10,boxHeight:10,padding:10}},
+        tooltip:{backgroundColor:'rgba(27,32,48,0.95)',padding:8,
+          titleFont:{size:11,family:'Pretendard'},bodyFont:{size:10.5,family:'Pretendard'},
+          bodySpacing:3,boxPadding:3,caretPadding:6,
           callbacks:{title:items=>fmtDateLong(items[0].parsed.x),
-            label:c=>(c.raw==null||c.raw.y==null)?null:` ${c.dataset.label}: ${fmtKRWFull(c.raw.y)}`}}
+            label:c=>(c.raw==null||c.raw.y==null)?null:` ${c.dataset.label} ${fmtEok(c.raw.y)}`}}
       }
     }});
 

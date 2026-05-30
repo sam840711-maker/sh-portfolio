@@ -1635,6 +1635,14 @@ async function backfillEstimate(){
         added++;
       }
     }
+    // 실측 기록(비추정) 중 자산군별 값이 없는 날은 추정 시세로 채움 (총액은 그대로 유지)
+    const bcByDate={}; for(const p of points) bcByDate[p.d]=p.byClass;
+    let patched=0;
+    for(const h of state.history){
+      if(!h._est && (!h.byClass || Object.keys(h.byClass).length===0) && bcByDate[h.d]){
+        h.byClass=bcByDate[h.d]; patched++;
+      }
+    }
     state.history.sort((a,b)=>a.d.localeCompare(b.d));
 
     // 추정 피크가 기존 pickValue보다 크면 갱신
@@ -1650,7 +1658,7 @@ async function backfillEstimate(){
 
     await saveState();
     closeModal();
-    toast(`추정 ${added}개 기록 추가 · ${firstActualDate} 이전 채워짐`);
+    toast(`추정 ${added}개 추가${patched>0?` · 실측 ${patched}일 자산군별 채움`:''}`);
     renderDashboard();
   } catch(e){
     console.error('Backfill failed:', e);

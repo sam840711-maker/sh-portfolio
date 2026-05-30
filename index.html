@@ -434,7 +434,7 @@ input,select,textarea{font-family:inherit;color:inherit}
         <button data-rk="all" onclick="setTrendRange('all',this)">전체</button>
       </div>
       <div class="chips" id="trend-view-chips" style="margin:2px 0 8px"></div>
-      <div class="chart-wrap"><canvas id="chart-trend"></canvas>
+      <div class="chart-wrap" style="height:300px"><canvas id="chart-trend"></canvas>
         <div id="trend-tip" style="position:absolute;top:4px;pointer-events:none;background:rgba(20,24,36,0.95);border:1px solid var(--hairline);border-radius:9px;padding:7px 9px;font-size:10.5px;line-height:1.5;color:var(--text);display:none;z-index:5;max-width:46%;box-shadow:0 4px 14px rgba(0,0,0,0.4)"></div>
       </div>
       <div id="trend-note" style="font-size:11px;color:var(--text-3);margin-top:8px;text-align:center"></div>
@@ -1714,7 +1714,7 @@ function renderTrendChart(){
     if (assetPts.length && assetPts[0].x > xMin) xMin = assetPts[0].x;
   }
 
-  const grad=ctx.createLinearGradient(0,0,0,210);
+  const grad=ctx.createLinearGradient(0,0,0,290);
   grad.addColorStop(0,'rgba(201,166,107,0.32)');
   grad.addColorStop(1,'rgba(201,166,107,0.0)');
 
@@ -1769,7 +1769,7 @@ function renderTrendChart(){
   } else {
     // 단일 자산군 — 해당 자산군 평가액만 (카테고리 색)
     const col=CATEGORIES[trendView].color;
-    const cgrad=ctx.createLinearGradient(0,0,0,210);
+    const cgrad=ctx.createLinearGradient(0,0,0,290);
     cgrad.addColorStop(0, col+'52'); cgrad.addColorStop(1, col+'00');
     const pts=hist.map(h=>({x:toMs(h.d), y:(h.byClass&&h.byClass[trendView]!=null)?h.byClass[trendView]:null}));
     datasets.push({label:CATEGORIES[trendView].label,data:pts,borderColor:col,backgroundColor:cgrad,

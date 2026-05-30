@@ -167,6 +167,9 @@ input,select,textarea{font-family:inherit;color:inherit}
 .rb-detail{display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--text-2);font-variant-numeric:tabular-nums}
 .rbx-row{display:flex;align-items:center;gap:11px;padding:10px 2px;border-bottom:1px solid var(--hairline);cursor:pointer}
 .rbx-row:last-child{border-bottom:none}
+.rbx-group{margin-bottom:6px}
+.rbx-group:last-child{margin-bottom:0}
+.rbx-group-head{display:flex;align-items:center;gap:6px;padding:9px 2px 7px;border-bottom:1px solid var(--hairline);font-size:11px;font-weight:600;color:var(--text-2);letter-spacing:0.01em}
 .rbx-accent{width:3px;align-self:stretch;border-radius:2px;flex-shrink:0;min-height:34px}
 .rbx-main{flex:1;min-width:0}
 .rbx-l1{display:flex;align-items:baseline;gap:6px;min-width:0}
@@ -2002,7 +2005,7 @@ function stockRebalance(cat, mode){
   });
 }
 
-let rbStockCat='us_stock';
+let rbStockCat='all';
 let rbMode='portfolio';
 function renderStockRebalance(){
   const cats=Object.keys(CATEGORIES).filter(k=>state.holdings.some(h=>h.cat===k&&h.qty>0));
@@ -2010,8 +2013,10 @@ function renderStockRebalance(){
   const listEl=document.getElementById('rb-stock-list');
   const footEl=document.getElementById('rb-stock-foot');
   if(!cats.length){ chipsEl.innerHTML=''; listEl.innerHTML='<div class="empty">보유 종목이 없습니다.</div>'; footEl.innerHTML=''; return; }
-  if(!cats.includes(rbStockCat)) rbStockCat=cats[0];
-  chipsEl.innerHTML=cats.map(k=>`<button class="chip ${rbStockCat===k?'active':''}" data-rbcat="${k}">${CATEGORIES[k].label}</button>`).join('');
+  if(rbStockCat!=='all' && !cats.includes(rbStockCat)) rbStockCat='all';
+  // '전체' 칩 + 자산군 칩
+  const allChip=`<button class="chip ${rbStockCat==='all'?'active':''}" data-rbcat="all">전체</button>`;
+  chipsEl.innerHTML=allChip+cats.map(k=>`<button class="chip ${rbStockCat===k?'active':''}" data-rbcat="${k}">${CATEGORIES[k].label}</button>`).join('');
   chipsEl.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{rbStockCat=c.dataset.rbcat;renderStockRebalance();});
   document.querySelectorAll('#rb-mode-seg button').forEach(b=>b.classList.toggle('active',b.dataset.rbmode===rbMode));
   let _modeNote='';
@@ -2029,20 +2034,17 @@ function renderStockRebalance(){
     ? '그 자산군의 보유 평가액 안에서 종목을 재분배합니다 (예수금 제외)'
     : '활성 자산(보유 + 예수금) 기준 — 대기 자금은 평소엔 별도 보관, 미달 시에만 자동 투입') + _modeNote;
 
-  const rows=stockRebalance(rbStockCat, rbMode);
-  let html='';
-  for(const r of rows){
+  // 행 렌더링 — 자산군 단일 모드 vs 전체 모드
+  const buildRow = (r) => {
     const h=r.h;
     const hold=r.adjustShares===0, buy=r.adjustShares>0;
-    const cls=hold?'muted':(buy?'down':'up');     // 매수=부족=down/파랑, 매도=초과=up/빨강
+    const cls=hold?'muted':(buy?'down':'up');
     const accent=hold?'var(--text-3)':(buy?'var(--down)':'var(--up)');
     const tk=h.symbol.replace('.KS','').replace('.L','');
-    const qtyTxt=hold ? '균형'
-      : `${(buy?'+':'')+r.adjustShares.toLocaleString()}주 ${buy?'매수':'매도'}`;
-    const subTxt=hold
-      ? `이후 ${r.qtyAfter.toLocaleString()}주`
+    const qtyTxt=hold ? '균형' : `${(buy?'+':'')+r.adjustShares.toLocaleString()}주 ${buy?'매수':'매도'}`;
+    const subTxt=hold ? `이후 ${r.qtyAfter.toLocaleString()}주`
       : `₩${fmtKRW(Math.abs(r.adjustVal))} · 이후 ${r.qtyAfter.toLocaleString()}주`;
-    html+=`<div class="rbx-row" data-id="${h.id}">
+    return `<div class="rbx-row" data-id="${h.id}">
       <div class="rbx-accent" style="background:${accent}"></div>
       <div class="rbx-main">
         <div class="rbx-l1"><span class="rbx-tk">${tk}</span><span class="rbx-nm">${esc(h.name)}</span></div>
@@ -2053,21 +2055,37 @@ function renderStockRebalance(){
         <div class="rbx-sub">${subTxt}</div>
       </div>
     </div>`;
+  };
+
+  let html='';
+  let allRows=[];
+  if(rbStockCat==='all'){
+    // 자산군별로 그룹 헤더 + 종목 행
+    for(const k of cats){
+      const rows=stockRebalance(k, rbMode);
+      if(!rows.length) continue;
+      allRows = allRows.concat(rows);
+      const wtSum=rows.reduce((s,r)=>s+r.tw,0);
+      const wtWarn=Math.abs(wtSum-1)>0.001?` <span class="up" style="font-size:10px">⚠ ${fmtPct(wtSum,1)}</span>`:'';
+      html+=`<div class="rbx-group">
+        <div class="rbx-group-head"><span class="abar-dot" style="background:${CATEGORIES[k].color}"></span>${CATEGORIES[k].label}${wtWarn}</div>
+        ${rows.map(buildRow).join('')}
+      </div>`;
+    }
+  } else {
+    const rows=stockRebalance(rbStockCat, rbMode);
+    allRows=rows;
+    html=rows.map(buildRow).join('');
   }
   listEl.innerHTML=html;
   listEl.querySelectorAll('.rbx-row').forEach(el=>el.onclick=()=>openHoldingDetail(el.dataset.id));
 
-  const wtSum=rows.reduce((s,r)=>s+r.tw,0);
-  const catTgt=rows.length?rows[0].catTargetVal:0;
-  const buyN=rows.filter(r=>r.adjustShares>0).length;
-  const sellN=rows.filter(r=>r.adjustShares<0).length;
-  const wtWarn=Math.abs(wtSum-1)>0.001?`<span class="up"> · 비중합 ${fmtPct(wtSum,1)} ⚠</span>`:'';
-  const buyTotal=rows.filter(r=>r.adjustShares>0).reduce((s,r)=>s+r.adjustShares*r.priceKRW,0);
-  const tgtLabel=rbMode==='within'?'평가액':'목표';
+  const buyN=allRows.filter(r=>r.adjustShares>0).length;
+  const sellN=allRows.filter(r=>r.adjustShares<0).length;
   const note=rbMode==='within'
     ? '자산군 내 보유 평가액만 재분배 — 매수와 매도가 상쇄됩니다'
-    : `이 자산군 매수 ${fmtKRW(buyTotal)} — 매수를 실행하면 예수금이 그만큼 줄어듭니다`;
-  // 자산군별 + 통합 매수/매도 금액 합계 (실제 매수/매도 주수 × 현재가 기준)
+    : '활성 자산을 목표 비중에 맞추도록 매수·매도 추천 — 매수 실행 시 예수금이 차감됩니다';
+  // 자산군별 + 통합 매수/매도 금액 합계
   const summary=cats.map(k=>{
     let b=0,s=0;
     stockRebalance(k,rbMode).forEach(r=>{
@@ -2086,8 +2104,11 @@ function renderStockRebalance(){
     <div class="rbsum-l2"><span class="down">매수 ${x.buy>0?'₩'+fmtKRW(x.buy):'—'}</span> · <span class="up">매도 ${x.sell>0?'₩'+fmtKRW(x.sell):'—'}</span></div>
   </div>`;
   }).join('');
+  const headerLine = rbStockCat==='all'
+    ? `<span>전체 ${allRows.length}종목</span>`
+    : `<span>${CATEGORIES[rbStockCat].label} ${allRows.length}종목</span>`;
   footEl.innerHTML=`<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-2);padding-top:12px;border-top:1px solid var(--hairline);margin-top:6px">
-    <span>${CATEGORIES[rbStockCat].label} ${tgtLabel} <b class="num">₩${fmtKRW(catTgt)}</b>${wtWarn}</span>
+    ${headerLine}
     <span><span class="down">매수 ${buyN}</span> · <span class="up">매도 ${sellN}</span></span>
   </div>
   <div style="font-size:10.5px;color:var(--text-3);margin-top:6px">${note}</div>

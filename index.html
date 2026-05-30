@@ -584,13 +584,31 @@ input,select,textarea{font-family:inherit;color:inherit}
     <div id="qe-list"></div>
     <button class="btn btn-primary" id="qe-save" style="width:100%;margin:4px 0 8px">전체 저장</button>
     <div class="card">
-      <div class="card-title">대기 자금 추가</div>
-      <div class="info-text" style="margin-bottom:10px">현재 잔액 <b class="num" id="qe-reserve-cur">₩0</b> · 매도 회수금이나 이자 수령액을 입력 후 <b>전체 저장</b>을 누르면 더해집니다<br><span style="color:var(--text-3)">차감은 예수금 편집에서</span></div>
-      <input id="qe-reserve-add" type="number" step="1" min="0" inputmode="numeric" placeholder="+ 추가할 금액 (₩)" style="width:100%;background:var(--frame);border:1px solid var(--hairline);border-radius:9px;padding:11px 12px;font-size:15px;font-variant-numeric:tabular-nums;color:var(--text)">
-    </div>
-    <div class="card">
       <div class="card-title">자산군별 예수금 (현금) <span class="action" id="edit-cash">수정</span></div>
       <div id="cash-list"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">대기 자금 추가</div>
+      <div class="info-text" style="margin-bottom:10px">매도 회수금이나 이자 수령액을 입력 후 <b>전체 저장</b>을 누르면 더해집니다 · 차감은 예수금 편집에서</div>
+      <input id="qe-reserve-add" type="number" step="1" min="0" inputmode="numeric" placeholder="+ 추가할 금액 (₩)" style="width:100%;background:var(--frame);border:1px solid var(--hairline);border-radius:9px;padding:11px 12px;font-size:15px;font-variant-numeric:tabular-nums;color:var(--text)">
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--hairline)">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+          <span style="font-size:12px;color:var(--text-2)">자산군별 예수금</span>
+          <span class="num" id="qe-sum-broker" style="font-size:13px;color:var(--text)">₩0</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px" id="qe-sum-cashacc-row">
+          <span style="font-size:12px;color:var(--text-2)">현금 계정</span>
+          <span class="num" id="qe-sum-cashacc" style="font-size:13px;color:var(--text)">₩0</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+          <span style="font-size:12px;color:var(--text-2)"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#5A7A9A;margin-right:6px;vertical-align:middle"></span>대기 자금</span>
+          <span class="num" id="qe-sum-reserve" style="font-size:13px;color:#8AA0BD">₩0</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:8px;border-top:1px solid var(--hairline)">
+          <span style="font-size:13px;font-weight:700;color:var(--text)">총 현금 합계</span>
+          <span class="num" id="qe-sum-total" style="font-size:17px;font-weight:700;color:var(--gold)">₩0</span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -2669,11 +2687,24 @@ function renderQuickEntry(){
     el.innerHTML = html;
   }
   renderCashList();
-  // 대기 자금 잔액 표시 + 입력 초기화
-  const rcur=document.getElementById('qe-reserve-cur');
-  if(rcur) rcur.textContent='₩'+fmtKRW(state.settings.reserveCash||0);
+  // 대기 자금 입력 초기화 + 총 현금 합계 표시
   const radd=document.getElementById('qe-reserve-add');
   if(radd) radd.value='';
+  const _cb=state.settings.cashByClass||{};
+  const _fx=state.settings.fxRate;
+  let brokerCash=0;
+  for(const k in _cb) brokerCash += (_cb[k].krw||0) + (_cb[k].usd||0)*_fx;
+  const cashAcc=state.settings.cashAccount||0;
+  const reserve=state.settings.reserveCash||0;
+  const grand=brokerCash+cashAcc+reserve;
+  const setText=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent='₩'+fmtKRW(v); };
+  setText('qe-sum-broker', brokerCash);
+  setText('qe-sum-cashacc', cashAcc);
+  setText('qe-sum-reserve', reserve);
+  setText('qe-sum-total', grand);
+  // 현금 계정 0이면 행 숨김
+  const accRow=document.getElementById('qe-sum-cashacc-row');
+  if(accRow) accRow.style.display = cashAcc>0 ? 'flex' : 'none';
 }
 /* 엔터 → 같은 칸(열) 아래 종목으로 이동 (수량 쭉 → 매입금액 쭉) */
 function qeKey(e){

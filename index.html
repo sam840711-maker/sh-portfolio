@@ -432,7 +432,7 @@ input,select,textarea{font-family:inherit;color:inherit}
         <button data-rk="all" onclick="setTrendRange('all',this)">전체</button>
       </div>
       <div style="display:flex;justify-content:flex-end;margin-bottom:4px">
-        <button id="trend-est-btn" onclick="toggleTrendEstimate()" style="background:transparent;border:1px solid var(--hairline);color:var(--text-2);font-size:10.5px;padding:5px 11px;border-radius:6px;cursor:pointer">1년 추정선 켜기</button>
+        <button id="trend-est-btn" onclick="toggleTrendEstimate()" style="background:transparent;border:1px solid var(--hairline);color:var(--text-2);font-size:10.5px;padding:5px 11px;border-radius:6px;cursor:pointer">1년 추정으로 채우기</button>
       </div>
       <div class="chart-wrap"><canvas id="chart-trend"></canvas></div>
       <div id="trend-note" style="font-size:11px;color:var(--text-3);margin-top:8px;text-align:center"></div>
@@ -1307,16 +1307,25 @@ function renderDashboard(){
   const sdP=(st.startDate||'').split('-');
   document.getElementById('stat-startdate').textContent =
     sdP.length>=2 ? (sdP[0]+'년 '+parseInt(sdP[1],10)+'월 시작') : (st.startDate+' 시작');
-  // MDD — 고점(pick value) 대비 현재 낙폭. 고점 초과 시 고점 자동 갱신
+  // MDD — 고점(pick value) 대비 현재 낙폭. 추정 토글 시 병합 타임라인의 최대점 사용
   maybeUpdatePick();
-  const pick=st.pickValue||s.totalWithCash;
+  let pick = st.pickValue || s.totalWithCash;
+  let pickDate = st.pickDate;
+  if(trendEstimate && estimatePts && estimatePts.length){
+    const eff = getEffectiveHistory();
+    if(eff.length){
+      let peak = eff[0];
+      for(const p of eff) if(p.total > peak.total) peak = p;
+      if(peak.total > pick){ pick = peak.total; pickDate = peak.d; }
+    }
+  }
   const mddAmt=s.totalWithCash-pick;
   const mddPct=pick>0?mddAmt/pick:0;
   const mddEl=document.getElementById('stat-mdd');
   mddEl.textContent=fmtPct(mddPct);
   mddEl.className='stat-value num '+(mddPct<-0.0001?'down':'muted');
-  const pd=(st.pickDate||'').slice(2,7).replace('-','.');
-  document.getElementById('stat-mdd-amt').textContent='고점 '+fmtKRW(pick)+(pd?' ('+pd+')':'');
+  const pd=(pickDate||'').slice(2,10).replace(/-/g,'.');
+  document.getElementById('stat-mdd-amt').textContent='고점 '+fmtKRW(pick)+(pd?' · '+pd:'');
 
   // 10년 목표 — 각 납입을 납입일부터 목표수익률로 복리 성장 (납입 시기 반영, XIRR과 동일 관점)
   const goalDate=new Date(st.startDate||'2022-01-01');
@@ -1499,8 +1508,8 @@ function updateEstimateBtn(){
   if(!btn) return;
   btn.disabled=estimateLoading;
   btn.textContent = estimateLoading ? '⋯ 계산 중…'
-                  : trendEstimate ? '✓ 1년 추정선 끄기'
-                  : '1년 추정선 켜기';
+                  : trendEstimate ? '✓ 추정 채움 해제'
+                  : '1년 추정으로 채우기';
   btn.style.color = trendEstimate ? 'var(--gold)' : 'var(--text-2)';
   btn.style.borderColor = trendEstimate ? 'var(--gold)' : 'var(--hairline)';
 }
@@ -1512,7 +1521,8 @@ async function toggleTrendEstimate(){
   if(trendEstimate && !estimatePts){
     await loadEstimateData();
   }
-  renderTrendChart();
+  // MDD도 영향받으므로 대시보드 전체 갱신 (renderDashboard가 renderTrendChart 호출)
+  renderDashboard();
 }
 window.toggleTrendEstimate=toggleTrendEstimate;
 
@@ -1606,6 +1616,23 @@ async function loadEstimateData(){
   }
 }
 
+/* 실측 + 추정 병합 — 추정 토글이 켜져 있으면 실측 시작일 이전 부분을 주별 추정으로 채움 */
+function getEffectiveHistory(){
+  let hist=(state.history||[]).filter(h=>h.d).slice().sort((a,b)=>a.d.localeCompare(b.d));
+  if(trendEstimate && estimatePts && estimatePts.length){
+    const firstActual = hist.length ? hist[0].d : '9999-12-31';
+    const ymd = ms => {
+      const d=new Date(ms);
+      return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    };
+    const fillPts = estimatePts
+      .filter(p => ymd(p.x) < firstActual)
+      .map(p => ({d:ymd(p.x), total:p.y, ts:p.x, _est:true}));
+    hist = fillPts.concat(hist);
+  }
+  return hist;
+}
+
 function renderTrendChart(){
   const cv=document.getElementById('chart-trend');
   if(!cv) return;
@@ -1617,7 +1644,8 @@ function renderTrendChart(){
   const ctx=cv.getContext('2d');
   const note=document.getElementById('trend-note');
   const deposits=depositFlows();   // {ym, date, amount}
-  let hist=(state.history||[]).filter(h=>h.d).slice().sort((a,b)=>a.d.localeCompare(b.d));
+  let hist=getEffectiveHistory();
+  const estCount = hist.filter(h=>h._est).length;
 
   // 기간 필터 — 마지막 기록 기준 N일/N개월 이내
   if(trendRange!=='all' && hist.length){
@@ -1657,31 +1685,25 @@ function renderTrendChart(){
     const days = {'2w':14,'1m':30,'3m':90,'6m':180,'1y':365}[trendRange] || 0;
     xMin = lastDataMs - days * 86400000;
   }
-  // 추정선이 켜져 있으면 그 범위 내의 추정 데이터만 필터
-  let estPts = null;
-  if(trendEstimate && estimatePts && estimatePts.length){
-    estPts = estimatePts.filter(p => p.x>=xMin && p.x<=xMax);
-    // 추정선이 표시 가능한데 x축이 추정 데이터보다 늦으면 x축을 추정 시작점까지 확장 (단, 선택된 기간 내에서)
-    if(estPts.length && estPts[0].x < xMin) xMin = estPts[0].x;
-  }
 
   const grad=ctx.createLinearGradient(0,0,0,210);
   grad.addColorStop(0,'rgba(201,166,107,0.32)');
   grad.addColorStop(1,'rgba(201,166,107,0.0)');
 
+  // 첫 실측 시각 (추정→실측 경계)
+  const firstActualMs = (state.history||[]).filter(h=>h.d).map(h=>toMs(h.d)).sort((a,b)=>a-b)[0] || null;
+
   const datasets=[
     {label:'평가 자산',data:assetPts,borderColor:'#C9A66B',backgroundColor:grad,
      borderWidth:2,fill:true,tension:0.3,spanGaps:true,
-     pointRadius:0,pointHoverRadius:4,pointBackgroundColor:'#C9A66B'},
+     pointRadius:0,pointHoverRadius:4,pointBackgroundColor:'#C9A66B',
+     // 추정 구간(첫 실측 이전)은 점선으로 표시
+     segment: firstActualMs ? {
+       borderDash: ctx => (ctx.p0.parsed.x < firstActualMs) ? [3,3] : undefined
+     } : undefined},
     {label:'납입 원금',data:principalPts,borderColor:'#565967',borderWidth:1.5,
      borderDash:[4,3],fill:false,stepped:true,pointRadius:0,pointHoverRadius:3},
   ];
-  if(estPts && estPts.length){
-    datasets.push({label:'1년 추정 (현재 보유)',data:estPts,
-      borderColor:'rgba(201,166,107,0.6)',borderWidth:1.2,borderDash:[2,4],
-      fill:false,tension:0.25,
-      pointRadius:1.8,pointHoverRadius:5,pointBackgroundColor:'rgba(201,166,107,0.7)'});
-  }
 
   if (chartTrend) chartTrend.destroy();
   chartTrend=new Chart(ctx,{type:'line',
@@ -1708,10 +1730,10 @@ function renderTrendChart(){
   const recorded=hist.length;
   const rangeLbl={'2w':'최근 2주','1m':'최근 1개월','3m':'최근 3개월','6m':'최근 6개월','1y':'최근 1년','all':'전체 기간'}[trendRange]||'';
   const dsTxt = beforeDS!==afterDS ? ` · 점 ${beforeDS}→${afterDS}개로 축약(${beforeDS>1200?'월 평균':'주 평균'})` : '';
-  const estTxt = (estPts && estPts.length) ? ` · 추정선 ${estPts.length}점 (현재 보유 수량 + 현금 고정 기준)` : '';
-  note.textContent = recorded<=1 && !estPts
+  const fillTxt = estCount>0 ? ` · 실측 이전 ${estCount}점은 추정으로 채움 (점선)` : '';
+  note.textContent = recorded<=1 && estCount===0
     ? '평가 자산은 매일 마지막으로 본 값으로 기록됩니다'
-    : `${rangeLbl} · ${recorded}개 점 · 시간 비례 표시${dsTxt}${estTxt}`;
+    : `${rangeLbl} · ${recorded}개 점 · 시간 비례 표시${dsTxt}${fillTxt}`;
 }
 
 let activeCategory='all';

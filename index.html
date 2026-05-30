@@ -257,7 +257,7 @@ input,select,textarea{font-family:inherit;color:inherit}
 .abar-legend{display:flex;gap:14px;font-size:10px;color:var(--text-3);margin-bottom:10px;align-items:center}
 .abar-lg-bar{width:16px;height:8px;border-radius:2px;background:var(--text-2);display:inline-block}
 .abar-lg-tick{width:3px;height:13px;border-radius:2px;background:var(--text);display:inline-block}
-/* === 납입 배분 계산기 === */
+/* === 출금 모달 · 출금 가이드 행 === */
 .ds-row{padding:9px 0;border-bottom:1px solid var(--hairline)}
 .ds-row:last-child{border-bottom:none}
 .ds-head{display:flex;justify-content:space-between;align-items:center}
@@ -456,16 +456,6 @@ input,select,textarea{font-family:inherit;color:inherit}
   <!-- ALLOCATION -->
   <div class="view hidden" id="view-allocation">
     <div style="padding:16px 4px 12px"><h2 style="font-size:24px;font-weight:700;letter-spacing:-0.02em">배분 · 리밸런싱</h2></div>
-    <div class="card">
-      <div class="card-title">납입 배분 계산기</div>
-      <p class="muted" style="font-size:11.5px;margin:-4px 0 12px">납입 금액을 자산군별 예수금으로 목표 비중에 맞춰 배분합니다 — 출금은 거래 페이지에서</p>
-      <div class="field" style="margin-bottom:0">
-        <label>납입 금액 (₩)</label>
-        <input id="ds-amount" type="number" placeholder="50000000" min="0">
-      </div>
-      <button class="btn btn-secondary" style="width:100%;margin-top:10px" onclick="calcDepositSplit()">계산</button>
-      <div id="ds-result" style="margin-top:12px"></div>
-    </div>
     <div class="card">
       <div class="card-title">종목별 리밸런싱 <span class="action" id="edit-stock-tw">비중 수정</span></div>
       <div class="chips" id="rb-stock-chips"></div>
@@ -1801,67 +1791,13 @@ function renderHoldings(){
   el.querySelectorAll('.holding').forEach(r=>r.onclick=()=>openHoldingDetail(r.dataset.id));
 }
 
-let pendingWithdraw=0;   // 거래 페이지에서 방금 기록한 출금액 (배분 계산기 자동 입력용 — 호환)
 function startGoalExcessRebalance(amount){
   // CAGR 초과는 이제 종목별 리밸런싱 표가 자동 반영 — 배분 페이지로 이동
   switchView('allocation');
 }
 window.startGoalExcessRebalance=startGoalExcessRebalance;
 function renderAllocation(){
-  const dsAmt=document.getElementById('ds-amount');
-  const dsRes=document.getElementById('ds-result');
-  if(pendingWithdraw>0){
-    if(dsAmt) dsAmt.value=pendingWithdraw;
-    if(dsRes) dsRes.innerHTML='<div class="modal-sub">방금 기록한 출금은 별도로 배분 계산할 필요 없습니다 — 매도 가이드는 종목별 리밸런싱 표를 참고하세요</div>';
-    pendingWithdraw=0;
-  } else {
-    if(dsAmt) dsAmt.value='';
-    if(dsRes) dsRes.innerHTML='<div class="modal-sub">납입 금액 입력 후 "계산" — 목표 비중에 맞춰 자산군별 예수금에 자동 배분됩니다</div>';
-  }
   renderStockRebalance();
-}
-
-/* 납입 배분 계산기 */
-let lastDepositSplit=null;
-function calcDepositSplit(){
-  const raw=Math.round(parseFloat(document.getElementById('ds-amount').value)||0);
-  const box=document.getElementById('ds-result');
-  if(raw===0){ box.innerHTML='<div class="modal-sub">납입 금액을 입력하세요</div>'; lastDepositSplit=null; return; }
-  if(raw<0){ box.innerHTML='<div class="modal-sub" style="color:var(--text-2)">출금은 거래 페이지의 "출금 −" 버튼을 사용하세요</div>'; lastDepositSplit=null; return; }
-  calcDepositIn(raw,box);
-}
-
-/* 납입 — 목표 비중에 부족한 자산군부터 채우는 매수 기준 배분 */
-function calcDepositIn(amount,box){
-  const s=portfolioStats();
-  const keys=Object.keys(CATEGORIES);
-  const cur={}, tgt={}; let curTotal=0,tgtSum=0;
-  keys.forEach(k=>{ cur[k]=s.totals[k].current; tgt[k]=classTarget(k); curTotal+=cur[k]; tgtSum+=tgt[k]; });
-  const w=k=>tgtSum>0?tgt[k]/tgtSum:0;
-  const newTotal=curTotal+amount;
-  const gap={}; let gapSum=0;
-  keys.forEach(k=>{ gap[k]=Math.max(0, w(k)*newTotal-cur[k]); gapSum+=gap[k]; });
-  const alloc={};
-  if(gapSum<=0){ keys.forEach(k=>alloc[k]=amount*w(k)); }
-  else if(gapSum>=amount){ keys.forEach(k=>alloc[k]=amount*gap[k]/gapSum); }
-  else { const lo=amount-gapSum; keys.forEach(k=>alloc[k]=gap[k]+lo*w(k)); }
-  let used=0;
-  keys.forEach(k=>{ alloc[k]=Math.round(alloc[k]); used+=alloc[k]; });
-  const diff=amount-used;
-  if(diff!==0){ let mk=keys[0]; keys.forEach(k=>{ if(alloc[k]>alloc[mk]) mk=k; }); alloc[mk]+=diff; }
-  lastDepositSplit={mode:'in',amount,alloc};
-  const rows=keys.filter(k=>cur[k]>0||tgt[k]>0).map(k=>{
-    const afterW=newTotal>0?(cur[k]+alloc[k])/newTotal*100:0;
-    return `<div class="ds-row"><div class="ds-head">
-        <span class="abar-name"><span class="abar-dot" style="background:${CATEGORIES[k].color}"></span>${CATEGORIES[k].label}</span>
-        <span class="ds-amt" style="color:var(--gold)">+${fmtKRW(alloc[k])}</span></div>
-      <div class="ds-sub">목표 ${(w(k)*100).toFixed(2)}% · 배분 후 ${afterW.toFixed(2)}%</div></div>`;
-  }).join('');
-  box.innerHTML=`<div style="font-size:11px;color:var(--text-3);margin-bottom:4px">납입 — 목표 비중에 부족한 자산군부터 채웁니다</div>
-    ${rows}
-    <div class="ds-total"><span>합계 배분</span><span class="num">${fmtKRW(amount)}</span></div>
-    <button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="applyDepositSplit()">이 배분대로 예수금에 반영</button>
-    <div class="modal-sub" style="margin-top:8px">반영하면 각 자산군 예수금(원화)에 더해지고 현금 계정에서 차감됩니다</div>`;
 }
 
 /* 출금 계산 헬퍼 — 어디서 얼마씩 빼야 하는지 산출 (UI와 분리)
@@ -2003,21 +1939,6 @@ window.openWithdrawModal=openWithdrawModal;
 window.updateWithdrawPlan=updateWithdrawPlan;
 window.confirmWithdraw=confirmWithdraw;
 
-async function applyDepositSplit(){
-  if(!lastDepositSplit){ toast('먼저 계산을 하세요'); return; }
-  const cb=state.settings.cashByClass||{};
-  const {amount,alloc}=lastDepositSplit;
-  for(const k in alloc){
-    if(!cb[k]) cb[k]={krw:0,usd:0};
-    cb[k].krw=(cb[k].krw||0)+alloc[k];
-  }
-  state.settings.cashByClass=cb;
-  state.settings.cashAccount=Math.max(0,(state.settings.cashAccount||0)-amount);
-  lastDepositSplit=null;
-  await saveState(); toast('예수금에 배분 반영됨 · 현금 계정 −'+fmtKRW(amount));
-  switchView('allocation');
-}
-window.calcDepositSplit=calcDepositSplit; window.applyDepositSplit=applyDepositSplit;
 
 /* CAGR 목표 대비 — 양수면 초과, 음수면 미달 */
 function computeCagrGap(){
@@ -2479,14 +2400,13 @@ async function saveDepositYear(origYear){
   state.deposits[y]=arr;
   const delta=posSum(state.deposits[curY])-beforeCur;
   if(delta!==0) state.settings.cashAccount=Math.max(0,(state.settings.cashAccount||0)+delta);
-  // 새로 입력된 출금액 → 배분 계산기에 자동 채우기 (차감은 계산기에서 직접 실행)
+  // 새로 입력된 출금은 기록만 (실제 차감은 거래 페이지 "− 출금" 버튼 사용)
   const negDelta=negSum(state.deposits[y])-beforeNeg;
-  if(negDelta<0) pendingWithdraw=-negDelta;
   await saveState(); closeModal();
   let msg=y+'년 저장됨';
   if(delta>0) msg+=` · 현금 계정 +${fmtKRW(delta)}`;
   else if(delta<0) msg+=` · 현금 계정 −${fmtKRW(-delta)}`;
-  if(negDelta<0) msg+=' · 출금은 배분 계산기에서 차감';
+  if(negDelta<0) msg+=' · 출금은 기록만 — 실제 차감은 "− 출금" 버튼 사용';
   toast(msg);
   switchView('transactions');
 }

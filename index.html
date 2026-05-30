@@ -1504,20 +1504,63 @@ async function fetchYahooHistoryDaily(symbol, range){
   return out;
 }
 
+/* 야후 일별 시세 — fromDate를 포함하도록 적절한 range 선택 */
+function yahooRangeFor(fromDate){
+  const yrs=(Date.now()-new Date(fromDate+'T00:00:00').getTime())/(365*86400000);
+  if(yrs<=1) return '1y';
+  if(yrs<=2) return '2y';
+  if(yrs<=5) return '5y';
+  if(yrs<=10) return '10y';
+  return 'max';
+}
+/* 종목 1종목 — fromDate까지의 일별 시세 (야후 멀티이어 / 업비트 페이지네이션) */
+async function fetchHistoryLong(h, fromDate){
+  if(h.cat==='crypto'){
+    const mk=UPBIT_MARKET[(h.symbol||'').toUpperCase()]||('KRW-'+(h.symbol||'').toUpperCase());
+    const daysNeeded=Math.ceil((Date.now()-new Date(fromDate+'T00:00:00').getTime())/86400000)+5;
+    let all=[], to='';
+    let guard=0;
+    while(all.length<daysNeeded && guard++<30){
+      const url=`https://api.upbit.com/v1/candles/days?market=${mk}&count=200${to?`&to=${encodeURIComponent(to)}`:''}`;
+      let arr;
+      try{ const r=await fetch(url); if(!r.ok) throw 0; arr=await r.json(); }
+      catch(e){ arr=await pcProxyJson(url); }
+      if(!arr||!arr.length) break;
+      all=all.concat(arr);
+      if(arr.length<200) break;
+      to=arr[arr.length-1].candle_date_time_utc;   // 다음 페이지: 가장 오래된 캔들 이전
+    }
+    return all.map(c=>({t:(c.candle_date_time_kst||'').slice(0,10), v:c.trade_price})).reverse();
+  }
+  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(h.symbol)}?interval=1d&range=${yahooRangeFor(fromDate)}&t=${Date.now()}`;
+  const data=await pcProxyJson(url);
+  const r=data&&data.chart&&data.chart.result&&data.chart.result[0];
+  if(!r||!r.timestamp) throw new Error('no data');
+  const close=(r.indicators&&r.indicators.quote&&r.indicators.quote[0]&&r.indicators.quote[0].close)||[];
+  const out=[];
+  for(let i=0;i<r.timestamp.length;i++){
+    if(close[i]!=null) out.push({t:new Date(r.timestamp[i]*1000).toISOString().slice(0,10), v:close[i]});
+  }
+  return out;
+}
+
 async function backfillEstimate(){
   const holdings=state.holdings.filter(h=>h.qty>0);
   if(!holdings.length){ toast('보유 종목이 없습니다'); return; }
   // 첫 실측(_est가 아닌) 기록 날짜
   const actual=(state.history||[]).filter(h=>!h._est && h.d).sort((a,b)=>a.d.localeCompare(b.d));
   const firstActualDate = actual.length ? actual[0].d : new Date().toISOString().slice(0,10);
-  if(!confirm(`현재 보유 종목 기준으로 ${firstActualDate} 이전 1년 구간을 주별 추정값으로 채웁니다.\n기존 추정 기록이 있다면 새로 다시 계산합니다.\n진행할까요?`)){ return; }
+  // 시작 = 투자 시작일 (없으면 1년 전)
+  const fromDate = state.settings.startDate || new Date(Date.now()-365*86400000).toISOString().slice(0,10);
+  const yrsBack=((Date.now()-new Date(fromDate+'T00:00:00').getTime())/(365*86400000)).toFixed(1);
+  if(!confirm(`현재 보유 종목 기준으로 ${fromDate}(투자 시작일)부터 ${firstActualDate} 직전까지 일별 추정값을 채웁니다.\n\n※ ${yrsBack}년 전까지 거슬러 갈수록 추정 신뢰도가 낮아집니다 (당시 없던 종목·수량 차이·환율 변동 등은 반영 안 됨).\n\n진행할까요?`)){ return; }
 
-  toast('⋯ 추정 데이터 계산 중');
+  toast('⋯ 추정 데이터 계산 중 (수 초 소요)');
   try {
-    // 환율 + 모든 종목 1년치 일별 시세 병렬
-    const fxFetch=fetchYahooHistoryDaily('KRW=X','1y').catch(()=>null);
+    // 환율 + 모든 종목 일별 시세 (투자 시작일까지) 병렬
+    const fxFetch=fetchYahooHistoryDaily('KRW=X', yahooRangeFor(fromDate)).catch(()=>null);
     const histFetches=holdings.map(h=>
-      fetchPriceHistory(h,'1y').then(s=>({h,series:s})).catch(()=>({h,series:null}))
+      fetchHistoryLong(h, fromDate).then(s=>({h,series:s})).catch(()=>({h,series:null}))
     );
     const [fxHist, ...holdingSeries]=await Promise.all([fxFetch, ...histFetches]);
 
@@ -1532,12 +1575,14 @@ async function backfillEstimate(){
     const seriesMaps=holdingSeries.map(x=>({h:x.h, m:toDayMap(x.series)}));
     const currentCash=totalCash();
 
-    // 365일 전 ~ 오늘 (일 단위)
+    // 투자 시작일 ~ 오늘 (일 단위)
     const today=new Date(); today.setHours(0,0,0,0);
+    const startMs=new Date(fromDate+'T00:00:00').getTime();
+    const totalDays=Math.max(1, Math.ceil((today.getTime()-startMs)/86400000));
     const points=[];
     let lastFx=state.settings.fxRate;
     const lastPriceFor=new Map(seriesMaps.map(x=>[x.h.id, null]));
-    for(let i=365; i>=0; i--){
+    for(let i=totalDays; i>=0; i--){
       const day=new Date(today.getTime()-i*86400000);
       const dayKey=day.toISOString().slice(0,10);
       const fxDay=fxMap?fxMap.get(dayKey):null;

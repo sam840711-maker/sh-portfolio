@@ -1326,7 +1326,8 @@ function renderDashboard(){
     +`<span class="num">₩${fmtKRW(expectedNow)}</span></div>`
     +`<div class="goal-pace-row"><span>목표 대비</span>`
     +`<span class="num ${paceCls}">${paceGap>=0?'+':'-'}₩${fmtKRW(Math.abs(paceGap))} `
-    +`(${fmtPctSigned(pacePct,1)}) ${paceWord}</span></div>`;
+    +`(${fmtPctSigned(pacePct,1)}) ${paceWord}</span></div>`
+    +(paceGap>0?`<button class="btn btn-secondary" style="width:100%;margin-top:10px;font-size:12.5px;padding:9px" onclick="startGoalExcessRebalance(${Math.round(paceGap)})">초과분 ₩${fmtKRW(paceGap)} 대기 자금으로 ▸</button>`:'');
 
   renderHoldingsSummary();
   renderTrendChart();
@@ -1754,10 +1755,26 @@ function renderHoldings(){
 }
 
 let pendingWithdraw=0;   // 거래 페이지에서 방금 기록한 출금액 (배분 계산기 자동 입력용)
+let pendingGoalExcess=0; // 10년 목표 초과분 (대시보드에서 "대기 자금으로" 클릭 시)
+function startGoalExcessRebalance(amount){
+  pendingGoalExcess=Math.max(0,Math.round(amount));
+  switchView('allocation');
+}
+window.startGoalExcessRebalance=startGoalExcessRebalance;
 function renderAllocation(){
   const dsAmt=document.getElementById('ds-amount');
   const dsRes=document.getElementById('ds-result');
-  if(pendingWithdraw>0){
+  if(pendingGoalExcess>0){
+    if(dsAmt) dsAmt.value=-pendingGoalExcess;
+    // destination을 '대기 자금 이체'로 자동 설정
+    dsDest='reserve';
+    document.querySelectorAll('#ds-dest-seg button').forEach(b=>{
+      b.classList.toggle('active', b.dataset.dest==='reserve');
+    });
+    pendingGoalExcess=0;
+    // 자동 계산 — DOM 갱신 후
+    setTimeout(()=>calcDepositSplit(),0);
+  } else if(pendingWithdraw>0){
     if(dsAmt) dsAmt.value=-pendingWithdraw;
     if(dsRes) dsRes.innerHTML='<div class="modal-sub">방금 기록한 출금액이 입력되었습니다 — "계산"을 눌러 차감 내역을 확인하세요</div>';
     pendingWithdraw=0;

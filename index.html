@@ -431,6 +431,9 @@ input,select,textarea{font-family:inherit;color:inherit}
         <button data-rk="1y" onclick="setTrendRange('1y',this)">1Y</button>
         <button data-rk="all" onclick="setTrendRange('all',this)">전체</button>
       </div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:4px">
+        <button id="trend-est-btn" onclick="toggleTrendEstimate()" style="background:transparent;border:1px solid var(--hairline);color:var(--text-2);font-size:10.5px;padding:5px 11px;border-radius:6px;cursor:pointer">1년 추정선 켜기</button>
+      </div>
       <div class="chart-wrap"><canvas id="chart-trend"></canvas></div>
       <div id="trend-note" style="font-size:11px;color:var(--text-3);margin-top:8px;text-align:center"></div>
     </div>
@@ -1486,6 +1489,123 @@ function renderAllocChart(s){
   }).join('');
 }
 
+/* === 1년 추정선 — 현재 보유 수량 + 1년치 일별 시세로 주별 평가액 추정 === */
+let trendEstimate=false;
+let estimatePts=null;
+let estimateLoading=false;
+
+function updateEstimateBtn(){
+  const btn=document.getElementById('trend-est-btn');
+  if(!btn) return;
+  btn.disabled=estimateLoading;
+  btn.textContent = estimateLoading ? '⋯ 계산 중…'
+                  : trendEstimate ? '✓ 1년 추정선 끄기'
+                  : '1년 추정선 켜기';
+  btn.style.color = trendEstimate ? 'var(--gold)' : 'var(--text-2)';
+  btn.style.borderColor = trendEstimate ? 'var(--gold)' : 'var(--hairline)';
+}
+
+async function toggleTrendEstimate(){
+  if(estimateLoading) return;
+  trendEstimate=!trendEstimate;
+  updateEstimateBtn();
+  if(trendEstimate && !estimatePts){
+    await loadEstimateData();
+  }
+  renderTrendChart();
+}
+window.toggleTrendEstimate=toggleTrendEstimate;
+
+async function fetchYahooHistoryDaily(symbol, range){
+  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${range}&t=${Date.now()}`;
+  const data=await pcProxyJson(url);
+  const r=data&&data.chart&&data.chart.result&&data.chart.result[0];
+  if(!r||!r.timestamp) throw new Error('no data');
+  const close=(r.indicators&&r.indicators.quote&&r.indicators.quote[0]&&r.indicators.quote[0].close)||[];
+  const out=[];
+  for(let i=0;i<r.timestamp.length;i++){
+    if(close[i]!=null) out.push({t:new Date(r.timestamp[i]*1000).toISOString().slice(0,10), v:close[i]});
+  }
+  return out;
+}
+
+async function loadEstimateData(){
+  const holdings=state.holdings.filter(h=>h.qty>0);
+  if(!holdings.length){ estimatePts=[]; return; }
+  const today=new Date().toISOString().slice(0,10);
+  // 캐시 키 — 오늘 날짜 + 보유 종목 식별 (id·수량 변경 시 무효화)
+  const hashId=holdings.map(h=>`${h.id}:${h.qty}`).sort().join(',');
+  let cacheKey='estTrend_'+today;
+  try { cacheKey += '_'+btoa(unescape(encodeURIComponent(hashId))).slice(0,16); } catch(e){}
+  try {
+    const cached=sessionStorage.getItem(cacheKey);
+    if(cached){ estimatePts=JSON.parse(cached); return; }
+  } catch(e){}
+  estimateLoading=true; updateEstimateBtn();
+  try {
+    // 환율 1년치 + 모든 종목 1년치 병렬 호출
+    const fxFetch=fetchYahooHistoryDaily('KRW=X','1y').catch(()=>null);
+    const histFetches=holdings.map(h=>
+      fetchPriceHistory(h,'1y').then(s=>({h,series:s})).catch(()=>({h,series:null}))
+    );
+    const [fxHist, ...holdingSeries]=await Promise.all([fxFetch, ...histFetches]);
+    // 일자를 그 주의 월요일로 정규화
+    const mondayOf = (d) => {
+      const x=new Date(d.getTime());
+      const dow=x.getDay()||7;
+      x.setHours(0,0,0,0);
+      return new Date(x.getTime()-(dow-1)*86400000);
+    };
+    const weeklyKey = ymd => mondayOf(new Date(ymd+'T00:00:00')).toISOString().slice(0,10);
+    // 일별 시리즈 → 주별 마지막 값 맵
+    const toWeekMap = (series) => {
+      if(!series) return null;
+      const m=new Map();
+      for(const d of series){ m.set(weeklyKey(d.t), d.v); }
+      return m;
+    };
+    const fxMap=toWeekMap(fxHist);
+    const seriesMaps=holdingSeries.map(x=>({h:x.h, m:toWeekMap(x.series)}));
+    const currentCash=totalCash();
+    // 52주 전부터 오늘까지의 월요일들
+    const lastMon=mondayOf(new Date());
+    const points=[];
+    let lastFx=state.settings.fxRate;
+    const lastPriceFor=new Map(seriesMaps.map(x=>[x.h.id, null]));
+    for(let i=52; i>=0; i--){
+      const mon=new Date(lastMon.getTime()-i*7*86400000);
+      const wkKey=mon.toISOString().slice(0,10);
+      const ms=mon.getTime();
+      const fxThisWeek = fxMap ? fxMap.get(wkKey) : null;
+      if(fxThisWeek!=null) lastFx=fxThisWeek;
+      const fx=lastFx;
+      let total=currentCash;
+      let anyData=false;
+      for(const {h,m} of seriesMaps){
+        if(!m) continue;
+        const wkP=m.get(wkKey);
+        if(wkP!=null){ lastPriceFor.set(h.id, wkP); anyData=true; }
+        const price=lastPriceFor.get(h.id);
+        if(price==null) continue;
+        if(isUSDcat(h.cat)) total += h.qty*price*fx;
+        else total += h.qty*price;
+      }
+      // 첫 데이터가 들어오기 전 주는 스킵 (보유 종목이 1년 미만이면 자연스럽게 잘림)
+      if(anyData || points.length>0){
+        points.push({x:ms, y:Math.round(total)});
+      }
+    }
+    estimatePts=points;
+    try { sessionStorage.setItem(cacheKey, JSON.stringify(points)); } catch(e){}
+  } catch(e){
+    console.error('Estimate load failed:', e);
+    toast('추정 데이터 로딩 실패 — 인터넷·프록시 확인');
+    estimatePts=null; trendEstimate=false;
+  } finally {
+    estimateLoading=false; updateEstimateBtn();
+  }
+}
+
 function renderTrendChart(){
   const cv=document.getElementById('chart-trend');
   if(!cv) return;
@@ -1537,20 +1657,35 @@ function renderTrendChart(){
     const days = {'2w':14,'1m':30,'3m':90,'6m':180,'1y':365}[trendRange] || 0;
     xMin = lastDataMs - days * 86400000;
   }
+  // 추정선이 켜져 있으면 그 범위 내의 추정 데이터만 필터
+  let estPts = null;
+  if(trendEstimate && estimatePts && estimatePts.length){
+    estPts = estimatePts.filter(p => p.x>=xMin && p.x<=xMax);
+    // 추정선이 표시 가능한데 x축이 추정 데이터보다 늦으면 x축을 추정 시작점까지 확장 (단, 선택된 기간 내에서)
+    if(estPts.length && estPts[0].x < xMin) xMin = estPts[0].x;
+  }
 
   const grad=ctx.createLinearGradient(0,0,0,210);
   grad.addColorStop(0,'rgba(201,166,107,0.32)');
   grad.addColorStop(1,'rgba(201,166,107,0.0)');
 
+  const datasets=[
+    {label:'평가 자산',data:assetPts,borderColor:'#C9A66B',backgroundColor:grad,
+     borderWidth:2,fill:true,tension:0.3,spanGaps:true,
+     pointRadius:0,pointHoverRadius:4,pointBackgroundColor:'#C9A66B'},
+    {label:'납입 원금',data:principalPts,borderColor:'#565967',borderWidth:1.5,
+     borderDash:[4,3],fill:false,stepped:true,pointRadius:0,pointHoverRadius:3},
+  ];
+  if(estPts && estPts.length){
+    datasets.push({label:'1년 추정 (현재 보유)',data:estPts,
+      borderColor:'rgba(201,166,107,0.6)',borderWidth:1.2,borderDash:[2,4],
+      fill:false,tension:0.25,
+      pointRadius:1.8,pointHoverRadius:5,pointBackgroundColor:'rgba(201,166,107,0.7)'});
+  }
+
   if (chartTrend) chartTrend.destroy();
   chartTrend=new Chart(ctx,{type:'line',
-    data:{datasets:[
-      {label:'평가 자산',data:assetPts,borderColor:'#C9A66B',backgroundColor:grad,
-       borderWidth:2,fill:true,tension:0.3,spanGaps:true,
-       pointRadius:0,pointHoverRadius:4,pointBackgroundColor:'#C9A66B'},
-      {label:'납입 원금',data:principalPts,borderColor:'#565967',borderWidth:1.5,
-       borderDash:[4,3],fill:false,stepped:true,pointRadius:0,pointHoverRadius:3},
-    ]},
+    data:{datasets},
     options:{
       interaction:{mode:'index',intersect:false},
       scales:{
@@ -1573,9 +1708,10 @@ function renderTrendChart(){
   const recorded=hist.length;
   const rangeLbl={'2w':'최근 2주','1m':'최근 1개월','3m':'최근 3개월','6m':'최근 6개월','1y':'최근 1년','all':'전체 기간'}[trendRange]||'';
   const dsTxt = beforeDS!==afterDS ? ` · 점 ${beforeDS}→${afterDS}개로 축약(${beforeDS>1200?'월 평균':'주 평균'})` : '';
-  note.textContent = recorded<=1
+  const estTxt = (estPts && estPts.length) ? ` · 추정선 ${estPts.length}점 (현재 보유 수량 + 현금 고정 기준)` : '';
+  note.textContent = recorded<=1 && !estPts
     ? '평가 자산은 매일 마지막으로 본 값으로 기록됩니다'
-    : `${rangeLbl} · ${recorded}개 점 · 시간 비례 표시${dsTxt}`;
+    : `${rangeLbl} · ${recorded}개 점 · 시간 비례 표시${dsTxt}${estTxt}`;
 }
 
 let activeCategory='all';

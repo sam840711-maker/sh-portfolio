@@ -290,6 +290,8 @@ input,select,textarea{font-family:inherit;color:inherit}
 .qe-cell.qe-changed{border-color:var(--gold);background:var(--gold-soft)}
 .rebal-alert{cursor:pointer;border:1px solid var(--orange);background:var(--orange-soft)}
 .rebal-alert .ra-dot{width:9px;height:9px;border-radius:50%;background:var(--orange);flex-shrink:0}
+.cagr-alert{cursor:pointer;border:1px solid var(--gold);background:var(--gold-soft)}
+.cagr-alert .ca-dot{width:9px;height:9px;border-radius:50%;background:var(--gold);flex-shrink:0}
 .h-move{display:flex;flex-direction:column;gap:3px;margin-left:10px;flex-shrink:0}
 .h-move button{width:27px;height:20px;border:1px solid var(--hairline);border-radius:6px;background:var(--frame);color:var(--text-2);font-size:8px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0}
 .h-move button:active{background:var(--surface-2);color:var(--gold)}
@@ -361,6 +363,7 @@ input,select,textarea{font-family:inherit;color:inherit}
   <!-- DASHBOARD -->
   <div class="view" id="view-dashboard">
     <div class="card rebal-alert" id="rebal-alert" style="display:none"></div>
+    <div class="card cagr-alert" id="cagr-alert" style="display:none"></div>
     <div id="market-banner" class="mkt-banner" style="display:none"></div>
     <div class="freshness" id="freshness">
       <span>USD/KRW <span class="fx-val" id="fx-val">—</span></span>
@@ -1326,16 +1329,60 @@ function renderDashboard(){
     +`<span class="num">₩${fmtKRW(expectedNow)}</span></div>`
     +`<div class="goal-pace-row"><span>목표 대비</span>`
     +`<span class="num ${paceCls}">${paceGap>=0?'+':'-'}₩${fmtKRW(Math.abs(paceGap))} `
-    +`(${fmtPctSigned(pacePct,1)}) ${paceWord}</span></div>`
-    +(paceGap>0?`<button class="btn btn-secondary" style="width:100%;margin-top:10px;font-size:12.5px;padding:9px" onclick="startGoalExcessRebalance(${Math.round(paceGap)})">초과분 ₩${fmtKRW(paceGap)} 대기 자금으로 ▸</button>`:'');
+    +`(${fmtPctSigned(pacePct,1)}) ${paceWord}</span></div>`;
 
   renderHoldingsSummary();
   renderTrendChart();
   renderTopbar();
   renderRebalAlert(s);
+  renderCagrAlert();
 }
 /* 리밸런싱 시점 알림 — 자산군 비중이 목표에서 임계치 이상 벌어지면 표시 */
 const REBAL_THRESHOLD=0.05;  // 5%p
+function renderCagrAlert(){
+  const el=document.getElementById('cagr-alert');
+  if(!el) return;
+  const st=state.settings;
+  if(!st||!st.targetCAGR||!st.startDate){ el.style.display='none'; return; }
+  const {gap, expected}=computeCagrGap();
+  if(expected<=0){ el.style.display='none'; return; }
+  const pct=gap/expected;
+  const reserve=state.settings.reserveCash||0;
+  if(gap>0 && pct>=0.05){
+    // 초과 (골드)
+    el.style.borderColor='var(--gold)';
+    el.style.background='var(--gold-soft)';
+    el.innerHTML=`<div style="display:flex;align-items:center;gap:11px">
+      <span class="ca-dot" style="background:var(--gold)"></span>
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:13px">CAGR 목표 초과 달성</div>
+        <div style="font-size:11.5px;color:var(--text-2);margin-top:2px">현재 시점 목표보다 +${(pct*100).toFixed(1)}% 초과 — 초과분 ₩${fmtKRW(gap)}</div>
+      </div>
+      <span style="color:var(--gold);font-size:12px;font-weight:600;white-space:nowrap">현금화 ▸</span>
+    </div>`;
+    el.style.display='block';
+    el.onclick=()=>startGoalExcessRebalance(Math.round(gap));
+  } else if(gap<0 && Math.abs(pct)>=0.05 && reserve>0){
+    // 미달 + 대기 자금 보유 (슬레이트블루)
+    const deploy=Math.min(-gap, reserve);
+    el.style.borderColor='#5A7A9A';
+    el.style.background='rgba(90,122,154,0.12)';
+    el.innerHTML=`<div style="display:flex;align-items:center;gap:11px">
+      <span class="ca-dot" style="background:#5A7A9A"></span>
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:13px">CAGR 목표 미달</div>
+        <div style="font-size:11.5px;color:var(--text-2);margin-top:2px">현재 시점 목표보다 ${(pct*100).toFixed(1)}% 미달 — 대기 자금 ₩${fmtKRW(deploy)} 매수 투입 권장</div>
+      </div>
+      <span style="color:#8AA0BD;font-size:12px;font-weight:600;white-space:nowrap">배분 ▸</span>
+    </div>`;
+    el.style.display='block';
+    el.onclick=()=>switchView('allocation');
+  } else {
+    el.style.display='none';
+    el.innerHTML='';
+  }
+}
+
 function renderRebalAlert(s){
   const el=document.getElementById('rebal-alert');
   if(!el) return;
@@ -1970,16 +2017,43 @@ async function applyDepositSplit(){
 }
 window.calcDepositSplit=calcDepositSplit; window.applyDepositSplit=applyDepositSplit;
 
+/* CAGR 목표 대비 — 양수면 초과, 음수면 미달 */
+function computeCagrGap(){
+  const st=state.settings;
+  if(!st||!st.targetCAGR||!st.startDate) return {gap:0, expected:0, current:0};
+  try {
+    const expected=targetFV(new Date());
+    const current=portfolioStats().totalWithCash;
+    return {gap: current-expected, expected, current};
+  } catch(e){ return {gap:0, expected:0, current:0}; }
+}
+/* (구) computeCagrExcess — 호환용 (초과만 양수) */
+function computeCagrExcess(){ return Math.max(0, computeCagrGap().gap); }
+
 /* 종목별 리밸런싱 — 각 종목을 목표 비중에 맞추기 위한 매수/매도 수량
-   portfolio: 총자산(평가액+예수금) 기준 → 예수금이 매수에 자동 반영
+   portfolio: '활성 자산' 기준 (보유 + 예수금 + 현금계정, 대기 자금 제외)
+              · CAGR 초과 시 그만큼 차감 (총자산을 페이스 목표선까지 끌어내림)
+              · CAGR 미달 + 대기 자금 보유 시 부족분만큼 대기 자금 투입 (매수에 자동 반영)
    within   : 그 자산군의 보유 평가액만 기준 → 예수금 제외, 자산군 내 재분배만 */
 function stockRebalance(cat, mode){
   const fx=state.settings.fxRate;
   const holdings=state.holdings.filter(h=>h.cat===cat&&h.qty>0);
   const catCurrent=holdings.reduce((s,h)=>s+holdingValue(h,fx).current,0);
-  const catTargetVal = mode==='within'
-    ? catCurrent
-    : portfolioStats().totalWithCash*classTarget(cat);   // 총자산(평가액+예수금) 기준
+  let basis=portfolioStats().totalWithCash;
+  const reserve=state.settings.reserveCash||0;
+  if(mode!=='within'){
+    // 평소엔 대기 자금을 basis에서 제외 (별도 보관)
+    basis -= reserve;
+    const {gap}=computeCagrGap();
+    if(gap>0){
+      // 초과: 매도 권장
+      basis = Math.max(0, basis-gap);
+    } else if(gap<0 && reserve>0){
+      // 미달 + 대기 자금 있음: 부족분 만큼 대기 자금 투입
+      basis += Math.min(-gap, reserve);
+    }
+  }
+  const catTargetVal = mode==='within' ? catCurrent : basis*classTarget(cat);
   return holdings.map(h=>{
     const v=holdingValue(h,fx);
     const tw=h.targetWt||0;
@@ -2006,9 +2080,20 @@ function renderStockRebalance(){
   chipsEl.innerHTML=cats.map(k=>`<button class="chip ${rbStockCat===k?'active':''}" data-rbcat="${k}">${CATEGORIES[k].label}</button>`).join('');
   chipsEl.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{rbStockCat=c.dataset.rbcat;renderStockRebalance();});
   document.querySelectorAll('#rb-mode-seg button').forEach(b=>b.classList.toggle('active',b.dataset.rbmode===rbMode));
-  document.getElementById('rb-mode-desc').textContent = rbMode==='within'
+  let _modeNote='';
+  if(rbMode==='portfolio'){
+    const {gap}=computeCagrGap();
+    const reserve=state.settings.reserveCash||0;
+    if(gap>0){
+      _modeNote=` · <b style="color:var(--gold)">CAGR 초과분 ₩${fmtKRW(gap)} 매도 반영됨</b>`;
+    } else if(gap<0 && reserve>0){
+      const deploy=Math.min(-gap, reserve);
+      _modeNote=` · <b style="color:#5A7A9A">CAGR 미달 — 대기 자금 ₩${fmtKRW(deploy)} 매수 투입</b>`;
+    }
+  }
+  document.getElementById('rb-mode-desc').innerHTML = (rbMode==='within'
     ? '그 자산군의 보유 평가액 안에서 종목을 재분배합니다 (예수금 제외)'
-    : '총자산(보유 평가액 + 예수금) 기준 — 예수금이 매수에 자동 반영됩니다';
+    : '활성 자산(보유 + 예수금) 기준 — 대기 자금은 평소엔 별도 보관, 미달 시에만 자동 투입') + _modeNote;
 
   const rows=stockRebalance(rbStockCat, rbMode);
   let html='';

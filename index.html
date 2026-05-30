@@ -457,17 +457,12 @@ input,select,textarea{font-family:inherit;color:inherit}
   <div class="view hidden" id="view-allocation">
     <div style="padding:16px 4px 12px"><h2 style="font-size:24px;font-weight:700;letter-spacing:-0.02em">배분 · 리밸런싱</h2></div>
     <div class="card">
-      <div class="card-title">납입 · 출금 배분 계산기</div>
-      <p class="muted" style="font-size:11.5px;margin:-4px 0 12px">양수는 자산군별 예수금에 납입 배분, 음수(−)는 현금에서 출금 차감 — 둘 다 목표 비중 기준</p>
+      <div class="card-title">납입 배분 계산기</div>
+      <p class="muted" style="font-size:11.5px;margin:-4px 0 12px">납입 금액을 자산군별 예수금으로 목표 비중에 맞춰 배분합니다 — 출금은 거래 페이지에서</p>
       <div class="field" style="margin-bottom:0">
-        <label>금액 (₩) — 출금은 마이너스</label>
-        <input id="ds-amount" type="number" placeholder="납입 50000000 · 출금 -30000000">
+        <label>납입 금액 (₩)</label>
+        <input id="ds-amount" type="number" placeholder="50000000" min="0">
       </div>
-      <div class="seg" id="ds-dest-seg" style="margin-top:10px">
-        <button data-dest="external" class="active" onclick="setDsDest('external',this)">외부 출금</button>
-        <button data-dest="reserve" onclick="setDsDest('reserve',this)">대기 자금 이체</button>
-      </div>
-      <small class="muted" style="font-size:11px;display:block;margin-top:4px">출금(−)에만 적용 · 대기 자금 이체는 총자산이 유지됩니다</small>
       <button class="btn btn-secondary" style="width:100%;margin-top:10px" onclick="calcDepositSplit()">계산</button>
       <div id="ds-result" style="margin-top:12px"></div>
     </div>
@@ -493,7 +488,12 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div id="itax-list"></div>
     </div>
     <div class="card">
-      <div class="card-title">납입 기록 <span class="action" id="add-deposit">＋ 추가</span></div>
+      <div class="card-title">납입 · 출금 기록
+        <span style="display:flex;gap:14px">
+          <span class="action" id="add-withdraw" style="color:var(--down)">− 출금</span>
+          <span class="action" id="add-deposit">＋ 납입</span>
+        </span>
+      </div>
       <div id="txn-list"></div>
     </div>
   </div>
@@ -1801,54 +1801,34 @@ function renderHoldings(){
   el.querySelectorAll('.holding').forEach(r=>r.onclick=()=>openHoldingDetail(r.dataset.id));
 }
 
-let pendingWithdraw=0;   // 거래 페이지에서 방금 기록한 출금액 (배분 계산기 자동 입력용)
-let pendingGoalExcess=0; // 10년 목표 초과분 (대시보드에서 "대기 자금으로" 클릭 시)
+let pendingWithdraw=0;   // 거래 페이지에서 방금 기록한 출금액 (배분 계산기 자동 입력용 — 호환)
 function startGoalExcessRebalance(amount){
-  pendingGoalExcess=Math.max(0,Math.round(amount));
+  // CAGR 초과는 이제 종목별 리밸런싱 표가 자동 반영 — 배분 페이지로 이동
   switchView('allocation');
 }
 window.startGoalExcessRebalance=startGoalExcessRebalance;
 function renderAllocation(){
   const dsAmt=document.getElementById('ds-amount');
   const dsRes=document.getElementById('ds-result');
-  if(pendingGoalExcess>0){
-    if(dsAmt) dsAmt.value=-pendingGoalExcess;
-    // destination을 '대기 자금 이체'로 자동 설정
-    dsDest='reserve';
-    document.querySelectorAll('#ds-dest-seg button').forEach(b=>{
-      b.classList.toggle('active', b.dataset.dest==='reserve');
-    });
-    pendingGoalExcess=0;
-    // 자동 계산 — DOM 갱신 후
-    setTimeout(()=>calcDepositSplit(),0);
-  } else if(pendingWithdraw>0){
-    if(dsAmt) dsAmt.value=-pendingWithdraw;
-    if(dsRes) dsRes.innerHTML='<div class="modal-sub">방금 기록한 출금액이 입력되었습니다 — "계산"을 눌러 차감 내역을 확인하세요</div>';
+  if(pendingWithdraw>0){
+    if(dsAmt) dsAmt.value=pendingWithdraw;
+    if(dsRes) dsRes.innerHTML='<div class="modal-sub">방금 기록한 출금은 별도로 배분 계산할 필요 없습니다 — 매도 가이드는 종목별 리밸런싱 표를 참고하세요</div>';
     pendingWithdraw=0;
   } else {
-    if(dsAmt) dsAmt.value=Math.round(state.settings.cashAccount||0)||'';
-    if(dsRes) dsRes.innerHTML='<div class="modal-sub">금액 입력 후 "계산" — 양수는 납입 배분, 음수(−)는 출금 차감입니다</div>';
+    if(dsAmt) dsAmt.value='';
+    if(dsRes) dsRes.innerHTML='<div class="modal-sub">납입 금액 입력 후 "계산" — 목표 비중에 맞춰 자산군별 예수금에 자동 배분됩니다</div>';
   }
   renderStockRebalance();
 }
 
-/* 납입·출금 배분 계산기 */
+/* 납입 배분 계산기 */
 let lastDepositSplit=null;
-let dsDest='external';   // 'external'=외부 출금 / 'reserve'=대기 자금 이체
-function setDsDest(d,btn){
-  dsDest=d;
-  document.querySelectorAll('#ds-dest-seg button').forEach(b=>b.classList.remove('active'));
-  if(btn) btn.classList.add('active');
-  // 음수(출금) 계산 중이면 destination에 맞게 다시 그리기
-  const amt=parseFloat((document.getElementById('ds-amount')||{}).value)||0;
-  if(amt<0) calcDepositSplit();
-}
-window.setDsDest=setDsDest;
 function calcDepositSplit(){
   const raw=Math.round(parseFloat(document.getElementById('ds-amount').value)||0);
   const box=document.getElementById('ds-result');
-  if(raw===0){ box.innerHTML='<div class="modal-sub">금액을 입력하세요 · 출금은 음수(−)로</div>'; lastDepositSplit=null; return; }
-  if(raw>0) calcDepositIn(raw,box); else calcDepositOut(-raw,box);
+  if(raw===0){ box.innerHTML='<div class="modal-sub">납입 금액을 입력하세요</div>'; lastDepositSplit=null; return; }
+  if(raw<0){ box.innerHTML='<div class="modal-sub" style="color:var(--text-2)">출금은 거래 페이지의 "출금 −" 버튼을 사용하세요</div>'; lastDepositSplit=null; return; }
+  calcDepositIn(raw,box);
 }
 
 /* 납입 — 목표 비중에 부족한 자산군부터 채우는 매수 기준 배분 */
@@ -1884,8 +1864,9 @@ function calcDepositIn(amount,box){
     <div class="modal-sub" style="margin-top:8px">반영하면 각 자산군 예수금(원화)에 더해지고 현금 계정에서 차감됩니다</div>`;
 }
 
-/* 출금 — 현금 계정 → 목표 초과 자산군 예수금 → 종목 매도 순 */
-function calcDepositOut(amount,box){
+/* 출금 계산 헬퍼 — 어디서 얼마씩 빼야 하는지 산출 (UI와 분리)
+   우선순위: 현금 계정 → 목표 초과 자산군 예수금 → 종목 매도 (목표 초과 종목 우선) */
+function computeWithdrawalPlan(amount){
   const s=portfolioStats();
   const keys=Object.keys(CATEGORIES);
   const cb=state.settings.cashByClass||{};
@@ -1894,7 +1875,7 @@ function calcDepositOut(amount,box){
   let tgtSum=0; const tgt={};
   keys.forEach(k=>{ tgt[k]=classTarget(k); tgtSum+=tgt[k]; });
   const w=k=>tgtSum>0?tgt[k]/tgtSum:0;
-  const dev=k=> s.totals[k].current/total - w(k);   // 양수 = 목표 초과
+  const dev=k=> s.totals[k].current/total - w(k);
   const order=keys.slice().sort((a,b)=>dev(b)-dev(a));
   let need=amount;
   const fromCashAcc=Math.min(need,Math.max(0,Math.round(state.settings.cashAccount||0)));
@@ -1906,104 +1887,125 @@ function calcDepositOut(amount,box){
     const take=Math.min(need,avail);
     if(take>0){ fromClass[k]=take; need-=take; }
   });
-  const shortfall=need, cashUsed=amount-shortfall;
-  lastDepositSplit={mode:'out',fromCashAcc,fromClass};
-  let rows='';
-  if(fromCashAcc>0) rows+=`<div class="ds-row"><div class="ds-head">
-    <span class="abar-name"><span class="abar-dot" style="background:#565967"></span>현금 계정</span>
-    <span class="ds-amt down">−${fmtKRW(fromCashAcc)}</span></div>
-    <div class="ds-sub">미배정 현금에서 우선 차감</div></div>`;
-  order.forEach(k=>{ if(fromClass[k]) rows+=`<div class="ds-row"><div class="ds-head">
-    <span class="abar-name"><span class="abar-dot" style="background:${CATEGORIES[k].color}"></span>${CATEGORIES[k].label}</span>
-    <span class="ds-amt down">−${fmtKRW(fromClass[k])}</span></div>
-    <div class="ds-sub">예수금에서 차감 · 목표 초과 자산군 우선</div></div>`; });
-  if(!rows) rows='<div class="modal-sub">차감할 현금 예수금이 없습니다 — 전액 종목 매도가 필요합니다</div>';
-  // 부족분 → 종목별 매도 수량 산출
-  let sellBlock='';
+  const shortfall=need;
+  let sells=[];
   if(shortfall>0){
-    const postTotal=Math.max(1,total-amount);   // 출금 후 총자산
+    const postTotal=Math.max(1,total-amount);
     const list=state.holdings.filter(h=>h.qty>0).map(h=>{
       const v=holdingValue(h,fx).current;
       const targetVal=postTotal*classTarget(h.cat)*(h.targetWt||0);
       const priceKRW=isUSDcat(h.cat)?h.curUSD*fx:h.curKRW;
-      return {h,v,over:v-targetVal,priceKRW};   // over>0 = 목표 초과
+      return {h,v,over:v-targetVal,priceKRW};
     });
     let overSum=0,valSum=0;
     list.forEach(x=>{ if(x.over>0) overSum+=x.over; valSum+=x.v; });
     const sellAmt={};
-    if(overSum>=shortfall){                       // 초과 종목만 비례 매도
+    if(overSum>=shortfall){
       list.forEach(x=>{ sellAmt[x.h.id]= x.over>0?shortfall*x.over/overSum:0; });
-    } else {                                      // 초과분 전량 + 나머지는 평가액 비례
+    } else {
       const rest=shortfall-overSum;
       list.forEach(x=>{ sellAmt[x.h.id]= Math.max(0,x.over)+(valSum>0?rest*x.v/valSum:0); });
     }
-    let proceeds=0;
-    const sells=list.map(x=>{
+    sells=list.map(x=>{
       const amt=sellAmt[x.h.id]||0;
       if(amt<=0||x.priceKRW<=0) return null;
       const sh=x.h.cat==='crypto'?Math.round(amt/x.priceKRW*10000)/10000:Math.round(amt/x.priceKRW);
       if(sh<=0) return null;
-      const proc=sh*x.priceKRW; proceeds+=proc;
-      return {sym:x.h.symbol,name:x.h.name,sh,proc};
+      return {h:x.h, sh, proc:sh*x.priceKRW};
     }).filter(Boolean).sort((a,b)=>b.proc-a.proc);
-    const sellRows=sells.map(x=>`<div class="ds-row"><div class="ds-head">
-      <span class="abar-name">${x.sym}</span>
-      <span class="ds-amt down">${x.sh.toLocaleString()}주 매도</span></div>
-      <div class="ds-sub">예상 회수 약 ${fmtKRW(x.proc)}</div></div>`).join('');
-    sellBlock=`<div style="margin-top:14px;font-size:11px;color:var(--text-3)">현금이 <b class="num down">${fmtKRW(shortfall)}</b> 부족 — 아래 종목을 매도해 충당하세요 (목표 초과 종목 우선)</div>
-      ${sellRows||'<div class="modal-sub">매도할 종목이 없습니다</div>'}
-      <div class="ds-total"><span>매도 예상 회수</span><span class="num">${fmtKRW(proceeds)}</span></div>
-      <div class="modal-sub" style="margin-top:6px">매도 후 빠른 입력에서 보유 수량을 줄여주세요</div>`;
   }
-  const isReserve = dsDest==='reserve';
-  const headNote = isReserve
-    ? '대기 자금 이체 — 계산은 <b>가이드</b>입니다. 실제 매도·이체 후 잔액을 직접 갱신해 주세요'
-    : '출금 — 현금 계정 → 목표 초과 자산군 예수금 → 종목 매도 순으로 충당';
-  const applyBlock = (!isReserve && cashUsed>0)
-    ? `<button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="applyDepositSplit()">현금 차감분 예수금에 반영</button>`
-    : isReserve
-      ? `<div class="info-text" style="margin-top:12px;line-height:1.6">
-           1) 위 안내대로 증권사에서 실제 매도·이체를 진행하세요<br>
-           2) 매도 후 <b>빠른 입력</b>에서 보유 수량 정정<br>
-           3) <b>예수금 편집</b>에서 대기 자금에 실제 회수금 입력 · 예수금/현금 계정도 함께 갱신
-         </div>
-         <div class="btn-row" style="margin-top:10px">
-           <button class="btn btn-secondary" onclick="switchView('quickentry')">빠른 입력 열기</button>
-           <button class="btn btn-primary" onclick="openCashEditor()">예수금 편집 열기</button>
-         </div>`
-      : '';
-  const footNote = isReserve
-    ? '예상값과 실제 회수금은 시세·환율·호가 차이로 약간 다를 수 있습니다 — 실제 값으로 입력하세요'
-    : '수익률 반영은 거래 페이지에 출금(−)으로 기록하세요';
-  box.innerHTML=`<div style="font-size:11px;color:var(--text-3);margin-bottom:4px">${headNote}</div>
-    ${rows}
-    <div class="ds-total"><span>현금 차감 합계</span><span class="num">${fmtKRW(cashUsed)}</span></div>
-    ${applyBlock}
-    ${sellBlock}
-    <div class="modal-sub" style="margin-top:8px">${footNote}</div>`;
+  return {fromCashAcc, fromClass, sells, shortfall, cashUsed:amount-shortfall};
 }
+
+/* 출금 모달 — 금액 입력 → 자동 매도 가이드 + 자동 기록 + 빠른 입력 이동 */
+let _withdrawPlan=null;
+function openWithdrawModal(){
+  const activeCash = totalCash() - (state.settings.reserveCash||0);
+  openModal(`<h3>출금하기</h3>
+    <div class="modal-sub">원금 회수 · 외부 출금 — 가이드 + 자동 기록</div>
+    <div class="field">
+      <label>출금 금액 (₩)</label>
+      <input id="wd-amount" type="number" placeholder="예: 50000000" oninput="updateWithdrawPlan()" inputmode="numeric">
+      <small>활성 현금 ₩${fmtKRW(activeCash)} 사용 후 부족분만 종목 매도 (대기 자금은 제외)</small>
+    </div>
+    <div id="wd-result" style="min-height:40px"><div class="modal-sub">금액 입력 시 매도 가이드가 자동 표시됩니다</div></div>
+    <div class="btn-row" style="margin-top:14px">
+      <button class="btn btn-secondary" onclick="closeModal()">취소</button>
+      <button class="btn btn-primary" id="wd-confirm" onclick="confirmWithdraw()" disabled>매도 후 빠른 입력 ▸</button>
+    </div>`);
+  _withdrawPlan=null;
+  setTimeout(()=>document.getElementById('wd-amount')?.focus(),50);
+}
+function updateWithdrawPlan(){
+  const amt=Math.round(parseFloat(document.getElementById('wd-amount').value)||0);
+  const box=document.getElementById('wd-result');
+  const btn=document.getElementById('wd-confirm');
+  if(amt<=0){ box.innerHTML='<div class="modal-sub">금액 입력 시 매도 가이드가 자동 표시됩니다</div>'; btn.disabled=true; _withdrawPlan=null; return; }
+  _withdrawPlan=computeWithdrawalPlan(amt);
+  btn.disabled=false;
+  let html='';
+  if(_withdrawPlan.fromCashAcc>0){
+    html+=`<div class="ds-row"><div class="ds-head">
+      <span class="abar-name"><span class="abar-dot" style="background:#565967"></span>현금 계정</span>
+      <span class="ds-amt down">−₩${fmtKRW(_withdrawPlan.fromCashAcc)}</span></div>
+      <div class="ds-sub">미배정 현금에서 우선 차감</div></div>`;
+  }
+  for(const k in _withdrawPlan.fromClass){
+    html+=`<div class="ds-row"><div class="ds-head">
+      <span class="abar-name"><span class="abar-dot" style="background:${CATEGORIES[k].color}"></span>${CATEGORIES[k].label} 예수금</span>
+      <span class="ds-amt down">−₩${fmtKRW(_withdrawPlan.fromClass[k])}</span></div>
+      <div class="ds-sub">예수금에서 차감 · 목표 초과 자산군 우선</div></div>`;
+  }
+  if(_withdrawPlan.sells.length){
+    let proceeds=0;
+    const sellRows=_withdrawPlan.sells.map(x=>{
+      proceeds+=x.proc;
+      return `<div class="ds-row"><div class="ds-head">
+        <span class="abar-name">${esc(x.h.symbol)}</span>
+        <span class="ds-amt down">${x.sh.toLocaleString()}주 매도</span></div>
+        <div class="ds-sub">예상 회수 약 ₩${fmtKRW(x.proc)}</div></div>`;
+    }).join('');
+    html+=`<div style="margin-top:12px;font-size:11px;color:var(--text-3)">현금 부족 ₩${fmtKRW(_withdrawPlan.shortfall)} — 아래 종목 매도</div>
+      ${sellRows}
+      <div class="ds-total"><span>매도 예상 회수</span><span class="num">₩${fmtKRW(proceeds)}</span></div>`;
+  }
+  html+=`<div class="ds-total" style="margin-top:10px"><span>총 출금</span><span class="num">₩${fmtKRW(amt)}</span></div>
+    <div class="modal-sub" style="margin-top:6px">"매도 후 빠른 입력 ▸"를 누르면 현금 자동 차감 + 출금 기록(수익률 반영) + 빠른 입력 화면으로 이동합니다</div>`;
+  box.innerHTML=html;
+}
+async function confirmWithdraw(){
+  if(!_withdrawPlan){ toast('금액을 입력하세요'); return; }
+  const amt=Math.round(parseFloat(document.getElementById('wd-amount').value)||0);
+  if(amt<=0) return;
+  // 1) 현금 부분 자동 차감
+  const cb=state.settings.cashByClass||{};
+  state.settings.cashAccount=Math.max(0,(state.settings.cashAccount||0)-_withdrawPlan.fromCashAcc);
+  for(const k in _withdrawPlan.fromClass){
+    if(!cb[k]) cb[k]={krw:0,usd:0};
+    cb[k].krw=Math.max(0,(cb[k].krw||0)-_withdrawPlan.fromClass[k]);
+  }
+  state.settings.cashByClass=cb;
+  // 2) 출금을 state.deposits 이번 달에 음수로 기록 (수익률·XIRR 반영)
+  const now=new Date();
+  const y=String(now.getFullYear());
+  const m=now.getMonth();
+  if(!state.deposits) state.deposits={};
+  if(!state.deposits[y]) state.deposits[y]=new Array(12).fill(0);
+  state.deposits[y][m]=(state.deposits[y][m]||0)-amt;
+  await saveState();
+  closeModal();
+  const hasSells=_withdrawPlan.sells.length>0;
+  toast(`출금 ₩${fmtKRW(amt)} 기록${hasSells?' · 매도 후 수량 정정해 주세요':' · 현금 차감 완료'}`);
+  _withdrawPlan=null;
+  switchView(hasSells?'quickentry':'transactions');
+}
+window.openWithdrawModal=openWithdrawModal;
+window.updateWithdrawPlan=updateWithdrawPlan;
+window.confirmWithdraw=confirmWithdraw;
 
 async function applyDepositSplit(){
   if(!lastDepositSplit){ toast('먼저 계산을 하세요'); return; }
   const cb=state.settings.cashByClass||{};
-  if(lastDepositSplit.mode==='out'){
-    // 대기 자금 이체는 자동 적용 안 함 (가이드 전용)
-    if(dsDest==='reserve'){
-      toast('대기 자금은 실제 매도 후 직접 입력해 주세요');
-      return;
-    }
-    const {fromCashAcc,fromClass}=lastDepositSplit;
-    state.settings.cashAccount=Math.max(0,(state.settings.cashAccount||0)-fromCashAcc);
-    let used=fromCashAcc;
-    for(const k in fromClass){
-      if(!cb[k]) cb[k]={krw:0,usd:0};
-      cb[k].krw=Math.max(0,(cb[k].krw||0)-fromClass[k]); used+=fromClass[k];
-    }
-    state.settings.cashByClass=cb;
-    lastDepositSplit=null;
-    await saveState(); toast('출금 차감 반영됨 · 현금 −'+fmtKRW(used));
-    switchView('allocation'); return;
-  }
   const {amount,alloc}=lastDepositSplit;
   for(const k in alloc){
     if(!cb[k]) cb[k]={krw:0,usd:0};
@@ -2966,6 +2968,7 @@ document.querySelectorAll('#holding-sort button').forEach(b=>b.onclick=()=>{
 document.getElementById('edit-cash').onclick=openCashEditor;
 document.getElementById('add-itax').onclick=()=>openItaxYear();
 document.getElementById('add-deposit').onclick=()=>openDepositYear();
+document.getElementById('add-withdraw').onclick=()=>openWithdrawModal();
 
 /* ================================================================
    TOAST & MODAL

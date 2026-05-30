@@ -330,10 +330,6 @@ input,select,textarea{font-family:inherit;color:inherit}
 .itax-m label{font-size:10px;color:var(--text-2)}
 .itax-m input{width:100%;background:var(--frame);border:1px solid var(--hairline);border-radius:9px;padding:9px 10px;font-size:14px;font-variant-numeric:tabular-nums;color:var(--text)}
 .itax-m input:focus{outline:none;border-color:var(--gold)}
-.dep-row{display:flex;gap:5px}
-.dep-row input{flex:1;min-width:0}
-.dep-pm{flex:none;width:38px;background:var(--surface);border:1px solid var(--hairline);border-radius:9px;color:var(--text-2);font-size:16px;font-weight:700;line-height:1}
-.dep-pm:active{background:var(--gold-soft);color:var(--gold)}
 .itax-sum{display:flex;justify-content:space-between;align-items:baseline;padding:11px 14px;background:var(--surface);border:1px solid var(--hairline);border-radius:11px;margin-bottom:14px;font-size:13px;font-weight:600}
 .itax-sum b{font-size:17px;font-weight:700;color:var(--gold)}
 .toast.show{opacity:1}
@@ -1458,18 +1454,6 @@ function renderAllocChart(s){
   }).join('');
 }
 
-/* 시작월~현재월 사이의 모든 'YYYY-MM' 배열 */
-function monthRange(startYm, endYm){
-  const out=[]; let [y,m]=startYm.split('-').map(Number);
-  const [ey,em]=endYm.split('-').map(Number);
-  let guard=0;
-  while ((y<ey || (y===ey && m<=em)) && guard++<600){
-    out.push(`${y}-${String(m).padStart(2,'0')}`);
-    m++; if(m>12){m=1;y++;}
-  }
-  return out;
-}
-
 function renderTrendChart(){
   const cv=document.getElementById('chart-trend');
   if(!cv) return;
@@ -1950,8 +1934,6 @@ function computeCagrGap(){
     return {gap: current-expected, expected, current};
   } catch(e){ return {gap:0, expected:0, current:0}; }
 }
-/* (구) computeCagrExcess — 호환용 (초과만 양수) */
-function computeCagrExcess(){ return Math.max(0, computeCagrGap().gap); }
 
 /* 종목별 리밸런싱 — 각 종목을 목표 비중에 맞추기 위한 매수/매도 수량
    portfolio: '활성 자산' 기준 (보유 + 예수금 + 현금계정, 대기 자금 제외)
@@ -2348,15 +2330,14 @@ function openDepositYear(year){
   const arr=exists?state.deposits[y].slice():new Array(12).fill(0);
   let grid='';
   for (let m=0;m<12;m++){
+    // 음수(과거 출금 기록)는 그대로 표시하되 신규 입력은 양수만
     grid+=`<div class="itax-m"><label>${m+1}월</label>
-      <div class="dep-row">
-        <input id="dep-m${m}" type="number" step="1" inputmode="numeric" value="${arr[m]||''}" placeholder="0" oninput="depositRecalc()">
-        <button type="button" class="dep-pm" onclick="depFlipSign(${m})">±</button>
-      </div></div>`;
+      <input id="dep-m${m}" type="number" step="1" inputmode="numeric" min="0" value="${arr[m]||''}" placeholder="0" oninput="depositRecalc()"></div>`;
   }
   const delBtn=exists?`<button class="btn btn-danger btn-sm" onclick="deleteDepositYear('${y}')">납입 취소</button>`:'';
-  openModal(`<h3>납입 · 출금 — 월별 입력</h3>
-    <div class="modal-sub">월별 납입금액을 입력하세요 · <b>출금(인출)</b>은 금액 입력 후 <b>±</b> 버튼으로 마이너스(−)로 바꾸세요</div>
+  const hasNeg=arr.some(v=>v<0);
+  openModal(`<h3>납입 — 월별 입력</h3>
+    <div class="modal-sub">월별 납입 금액을 입력하세요 · 출금은 거래 페이지의 <b>"− 출금"</b> 버튼을 사용하세요${hasNeg?'<br><span style="color:var(--down)">※ 이 연도에 출금 기록이 있어 음수가 표시될 수 있습니다 (수정 시 출금 기록은 보존되지 않습니다)</span>':''}</div>
     <div class="field"><label>연도</label><input id="dep-year" type="number" step="1" value="${y}"></div>
     <div class="itax-grid">${grid}</div>
     <div class="itax-sum">연 순납입 합계 <b id="dep-total" class="num">₩0</b></div>
@@ -2376,37 +2357,24 @@ function depositRecalc(){
     t.textContent=(r<0?'−₩':'₩')+Math.abs(r).toLocaleString('ko-KR');
   }
 }
-function depFlipSign(m){
-  const e=document.getElementById('dep-m'+m);
-  if(!e) return;
-  const v=parseFloat(e.value)||0;
-  if(v!==0) e.value=-v;
-  depositRecalc();
-}
-window.depFlipSign=depFlipSign;
 async function saveDepositYear(origYear){
   const y=String(parseInt(document.getElementById('dep-year').value,10)||0);
   if(y.length!==4){ toast('연도를 4자리로 입력하세요'); return; }
   const arr=new Array(12).fill(0);
   for (let m=0;m<12;m++){ const e=document.getElementById('dep-m'+m); arr[m]=Math.round(parseFloat(e.value)||0); }
   if(!state.deposits) state.deposits={};
-  // 현금 계정 자동 연동 — 올해 납입(양수분) 증감만큼 반영 (출금=음수는 미반영, 출금 계산기 담당)
+  // 현금 계정 자동 연동 — 올해 납입 증감만큼 반영
   const curY=String(new Date().getFullYear());
   const posSum=a=>(a||[]).reduce((s,v)=>s+Math.max(0,v||0),0);
-  const negSum=a=>(a||[]).reduce((s,v)=>s+Math.min(0,v||0),0);
   const beforeCur=posSum(state.deposits[curY]);
-  const beforeNeg=negSum(state.deposits[y]);
   if(origYear && origYear!==y) delete state.deposits[origYear];
   state.deposits[y]=arr;
   const delta=posSum(state.deposits[curY])-beforeCur;
   if(delta!==0) state.settings.cashAccount=Math.max(0,(state.settings.cashAccount||0)+delta);
-  // 새로 입력된 출금은 기록만 (실제 차감은 거래 페이지 "− 출금" 버튼 사용)
-  const negDelta=negSum(state.deposits[y])-beforeNeg;
   await saveState(); closeModal();
   let msg=y+'년 저장됨';
   if(delta>0) msg+=` · 현금 계정 +${fmtKRW(delta)}`;
   else if(delta<0) msg+=` · 현금 계정 −${fmtKRW(-delta)}`;
-  if(negDelta<0) msg+=' · 출금은 기록만 — 실제 차감은 "− 출금" 버튼 사용';
   toast(msg);
   switchView('transactions');
 }

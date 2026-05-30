@@ -14,6 +14,8 @@
 <link rel="icon" type="image/png" href="icon-192.png">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js"></script>
 <style>
 :root{
   --bg:#06070A; --frame:#0B0D12; --surface:#141821; --surface-2:#1B2030;
@@ -432,7 +434,9 @@ input,select,textarea{font-family:inherit;color:inherit}
         <button data-rk="all" onclick="setTrendRange('all',this)">전체</button>
       </div>
       <div class="chips" id="trend-view-chips" style="margin:2px 0 8px"></div>
-      <div class="chart-wrap"><canvas id="chart-trend"></canvas></div>
+      <div class="chart-wrap"><canvas id="chart-trend"></canvas>
+        <div id="trend-tip" style="position:absolute;top:4px;pointer-events:none;background:rgba(20,24,36,0.95);border:1px solid var(--hairline);border-radius:9px;padding:7px 9px;font-size:10.5px;line-height:1.5;color:var(--text);display:none;z-index:5;max-width:46%;box-shadow:0 4px 14px rgba(0,0,0,0.4)"></div>
+      </div>
       <div id="trend-note" style="font-size:11px;color:var(--text-3);margin-top:8px;text-align:center"></div>
     </div>
   </div>
@@ -1778,6 +1782,30 @@ function renderTrendChart(){
 
   if (chartTrend) chartTrend.destroy();
   const fmtEok=v=>(v/1e8).toFixed(2)+'억';
+  // 차트 밖(상단) 고정 외부 툴팁 — 커서 반대편에 배치해 그래프를 가리지 않음
+  const tipEl=document.getElementById('trend-tip');
+  const externalTip=(context)=>{
+    const {chart, tooltip}=context;
+    if(!tipEl) return;
+    if(tooltip.opacity===0){ tipEl.style.display='none'; return; }
+    const title=tooltip.title&&tooltip.title[0] ? tooltip.title[0] : '';
+    let rows='';
+    (tooltip.dataPoints||[]).forEach(dp=>{
+      const c=dp.dataset.borderColor||'#888';
+      const val=(dp.raw&&dp.raw.y!=null)?fmtEok(dp.raw.y):'—';
+      rows+=`<div style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:2px;background:${c};flex:0 0 auto"></span><span style="color:var(--text-2)">${dp.dataset.label}</span><span class="num" style="margin-left:auto;font-weight:600">${val}</span></div>`;
+    });
+    tipEl.innerHTML=`<div style="font-weight:700;margin-bottom:4px">${title}</div>${rows}`;
+    tipEl.style.display='block';
+    // 커서가 왼쪽 절반이면 오른쪽에, 오른쪽이면 왼쪽에 배치
+    const area=chart.chartArea;
+    const caret=tooltip.caretX;
+    if(caret < (area.left+area.right)/2){
+      tipEl.style.right='6px'; tipEl.style.left='auto';
+    } else {
+      tipEl.style.left='6px'; tipEl.style.right='auto';
+    }
+  };
   // 최고점 라벨을 그리는 인라인 플러그인
   const peakPlugin={
     id:'peakLabel',
@@ -1794,12 +1822,10 @@ function renderTrendChart(){
       let bx=px-w/2;
       bx=Math.max(chart.chartArea.left+2, Math.min(bx, chart.chartArea.right-w-2));
       let by=py-22; if(by<chart.chartArea.top+2) by=py+10;
-      // 라벨 배경
       g.fillStyle='rgba(27,32,48,0.92)';
       g.strokeStyle=peakColor; g.lineWidth=1;
-      const r=5;
       g.beginPath();
-      g.roundRect(bx, by, w, 17, r);
+      g.roundRect(bx, by, w, 17, 5);
       g.fill(); g.stroke();
       g.fillStyle=peakColor;
       g.textAlign='left'; g.textBaseline='middle';
@@ -1807,6 +1833,10 @@ function renderTrendChart(){
       g.restore();
     }
   };
+  // 전체 보기에서만 확대·좌우 스크롤 활성화
+  const panZoomOn = (trendRange==='all');
+  const dataMinMs = assetPts.length ? assetPts[0].x : xMin;
+  const dataMaxMs = assetPts.length ? assetPts[assetPts.length-1].x : xMax;
   chartTrend=new Chart(ctx,{type:'line',
     data:{datasets},
     plugins:[peakPlugin],
@@ -1823,11 +1853,13 @@ function renderTrendChart(){
       },
       plugins:{
         legend:{labels:{color:'#8A8E9B',font:{size:10,family:'Pretendard'},boxWidth:10,boxHeight:10,padding:10}},
-        tooltip:{backgroundColor:'rgba(27,32,48,0.95)',padding:8,
-          titleFont:{size:11,family:'Pretendard'},bodyFont:{size:10.5,family:'Pretendard'},
-          bodySpacing:3,boxPadding:3,caretPadding:6,
-          callbacks:{title:items=>fmtDateLong(items[0].parsed.x),
-            label:c=>(c.raw==null||c.raw.y==null)?null:` ${c.dataset.label} ${fmtEok(c.raw.y)}`}}
+        tooltip:{enabled:false, external:externalTip,
+          callbacks:{title:items=>items&&items[0]?fmtDateLong(items[0].parsed.x):''}},
+        zoom: panZoomOn ? {
+          limits:{ x:{min:dataMinMs, max:dataMaxMs} },
+          pan:{ enabled:true, mode:'x' },
+          zoom:{ wheel:{enabled:true}, pinch:{enabled:true}, mode:'x' }
+        } : { pan:{enabled:false}, zoom:{wheel:{enabled:false},pinch:{enabled:false}} }
       }
     }});
 
@@ -1835,9 +1867,10 @@ function renderTrendChart(){
   const rangeLbl={'2w':'최근 2주','1m':'최근 1개월','3m':'최근 3개월','6m':'최근 6개월','1y':'최근 1년','all':'전체 기간'}[trendRange]||'';
   const dsTxt = beforeDS!==afterDS ? ` · 점 ${beforeDS}→${afterDS}개로 축약(${beforeDS>2500?'월 평균':'주 평균'})` : '';
   const estTxt = estCount>0 ? ` · 추정 ${estCount}점 (점선)` : '';
+  const zoomTxt = trendRange==='all' ? ' · 핀치 확대 · 좌우 드래그' : '';
   note.textContent = recorded<=1 && estCount===0
     ? '평가 자산은 매일 마지막으로 본 값으로 기록됩니다'
-    : `${rangeLbl} · ${recorded}개 점 · 시간 비례 표시${dsTxt}${estTxt}`;
+    : `${rangeLbl} · ${recorded}개 점 · 시간 비례 표시${dsTxt}${estTxt}${zoomTxt}`;
 }
 
 let activeCategory='all';

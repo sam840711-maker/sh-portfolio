@@ -1754,19 +1754,20 @@ function renderTrendChart(){
   }
 
   const datasets=[];
-  // 표시 중인 주(主) 라인의 최고점 (종합=평가 자산 / 단일=해당 자산군)
-  const mainPts = (trendView==='all')
-    ? assetPts
-    : hist.map(h=>({x:toMs(h.d), y:(h.byClass&&h.byClass[trendView]!=null)?h.byClass[trendView]:null}));
+  // 최고점 마커 — 추정 데이터가 아닌 '기록된 실제 고점'(설정 pickValue) 사용. 종합 뷰에서만 표시.
   let peakPt=null;
-  for(const p of mainPts){ if(p.y!=null && (!peakPt || p.y>peakPt.y)) peakPt={x:p.x, y:p.y}; }
-  const peakColor = trendView==='all' ? '#C9A66B' : CATEGORIES[trendView].color;
+  if(trendView==='all' && state.settings.pickValue>0){
+    const pd=state.settings.pickDate;
+    peakPt={ x: pd ? toMs(pd) : (assetPts.length?assetPts[assetPts.length-1].x:Date.now()),
+             y: state.settings.pickValue };
+  }
+  const peakColor = '#C9A66B';
 
   if(trendView==='all'){
     // 종합 — 총 평가 자산 + 납입 원금 + 자산군별 얇은 선
     datasets.push({label:'평가 자산',data:assetPts,borderColor:'#C9A66B',backgroundColor:grad,
       borderWidth:2,fill:true,tension:0.3,spanGaps:true,
-      pointRadius:ctx=>(peakPt && ctx.raw && ctx.raw.x===peakPt.x)?4.5:0,
+      pointRadius:0,
       pointBackgroundColor:'#C9A66B',pointBorderColor:'#0E1117',pointBorderWidth:1.5,
       pointHoverRadius:4,order:1,
       segment: firstActualMs ? { borderDash: ctx => (ctx.p0.parsed.x < firstActualMs) ? [3,3] : undefined } : undefined});
@@ -1790,7 +1791,7 @@ function renderTrendChart(){
     const pts=hist.map(h=>({x:toMs(h.d), y:(h.byClass&&h.byClass[trendView]!=null)?h.byClass[trendView]:null}));
     datasets.push({label:CATEGORIES[trendView].label,data:pts,borderColor:col,backgroundColor:cgrad,
       borderWidth:2,fill:true,tension:0.3,spanGaps:true,
-      pointRadius:ctx=>(peakPt && ctx.raw && ctx.raw.x===peakPt.x)?4.5:0,
+      pointRadius:0,
       pointBackgroundColor:col,pointBorderColor:'#0E1117',pointBorderWidth:1.5,
       pointHoverRadius:4,
       segment: firstActualMs ? { borderDash: ctx => (ctx.p0.parsed.x < firstActualMs) ? [3,3] : undefined } : undefined});
@@ -1833,6 +1834,9 @@ function renderTrendChart(){
       const g=chart.ctx;
       const label='최고점 '+fmtEok(peakPt.y);
       g.save();
+      // 고점 위치 점
+      g.fillStyle=peakColor; g.strokeStyle='#0E1117'; g.lineWidth=1.5;
+      g.beginPath(); g.arc(px, py, 4.5, 0, Math.PI*2); g.fill(); g.stroke();
       g.font='600 10px Pretendard';
       const w=g.measureText(label).width+12;
       let bx=px-w/2;

@@ -704,6 +704,10 @@ const CATEGORIES = {
   bond:       {label:'Bond',       color:'#7AB89D', currency:'KRW', target:0.00},
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
+/* 수동 분할·병합 보정 — 야후가 반영 못 하는 종목 (런던 ETP 등). ratio = 구주÷신주 (역병합) */
+const MANUAL_SPLITS = {
+  'MST3.L': [{date:'2026-04-02', ratio:143}]   // 143:1 역병합 (구 143주 → 신 1주)
+};
 const STORE_KEY = 'sh_portfolio_v3';
 
 const SEED = {
@@ -1538,6 +1542,28 @@ function yahooRangeFor(fromDate){
   return 'max';
 }
 /* 종목 1종목 — fromDate까지의 일별 시세 (야후 멀티이어 / 업비트 페이지네이션) */
+/* 수동 분할·병합 보정 — 야후가 이미 반영했는지 분할일 전후 가격으로 감지해 이중 보정 방지 */
+function applyManualSplits(symbol, series){
+  const splits=MANUAL_SPLITS[symbol];
+  if(!splits || !series || series.length<2) return series;
+  for(const sp of splits){
+    let before=null, after=null;
+    for(const d of series){
+      if(d.t < sp.date) before=d.v;             // 분할일 직전 가격
+      else if(after===null) after=d.v;          // 분할일 당일/직후 첫 가격
+    }
+    if(before>0 && after>0){
+      const jump=after/before;
+      // 역병합인데 가격이 급등(미반영)했으면 → 분할 전 가격에 ratio 곱해 신주 기준으로 보정
+      // 이미 반영됐으면 jump≈1 이라 건너뜀 (이중 보정 방지)
+      if(jump > sp.ratio*0.5){
+        series=series.map(d=> d.t < sp.date ? {t:d.t, v:d.v*sp.ratio} : d);
+      }
+    }
+  }
+  return series;
+}
+
 async function fetchHistoryLong(h, fromDate){
   if(h.cat==='crypto'){
     const mk=UPBIT_MARKET[(h.symbol||'').toUpperCase()]||('KRW-'+(h.symbol||'').toUpperCase());
@@ -1556,16 +1582,19 @@ async function fetchHistoryLong(h, fromDate){
     }
     return all.map(c=>({t:(c.candle_date_time_kst||'').slice(0,10), v:c.trade_price})).reverse();
   }
-  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(h.symbol)}?interval=1d&range=${yahooRangeFor(fromDate)}&t=${Date.now()}`;
+  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(h.symbol)}?interval=1d&range=${yahooRangeFor(fromDate)}&events=split&t=${Date.now()}`;
   const data=await pcProxyJson(url);
   const r=data&&data.chart&&data.chart.result&&data.chart.result[0];
   if(!r||!r.timestamp) throw new Error('no data');
+  // 분할·병합 반영: 수정 종가(adjclose) 우선, 없으면 미조정 종가(close)
+  const adj=(r.indicators&&r.indicators.adjclose&&r.indicators.adjclose[0]&&r.indicators.adjclose[0].adjclose)||null;
   const close=(r.indicators&&r.indicators.quote&&r.indicators.quote[0]&&r.indicators.quote[0].close)||[];
   const out=[];
   for(let i=0;i<r.timestamp.length;i++){
-    if(close[i]!=null) out.push({t:new Date(r.timestamp[i]*1000).toISOString().slice(0,10), v:close[i]});
+    const v = (adj && adj[i]!=null) ? adj[i] : close[i];
+    if(v!=null) out.push({t:new Date(r.timestamp[i]*1000).toISOString().slice(0,10), v});
   }
-  return out;
+  return applyManualSplits(h.symbol, out);
 }
 
 async function backfillEstimate(){

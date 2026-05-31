@@ -430,10 +430,10 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div class="card-title">자산 추이 <span class="action" id="trend-add">기록 관리</span></div>
       <div class="seg trend-seg" id="trend-seg" style="margin-top:6px;margin-bottom:6px">
         <button data-rk="2w" onclick="setTrendRange('2w',this)">2W</button>
-        <button data-rk="1m" class="active" onclick="setTrendRange('1m',this)">1M</button>
+        <button data-rk="1m" onclick="setTrendRange('1m',this)">1M</button>
         <button data-rk="3m" onclick="setTrendRange('3m',this)">3M</button>
         <button data-rk="6m" onclick="setTrendRange('6m',this)">6M</button>
-        <button data-rk="1y" onclick="setTrendRange('1y',this)">1Y</button>
+        <button data-rk="1y" class="active" onclick="setTrendRange('1y',this)">1Y</button>
         <button data-rk="all" onclick="setTrendRange('all',this)">전체</button>
       </div>
       <div class="chips" id="trend-view-chips" style="margin:2px 0 8px"></div>
@@ -697,7 +697,7 @@ input,select,textarea{font-family:inherit;color:inherit}
    CONSTANTS & SEED  (SH_Investment 시트 기반)
    ================================================================ */
 const CATEGORIES = {
-  us_stock:   {label:'US Stock',   color:'#C9A66B', currency:'USD', target:0.60},
+  us_stock:   {label:'US Stock',   color:'#4FB6C4', currency:'USD', target:0.60},
   leverage:   {label:'Leverage',   color:'#E5484D', currency:'USD', target:0.30},
   global_etf: {label:'Global ETF', color:'#4A90E2', currency:'KRW', target:0.10},
   crypto:     {label:'Crypto',     color:'#9B7BD8', currency:'KRW', target:0.00},
@@ -1006,7 +1006,7 @@ function taxEstimate(){
    ================================================================ */
 let chartAlloc=null, chartRb=null, chartTrend=null, currentView='dashboard';
 let priceChartObj=null, pcHolding=null, pcRange='1y';
-let trendRange='1m';   // 자산 추이 차트 기간 ('1m'·'3m'·'6m'·'1y'·'all')
+let trendRange='1y';   // 자산 추이 차트 기간 ('1m'·'3m'·'6m'·'1y'·'all') — 기본 1년
 let trendView='all';   // 자산 추이 보기 ('all'=종합 / 자산군 키)
 function setTrendRange(rk,btn){
   trendRange=rk;

@@ -3697,13 +3697,7 @@ function openTrendManager(){
   let rows;
   if(trendSelMode){
     rows=list.length
-      ? list.map(h=>{
-          const sel=trendSel.has(h.d);
-          return `<div class="txn" onclick="toggleTrendSel('${h.d}')" style="cursor:pointer;${sel?'border-color:var(--down);background:rgba(229,72,77,0.08)':''}">
-            <div class="txn-icon" style="background:${sel?'var(--down)':(h._est?'rgba(201,166,107,0.15)':'var(--gold-soft)')};color:${sel?'#fff':'var(--gold)'}">${sel?'✓':(h._est?'추':'₩')}</div>
-            <div class="txn-info"><div class="txn-title num">${h.d}${h._est?' <span style="font-size:10px;color:var(--text-3)">(추정)</span>':''}</div><div class="txn-date">${sel?'선택됨 · 탭하여 해제':'탭하여 선택'}</div></div>
-            <div class="txn-amount num">${fmtKRW(h.total)}</div></div>`;
-        }).join('')
+      ? list.map(h=>trendSelRowHTML(h)).join('')
       : '<div class="empty">기록이 없습니다.</div>';
   } else {
     rows=list.length
@@ -3715,13 +3709,13 @@ function openTrendManager(){
   }
   if(trendSelMode){
     openModal(`<h3>기록 선택 삭제</h3>
-      <div class="modal-sub">지울 기록을 탭해 선택하세요 · ${trendSel.size}개 선택됨</div>
+      <div class="modal-sub">지울 기록을 탭해 선택하세요 · <span id="tsel-count">${trendSel.size}</span>개 선택됨</div>
       <div style="display:flex;gap:6px;margin-bottom:8px">
         <button class="btn btn-secondary btn-sm" style="flex:1" onclick="selectAllTrend('est')">추정만 선택</button>
         <button class="btn btn-secondary btn-sm" style="flex:1" onclick="selectAllTrend('all')">전체 선택</button>
         <button class="btn btn-secondary btn-sm" style="flex:1" onclick="selectAllTrend('none')">선택 해제</button>
       </div>
-      <button class="btn btn-secondary" style="width:100%;margin-bottom:8px;border-color:var(--down);color:var(--down)" onclick="deleteSelectedTrend()">선택한 ${trendSel.size}개 삭제</button>
+      <button id="tsel-delbtn" class="btn btn-secondary" style="width:100%;margin-bottom:8px;border-color:var(--down);color:var(--down)" onclick="deleteSelectedTrend()">선택한 ${trendSel.size}개 삭제</button>
       ${rows}
       <div class="btn-row"><button class="btn btn-secondary" onclick="exitTrendSel()">선택 모드 종료</button></div>`);
     return;
@@ -3738,9 +3732,24 @@ function openTrendManager(){
     ${rows}
     <div class="btn-row"><button class="btn btn-secondary" onclick="closeModal()">닫기</button></div>`);
 }
+function trendSelRowHTML(h){
+  const sel=trendSel.has(h.d);
+  return `<div class="txn" id="trow-${h.d}" onclick="toggleTrendSel('${h.d}')" style="cursor:pointer;${sel?'border-color:var(--down);background:rgba(229,72,77,0.08)':''}">
+    <div class="txn-icon" style="background:${sel?'var(--down)':(h._est?'rgba(201,166,107,0.15)':'var(--gold-soft)')};color:${sel?'#fff':'var(--gold)'}">${sel?'✓':(h._est?'추':'₩')}</div>
+    <div class="txn-info"><div class="txn-title num">${h.d}${h._est?' <span style="font-size:10px;color:var(--text-3)">(추정)</span>':''}</div><div class="txn-date">${sel?'선택됨 · 탭하여 해제':'탭하여 선택'}</div></div>
+    <div class="txn-amount num">${fmtKRW(h.total)}</div></div>`;
+}
 function enterTrendSel(){ trendSelMode=true; trendSel=new Set(); openTrendManager(); }
 function exitTrendSel(){ trendSelMode=false; trendSel=new Set(); openTrendManager(); }
-function toggleTrendSel(d){ if(trendSel.has(d)) trendSel.delete(d); else trendSel.add(d); openTrendManager(); }
+function toggleTrendSel(d){
+  if(trendSel.has(d)) trendSel.delete(d); else trendSel.add(d);
+  // 모달을 다시 그리지 않고 해당 행만 갱신 → 스크롤 위치 유지
+  const h=(state.history||[]).find(x=>x.d===d);
+  const row=document.getElementById('trow-'+d);
+  if(row && h) row.outerHTML=trendSelRowHTML(h);
+  const c=document.getElementById('tsel-count'); if(c) c.textContent=trendSel.size;
+  const b=document.getElementById('tsel-delbtn'); if(b) b.textContent=`선택한 ${trendSel.size}개 삭제`;
+}
 function selectAllTrend(mode){
   const list=state.history||[];
   if(mode==='none'){ trendSel=new Set(); }

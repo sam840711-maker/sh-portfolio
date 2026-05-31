@@ -1754,14 +1754,13 @@ function renderTrendChart(){
   }
 
   const datasets=[];
-  // 최고점 마커 — 추정 데이터가 아닌 '기록된 실제 고점'(설정 pickValue) 사용. 종합 뷰에서만 표시.
+  // 최고점 마커 — 선택한 기간 내 데이터의 최고점 (종합=평가 자산 / 단일=해당 자산군)
+  const mainPts = (trendView==='all')
+    ? assetPts
+    : hist.map(h=>({x:toMs(h.d), y:(h.byClass&&h.byClass[trendView]!=null)?h.byClass[trendView]:null}));
   let peakPt=null;
-  if(trendView==='all' && state.settings.pickValue>0){
-    const pd=state.settings.pickDate;
-    peakPt={ x: pd ? toMs(pd) : (assetPts.length?assetPts[assetPts.length-1].x:Date.now()),
-             y: state.settings.pickValue };
-  }
-  const peakColor = '#C9A66B';
+  for(const p of mainPts){ if(p.y!=null && (!peakPt || p.y>peakPt.y)) peakPt={x:p.x, y:p.y}; }
+  const peakColor = trendView==='all' ? '#C9A66B' : CATEGORIES[trendView].color;
 
   if(trendView==='all'){
     // 종합 — 총 평가 자산 + 납입 원금 + 자산군별 얇은 선
@@ -1828,20 +1827,21 @@ function renderTrendChart(){
     id:'peakLabel',
     afterDatasetsDraw(chart){
       if(!peakPt) return;
-      const xs=chart.scales.x, ys=chart.scales.y;
+      const xs=chart.scales.x, ys=chart.scales.y, area=chart.chartArea;
       if(peakPt.x<xs.min || peakPt.x>xs.max) return;   // 화면 밖이면 생략
       const px=xs.getPixelForValue(peakPt.x), py=ys.getPixelForValue(peakPt.y);
       const g=chart.ctx;
-      const label='최고점 '+fmtEok(peakPt.y);
       g.save();
       // 고점 위치 점
       g.fillStyle=peakColor; g.strokeStyle='#0E1117'; g.lineWidth=1.5;
       g.beginPath(); g.arc(px, py, 4.5, 0, Math.PI*2); g.fill(); g.stroke();
+      // 라벨
+      const label='최고점 '+fmtEok(peakPt.y);
       g.font='600 10px Pretendard';
       const w=g.measureText(label).width+12;
       let bx=px-w/2;
-      bx=Math.max(chart.chartArea.left+2, Math.min(bx, chart.chartArea.right-w-2));
-      let by=py-22; if(by<chart.chartArea.top+2) by=py+10;
+      bx=Math.max(area.left+2, Math.min(bx, area.right-w-2));
+      let by=py-22; if(by<area.top+2) by=py+8;
       g.fillStyle='rgba(27,32,48,0.92)';
       g.strokeStyle=peakColor; g.lineWidth=1;
       g.beginPath();
@@ -3689,25 +3689,78 @@ document.querySelectorAll('#rb-mode-seg button').forEach(b=>b.onclick=()=>{
 });
 document.getElementById('goal-year').onclick=openTargetReturnEditor;
 document.getElementById('trend-add').onclick=openTrendManager;
+let trendSelMode=false;
+let trendSel=new Set();
 function openTrendManager(){
   const list=(state.history||[]).slice().sort((a,b)=>b.d.localeCompare(a.d));
-  const rows=list.length
-    ? list.map(h=>`<div class="txn" onclick="openTrendPointEditor('${h.d}')" style="cursor:pointer">
-        <div class="txn-icon" style="background:${h._est?'rgba(201,166,107,0.15)':'var(--gold-soft)'};color:var(--gold)">${h._est?'추':'₩'}</div>
-        <div class="txn-info"><div class="txn-title num">${h.d}${h._est?' <span style="font-size:10px;color:var(--text-3)">(추정)</span>':''}</div><div class="txn-date">탭하여 수정 · 삭제</div></div>
-        <div class="txn-amount num">${fmtKRW(h.total)}</div></div>`).join('')
-    : '<div class="empty">기록이 없습니다.</div>';
   const estCount=(state.history||[]).filter(h=>h._est).length;
+  let rows;
+  if(trendSelMode){
+    rows=list.length
+      ? list.map(h=>{
+          const sel=trendSel.has(h.d);
+          return `<div class="txn" onclick="toggleTrendSel('${h.d}')" style="cursor:pointer;${sel?'border-color:var(--down);background:rgba(229,72,77,0.08)':''}">
+            <div class="txn-icon" style="background:${sel?'var(--down)':(h._est?'rgba(201,166,107,0.15)':'var(--gold-soft)')};color:${sel?'#fff':'var(--gold)'}">${sel?'✓':(h._est?'추':'₩')}</div>
+            <div class="txn-info"><div class="txn-title num">${h.d}${h._est?' <span style="font-size:10px;color:var(--text-3)">(추정)</span>':''}</div><div class="txn-date">${sel?'선택됨 · 탭하여 해제':'탭하여 선택'}</div></div>
+            <div class="txn-amount num">${fmtKRW(h.total)}</div></div>`;
+        }).join('')
+      : '<div class="empty">기록이 없습니다.</div>';
+  } else {
+    rows=list.length
+      ? list.map(h=>`<div class="txn" onclick="openTrendPointEditor('${h.d}')" style="cursor:pointer">
+          <div class="txn-icon" style="background:${h._est?'rgba(201,166,107,0.15)':'var(--gold-soft)'};color:var(--gold)">${h._est?'추':'₩'}</div>
+          <div class="txn-info"><div class="txn-title num">${h.d}${h._est?' <span style="font-size:10px;color:var(--text-3)">(추정)</span>':''}</div><div class="txn-date">탭하여 수정 · 삭제</div></div>
+          <div class="txn-amount num">${fmtKRW(h.total)}</div></div>`).join('')
+      : '<div class="empty">기록이 없습니다.</div>';
+  }
+  if(trendSelMode){
+    openModal(`<h3>기록 선택 삭제</h3>
+      <div class="modal-sub">지울 기록을 탭해 선택하세요 · ${trendSel.size}개 선택됨</div>
+      <div style="display:flex;gap:6px;margin-bottom:8px">
+        <button class="btn btn-secondary btn-sm" style="flex:1" onclick="selectAllTrend('est')">추정만 선택</button>
+        <button class="btn btn-secondary btn-sm" style="flex:1" onclick="selectAllTrend('all')">전체 선택</button>
+        <button class="btn btn-secondary btn-sm" style="flex:1" onclick="selectAllTrend('none')">선택 해제</button>
+      </div>
+      <button class="btn btn-secondary" style="width:100%;margin-bottom:8px;border-color:var(--down);color:var(--down)" onclick="deleteSelectedTrend()">선택한 ${trendSel.size}개 삭제</button>
+      ${rows}
+      <div class="btn-row"><button class="btn btn-secondary" onclick="exitTrendSel()">선택 모드 종료</button></div>`);
+    return;
+  }
   const backfillLabel = estCount>0 ? `↻ 추정 기록 재계산 (현재 ${estCount}점)` : '＋ 추정치로 1년 백필';
-  const clearBtn = estCount>0 ? `<button class="btn btn-secondary" style="width:100%;margin-bottom:12px;border-color:var(--down);color:var(--down)" onclick="clearEstimateRecords()">추정 기록 ${estCount}개 제거</button>` : '';
+  const clearBtn = estCount>0 ? `<button class="btn btn-secondary" style="width:100%;margin-bottom:8px;border-color:var(--down);color:var(--down)" onclick="clearEstimateRecords()">추정 기록 ${estCount}개 모두 제거</button>` : '';
+  const selBtn = list.length ? `<button class="btn btn-secondary" style="width:100%;margin-bottom:12px" onclick="enterTrendSel()">☑ 선택해서 삭제</button>` : '';
   openModal(`<h3>자산 추이 기록</h3>
     <div class="modal-sub">날짜별 평가 잔액 — 추가·수정·삭제</div>
     <button class="btn btn-secondary" style="width:100%;margin-bottom:8px" onclick="openTrendPointEditor('')">＋ 새 기록 추가</button>
-    <button class="btn btn-secondary" style="width:100%;margin-bottom:${estCount>0?'8px':'12px'};border-color:var(--gold);color:var(--gold)" onclick="backfillEstimate()">${backfillLabel}</button>
+    <button class="btn btn-secondary" style="width:100%;margin-bottom:8px;border-color:var(--gold);color:var(--gold)" onclick="backfillEstimate()">${backfillLabel}</button>
     ${clearBtn}
+    ${selBtn}
     ${rows}
     <div class="btn-row"><button class="btn btn-secondary" onclick="closeModal()">닫기</button></div>`);
 }
+function enterTrendSel(){ trendSelMode=true; trendSel=new Set(); openTrendManager(); }
+function exitTrendSel(){ trendSelMode=false; trendSel=new Set(); openTrendManager(); }
+function toggleTrendSel(d){ if(trendSel.has(d)) trendSel.delete(d); else trendSel.add(d); openTrendManager(); }
+function selectAllTrend(mode){
+  const list=state.history||[];
+  if(mode==='none'){ trendSel=new Set(); }
+  else if(mode==='est'){ trendSel=new Set(list.filter(h=>h._est).map(h=>h.d)); }
+  else { trendSel=new Set(list.map(h=>h.d)); }
+  openTrendManager();
+}
+async function deleteSelectedTrend(){
+  if(!trendSel.size){ toast('선택된 기록이 없습니다'); return; }
+  const n=trendSel.size;
+  if(!confirm(`선택한 기록 ${n}개를 삭제합니다.\n진행할까요?`)) return;
+  state.history=(state.history||[]).filter(h=>!trendSel.has(h.d));
+  trendSel=new Set(); trendSelMode=false;
+  await saveState(); closeModal();
+  toast(`${n}개 기록 삭제됨`);
+  renderDashboard();
+}
+window.enterTrendSel=enterTrendSel; window.exitTrendSel=exitTrendSel;
+window.toggleTrendSel=toggleTrendSel; window.selectAllTrend=selectAllTrend;
+window.deleteSelectedTrend=deleteSelectedTrend;
 async function clearEstimateRecords(){
   const n=(state.history||[]).filter(h=>h._est).length;
   if(!n){ toast('추정 기록이 없습니다'); return; }

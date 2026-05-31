@@ -704,10 +704,6 @@ const CATEGORIES = {
   bond:       {label:'Bond',       color:'#7AB89D', currency:'KRW', target:0.00},
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
-/* 수동 분할·병합 보정 — 야후가 반영 못 하는 종목 (런던 ETP 등). ratio = 구주÷신주 (역병합) */
-const MANUAL_SPLITS = {
-  'MST3.L': [{date:'2026-04-02', ratio:143}]   // 143:1 역병합 (구 143주 → 신 1주)
-};
 const STORE_KEY = 'sh_portfolio_v3';
 
 const SEED = {
@@ -1542,28 +1538,6 @@ function yahooRangeFor(fromDate){
   return 'max';
 }
 /* 종목 1종목 — fromDate까지의 일별 시세 (야후 멀티이어 / 업비트 페이지네이션) */
-/* 수동 분할·병합 보정 — 야후가 이미 반영했는지 분할일 전후 가격으로 감지해 이중 보정 방지 */
-function applyManualSplits(symbol, series){
-  const splits=MANUAL_SPLITS[symbol];
-  if(!splits || !series || series.length<2) return series;
-  for(const sp of splits){
-    let before=null, after=null;
-    for(const d of series){
-      if(d.t < sp.date) before=d.v;             // 분할일 직전 가격
-      else if(after===null) after=d.v;          // 분할일 당일/직후 첫 가격
-    }
-    if(before>0 && after>0){
-      const jump=after/before;
-      // 역병합인데 가격이 급등(미반영)했으면 → 분할 전 가격에 ratio 곱해 신주 기준으로 보정
-      // 이미 반영됐으면 jump≈1 이라 건너뜀 (이중 보정 방지)
-      if(jump > sp.ratio*0.5){
-        series=series.map(d=> d.t < sp.date ? {t:d.t, v:d.v*sp.ratio} : d);
-      }
-    }
-  }
-  return series;
-}
-
 async function fetchHistoryLong(h, fromDate){
   if(h.cat==='crypto'){
     const mk=UPBIT_MARKET[(h.symbol||'').toUpperCase()]||('KRW-'+(h.symbol||'').toUpperCase());
@@ -1594,7 +1568,7 @@ async function fetchHistoryLong(h, fromDate){
     const v = (adj && adj[i]!=null) ? adj[i] : close[i];
     if(v!=null) out.push({t:new Date(r.timestamp[i]*1000).toISOString().slice(0,10), v});
   }
-  return applyManualSplits(h.symbol, out);
+  return out;
 }
 
 async function backfillEstimate(){
@@ -1645,7 +1619,6 @@ async function backfillEstimate(){
       let anyData=false;   // 이 날 시세 데이터가 있는 종목이 하나라도 있나 (거래일 판별)
       for(const {h,m} of seriesMaps){
         if(!m) continue;
-        if(h.estFrom && dayKey < h.estFrom) continue;   // 보유 시작일 이전 → 추정에서 제외
         const dayP=m.get(dayKey);
         if(dayP!=null){ lastPriceFor.set(h.id, dayP); anyData=true; }
         const price=lastPriceFor.get(h.id);
@@ -3671,9 +3644,6 @@ function openHoldingDetail(id){
       <input id="d-cur" type="number" step="0.00000001" value="${cur}">
       <button class="btn btn-secondary btn-sm" onclick="refreshOne('${id}')">시세 갱신</button></div>
       <small>52주 범위: ${range52}</small></div>
-    <div class="field"><label>추정 보유 시작일 (선택)</label>
-      <input id="d-estfrom" type="date" value="${h.estFrom||''}">
-      <small>과거 추이 추정 시 이 날짜 이전은 제외됩니다. 비워두면 전 기간 포함. 레버리지·최근 매수 종목은 실제 매수일을 넣으면 과거 왜곡이 사라집니다.</small></div>
     <div class="btn-row">
       <button class="btn btn-danger btn-sm" onclick="deleteHolding('${id}')">삭제</button>
       <button class="btn btn-secondary" onclick="closeModal()">취소</button>
@@ -3695,8 +3665,6 @@ async function saveHoldingDetail(id){
     const afx=parseFloat(document.getElementById('d-fx').value);
     if(afx>0) h.avgFx=afx;
   } else { h.avgKRW=avg; h.curKRW=cur; }
-  const ef=document.getElementById('d-estfrom');
-  if(ef) h.estFrom = ef.value || '';
   await saveState(); closeModal(); toast('저장됨'); switchView(currentView);
 }
 async function deleteHolding(id){
@@ -3727,13 +3695,25 @@ function openTrendManager(){
     : '<div class="empty">기록이 없습니다.</div>';
   const estCount=(state.history||[]).filter(h=>h._est).length;
   const backfillLabel = estCount>0 ? `↻ 추정 기록 재계산 (현재 ${estCount}점)` : '＋ 추정치로 1년 백필';
+  const clearBtn = estCount>0 ? `<button class="btn btn-secondary" style="width:100%;margin-bottom:12px;border-color:var(--down);color:var(--down)" onclick="clearEstimateRecords()">추정 기록 ${estCount}개 제거</button>` : '';
   openModal(`<h3>자산 추이 기록</h3>
     <div class="modal-sub">날짜별 평가 잔액 — 추가·수정·삭제</div>
     <button class="btn btn-secondary" style="width:100%;margin-bottom:8px" onclick="openTrendPointEditor('')">＋ 새 기록 추가</button>
-    <button class="btn btn-secondary" style="width:100%;margin-bottom:12px;border-color:var(--gold);color:var(--gold)" onclick="backfillEstimate()">${backfillLabel}</button>
+    <button class="btn btn-secondary" style="width:100%;margin-bottom:${estCount>0?'8px':'12px'};border-color:var(--gold);color:var(--gold)" onclick="backfillEstimate()">${backfillLabel}</button>
+    ${clearBtn}
     ${rows}
     <div class="btn-row"><button class="btn btn-secondary" onclick="closeModal()">닫기</button></div>`);
 }
+async function clearEstimateRecords(){
+  const n=(state.history||[]).filter(h=>h._est).length;
+  if(!n){ toast('추정 기록이 없습니다'); return; }
+  if(!confirm(`추정 기록 ${n}개를 모두 제거하고 실측 기록만 남깁니다.\n진행할까요?`)) return;
+  state.history=(state.history||[]).filter(h=>!h._est);
+  await saveState(); closeModal();
+  toast(`추정 ${n}개 제거 · 실측 기록만 표시`);
+  renderDashboard();
+}
+window.clearEstimateRecords=clearEstimateRecords;
 function openTrendPointEditor(d){
   const today=new Date().toISOString().slice(0,10);
   const rec=d?(state.history||[]).find(h=>h.d===d):null;

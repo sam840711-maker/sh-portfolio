@@ -1397,8 +1397,8 @@ function renderCagrAlert(){
   if(expected<=0){ el.style.display='none'; return; }
   const pct=gap/expected;
   const reserve=state.settings.reserveCash||0;
-  if(gap>0 && pct>=0.05){
-    // 초과 (골드)
+  if(gap>0 && pct>=0.10){
+    // 초과 (골드) — 목표보다 10%p 이상 초과 시에만 현금화 권장
     el.style.borderColor='var(--gold)';
     el.style.background='var(--gold-soft)';
     el.innerHTML=`<div style="display:flex;align-items:center;gap:11px">

@@ -2320,6 +2320,9 @@ function stockRebalance(cat, mode){
     return { h, tw, targetVal, adjustVal, adjustShares,
       qtyAfter:h.qty+adjustShares,
       curWtInCat:catCurrent>0?v.current/catCurrent:0,
+      // 전체 모드용 — 계산과 동일한 기준(basis)의 포트폴리오 비중
+      curWtPort: basis>0 ? v.current/basis : 0,
+      tgtWtPort: classTarget(cat)*tw,
       curVal:v.current, priceKRW, catTargetVal };
   });
 }
@@ -2363,11 +2366,14 @@ function renderStockRebalance(){
     const qtyTxt=hold ? '균형' : `${(buy?'+':'')+r.adjustShares.toLocaleString()}주 ${buy?'매수':'매도'}`;
     const subTxt=hold ? `이후 ${r.qtyAfter.toLocaleString()}주`
       : `₩${fmtKRW(Math.abs(r.adjustVal))} · 이후 ${r.qtyAfter.toLocaleString()}주`;
+    const wtLine = rbMode==='within'
+      ? `현재 ${fmtPct(r.curWtInCat,1)} → 목표 ${fmtPct(r.tw,1)}`
+      : `현재 ${fmtPct(r.curWtPort,1)} → 목표 ${fmtPct(r.tgtWtPort,1)} <span style="color:var(--text-3)">(전체 기준)</span>`;
     return `<div class="rbx-row" data-id="${h.id}">
       <div class="rbx-accent" style="background:${accent}"></div>
       <div class="rbx-main">
         <div class="rbx-l1"><span class="rbx-tk">${tk}</span><span class="rbx-nm">${esc(h.name)}</span></div>
-        <div class="rbx-wt">현재 ${fmtPct(r.curWtInCat,1)} → 목표 ${fmtPct(r.tw,1)}</div>
+        <div class="rbx-wt">${wtLine}</div>
       </div>
       <div class="rbx-right">
         <div class="rbx-qty ${cls}">${qtyTxt}</div>

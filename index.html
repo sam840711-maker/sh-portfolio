@@ -3593,6 +3593,14 @@ function openHoldingDetail(id){
     if(h._mkt.dayChangePct!=null) dayInfo=fmtPctSigned(h._mkt.dayChangePct);
     if(h._mkt.lo52&&h._mkt.hi52) range52=`${unit}${h._mkt.lo52.toLocaleString()} – ${unit}${h._mkt.hi52.toLocaleString()}`;
   }
+  // 현재가 기준 — 어느 장 / 언제 가져온 값인지
+  let priceBasis='수동 입력값';
+  if (h._mkt){
+    const stLbl = usd
+      ? (marketStateLabel(h._mkt.marketState) || (h._mkt.marketState==='REGULAR'?'정규장':'시세'))
+      : '시세';
+    priceBasis = `${stLbl} · ${relTime(h._mkt.ts)} 갱신`;
+  }
   const rb=stockRebalance(h.cat).find(r=>r.h.id===id);
   let rbText='—', rbSub='', rbCls='muted';
   if (rb){
@@ -3656,7 +3664,7 @@ function openHoldingDetail(id){
     <div class="field"><label>현재가 (${unit})</label><div class="field-row">
       <input id="d-cur" type="number" step="0.00000001" value="${cur}">
       <button class="btn btn-secondary btn-sm" onclick="refreshOne('${id}')">시세 갱신</button></div>
-      <small>52주 범위: ${range52}</small></div>
+      <small>52주 범위: ${range52} · 현재가 기준: ${priceBasis}</small></div>
     <div class="btn-row">
       <button class="btn btn-danger btn-sm" onclick="deleteHolding('${id}')">삭제</button>
       <button class="btn btn-secondary" onclick="closeModal()">취소</button>

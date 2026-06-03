@@ -3073,13 +3073,14 @@ function qeKey(e){
   else if(t.classList.contains('qe-cusd')) col='qe-cusd';
   const cells=Array.from(document.querySelectorAll('#qe-list input.'+col));
   const i=cells.indexOf(t);
-  if(i>=0 && i<cells.length-1){ const n=cells[i+1]; n.focus(); qeCursorEnd(n); }
+  if(i>=0 && i<cells.length-1){ const n=cells[i+1]; n.focus(); qeSelectAll(n); }
   else if(t.blur) t.blur();
 }
 window.qeKey=qeKey;
 function qeFocus(inp){ try{ inp.select(); }catch(e){} }   // 탭하면 전체선택 → 바로 입력 시 교체
-function qeCursorEnd(inp){ try{ const L=inp.value.length; inp.setSelectionRange(L,L); }catch(e){} }  // 다음 이동 시 커서를 끝으로
-window.qeFocus=qeFocus; window.qeCursorEnd=qeCursorEnd;
+function qeSelectAll(inp){ try{ inp.focus(); inp.select(); setTimeout(()=>{try{inp.select();}catch(e){}},0); }catch(e){} }  // 다음 이동 시 전체선택
+function qeCursorEnd(inp){ try{ const L=inp.value.length; inp.setSelectionRange(L,L); }catch(e){} }  // 커서를 끝으로
+window.qeFocus=qeFocus; window.qeCursorEnd=qeCursorEnd; window.qeSelectAll=qeSelectAll;
 function qeRecalc(id){
   const h=state.holdings.find(x=>x.id===id);
   const calc=document.getElementById('qe-'+id+'-calc');

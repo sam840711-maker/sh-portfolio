@@ -3019,15 +3019,15 @@ function renderQuickEntry(){
     });
     // 수량 입력칸 (3열) — DOM에 세로로 연속 배치 → 키보드 '다음'이 같은 열 아래로 이동
     rows.forEach((r,gi)=>{
-      cells+=`<input class="qe-cell qe-cqty" id="qe-${r.h.id}-qty" style="grid-column:3;grid-row:${gi+2}" type="number" step="any" inputmode="decimal" enterkeyhint="next" value="${r.initQty}" data-init="${r.initQty}" ${dis} oninput="qeInput(this,'${r.h.id}')" onkeydown="qeKey(event)">`;
+      cells+=`<input class="qe-cell qe-cqty" id="qe-${r.h.id}-qty" style="grid-column:3;grid-row:${gi+2}" type="text" inputmode="decimal" enterkeyhint="next" value="${r.initQty}" data-init="${r.initQty}" ${dis} onfocus="qeFocus(this)" oninput="qeInput(this,'${r.h.id}')" onkeydown="qeKey(event)">`;
     });
     // 한화매수액 입력칸 (4열)
     rows.forEach((r,gi)=>{
-      cells+=`<input class="qe-cell qe-ckrw" id="qe-${r.h.id}-krw" style="grid-column:4;grid-row:${gi+2}" type="number" step="1" inputmode="numeric" enterkeyhint="next" value="${r.initKrw}" data-init="${r.initKrw}" ${dis} oninput="qeInput(this,'${r.h.id}')" onkeydown="qeKey(event)">`;
+      cells+=`<input class="qe-cell qe-ckrw" id="qe-${r.h.id}-krw" style="grid-column:4;grid-row:${gi+2}" type="text" inputmode="numeric" enterkeyhint="next" value="${r.initKrw}" data-init="${r.initKrw}" ${dis} onfocus="qeFocus(this)" oninput="qeInput(this,'${r.h.id}')" onkeydown="qeKey(event)">`;
     });
     // 달러매수액 입력칸 (5열)
     if(usd) rows.forEach((r,gi)=>{
-      cells+=`<input class="qe-cell qe-cusd" id="qe-${r.h.id}-usd" style="grid-column:5;grid-row:${gi+2}" type="number" step="0.01" inputmode="decimal" enterkeyhint="next" value="${r.initUsd}" data-init="${r.initUsd}" ${dis} oninput="qeInput(this,'${r.h.id}')" onkeydown="qeKey(event)">`;
+      cells+=`<input class="qe-cell qe-cusd" id="qe-${r.h.id}-usd" style="grid-column:5;grid-row:${gi+2}" type="text" inputmode="decimal" enterkeyhint="next" value="${r.initUsd}" data-init="${r.initUsd}" ${dis} onfocus="qeFocus(this)" oninput="qeInput(this,'${r.h.id}')" onkeydown="qeKey(event)">`;
     });
     html+=`<div class="qe-grid" style="grid-template-columns:${cols}">${cells}</div>`;
   }
@@ -3073,10 +3073,13 @@ function qeKey(e){
   else if(t.classList.contains('qe-cusd')) col='qe-cusd';
   const cells=Array.from(document.querySelectorAll('#qe-list input.'+col));
   const i=cells.indexOf(t);
-  if(i>=0 && i<cells.length-1){ const n=cells[i+1]; n.focus(); if(n.select)n.select(); }
+  if(i>=0 && i<cells.length-1){ const n=cells[i+1]; n.focus(); qeCursorEnd(n); }
   else if(t.blur) t.blur();
 }
 window.qeKey=qeKey;
+function qeFocus(inp){ try{ inp.select(); }catch(e){} }   // 탭하면 전체선택 → 바로 입력 시 교체
+function qeCursorEnd(inp){ try{ const L=inp.value.length; inp.setSelectionRange(L,L); }catch(e){} }  // 다음 이동 시 커서를 끝으로
+window.qeFocus=qeFocus; window.qeCursorEnd=qeCursorEnd;
 function qeRecalc(id){
   const h=state.holdings.find(x=>x.id===id);
   const calc=document.getElementById('qe-'+id+'-calc');

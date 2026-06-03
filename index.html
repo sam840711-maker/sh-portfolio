@@ -3858,11 +3858,15 @@ async function fetchYahoo(symbol){
   const m=r.meta;
   if(m.regularMarketPrice==null) throw new Error('no price');
   const ms=m.marketState||'REGULAR';
-  // 프리장·애프터장 체결가 — 1분봉 시계열의 마지막 유효 종가
+  // 프리장·애프터장 체결가 — 야후 명시 필드 우선, 없으면 1분봉 마지막 종가
   let extended=null;
-  const q=r.indicators&&r.indicators.quote&&r.indicators.quote[0];
-  if(q&&Array.isArray(q.close)){
-    for(let i=q.close.length-1;i>=0;i--){ if(q.close[i]!=null){ extended=q.close[i]; break; } }
+  if((ms==='PRE'||ms==='PREPRE') && m.preMarketPrice!=null) extended=m.preMarketPrice;
+  else if((ms==='POST'||ms==='POSTPOST') && m.postMarketPrice!=null) extended=m.postMarketPrice;
+  if(extended==null){
+    const q=r.indicators&&r.indicators.quote&&r.indicators.quote[0];
+    if(q&&Array.isArray(q.close)){
+      for(let i=q.close.length-1;i>=0;i--){ if(q.close[i]!=null){ extended=q.close[i]; break; } }
+    }
   }
   // 정규장이면 실시간 정규가, 그 외(프리·애프터·마감)엔 마지막 체결가
   const price=(ms!=='REGULAR'&&extended!=null)?extended:m.regularMarketPrice;

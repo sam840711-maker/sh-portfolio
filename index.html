@@ -3866,19 +3866,29 @@ async function fetchYahoo(symbol){
   if(!r||!r.meta) throw new Error('no data');
   const m=r.meta;
   if(m.regularMarketPrice==null) throw new Error('no price');
-  const ms=m.marketState||'REGULAR';
-  // 프리장·애프터장 체결가 — 1분봉 시계열의 가장 최근 유효 종가 (오늘 프리/애프터 포함)
+  // 1분봉에서 가장 최근 유효 체결가 + 시각
   let extended=null, extTs=null;
   const ts=r.timestamp||[];
   const q=r.indicators&&r.indicators.quote&&r.indicators.quote[0];
   if(q&&Array.isArray(q.close)){
     for(let i=q.close.length-1;i>=0;i--){ if(q.close[i]!=null){ extended=q.close[i]; extTs=ts[i]||null; break; } }
   }
-  // 정규장이면 실시간 정규가, 그 외(프리·애프터·마감)엔 가장 최근 체결가
-  // 단, 최근 체결가가 정규장 시각보다 새로울 때만 사용 (전일 데이터 오인 방지)
   const regTs=m.regularMarketTime||0;
-  const useExt = (ms!=='REGULAR') && extended!=null && (extTs==null || extTs>=regTs);
+  // marketState에 의존하지 않음 — 정규장 종가보다 '더 최근' 체결이 있으면 시간외(프리·애프터) 체결로 보고 사용
+  const useExt = extended!=null && extTs!=null && extTs > regTs+30;
   const price = useExt ? extended : m.regularMarketPrice;
+  // 라벨용 장 상태 — 거래시간대(currentTradingPeriod)로 분류
+  let ms = m.marketState||'REGULAR';
+  const cp=m.currentTradingPeriod;
+  if(useExt && cp){
+    if(cp.pre && extTs>=cp.pre.start && extTs<cp.pre.end) ms='PRE';
+    else if(cp.post && extTs>=cp.post.start) ms='POST';
+    else ms='POST';   // 정규장 이후 체결 (마감 후 등)
+  } else if(!useExt){
+    // 정규가 사용 — 현재 정규장 시간대면 REGULAR, 아니면 마감
+    const nowSec=Math.floor(Date.now()/1000);
+    ms=(cp&&cp.regular&&nowSec>=cp.regular.start&&nowSec<cp.regular.end)?'REGULAR':'CLOSED';
+  }
   const prev=m.chartPreviousClose!=null?m.chartPreviousClose:(m.previousClose!=null?m.previousClose:m.regularMarketPrice);
   return {
     price, currency:(m.currency||'USD').toUpperCase(),

@@ -3859,25 +3859,26 @@ async function proxyFetchJson(targetUrl){
 
 /* Yahoo — 정규장 + 프리장·애프터장 시세 반영 (Apps Script YAHOO()와 동일 소스) */
 async function fetchYahoo(symbol){
-  const yurl=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1m&range=1d&includePrePost=true&t=${Date.now()}`;
+  // range=2d: 정규장 개장 전(프리장)에도 오늘 프리장 1분봉이 포함되도록 (1d는 개장 전 전일 데이터만 반환)
+  const yurl=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1m&range=2d&includePrePost=true&t=${Date.now()}`;
   const data=await proxyFetchJson(yurl);
   const r=data&&data.chart&&data.chart.result&&data.chart.result[0];
   if(!r||!r.meta) throw new Error('no data');
   const m=r.meta;
   if(m.regularMarketPrice==null) throw new Error('no price');
   const ms=m.marketState||'REGULAR';
-  // 프리장·애프터장 체결가 — 야후 명시 필드 우선, 없으면 1분봉 마지막 종가
-  let extended=null;
-  if((ms==='PRE'||ms==='PREPRE') && m.preMarketPrice!=null) extended=m.preMarketPrice;
-  else if((ms==='POST'||ms==='POSTPOST') && m.postMarketPrice!=null) extended=m.postMarketPrice;
-  if(extended==null){
-    const q=r.indicators&&r.indicators.quote&&r.indicators.quote[0];
-    if(q&&Array.isArray(q.close)){
-      for(let i=q.close.length-1;i>=0;i--){ if(q.close[i]!=null){ extended=q.close[i]; break; } }
-    }
+  // 프리장·애프터장 체결가 — 1분봉 시계열의 가장 최근 유효 종가 (오늘 프리/애프터 포함)
+  let extended=null, extTs=null;
+  const ts=r.timestamp||[];
+  const q=r.indicators&&r.indicators.quote&&r.indicators.quote[0];
+  if(q&&Array.isArray(q.close)){
+    for(let i=q.close.length-1;i>=0;i--){ if(q.close[i]!=null){ extended=q.close[i]; extTs=ts[i]||null; break; } }
   }
-  // 정규장이면 실시간 정규가, 그 외(프리·애프터·마감)엔 마지막 체결가
-  const price=(ms!=='REGULAR'&&extended!=null)?extended:m.regularMarketPrice;
+  // 정규장이면 실시간 정규가, 그 외(프리·애프터·마감)엔 가장 최근 체결가
+  // 단, 최근 체결가가 정규장 시각보다 새로울 때만 사용 (전일 데이터 오인 방지)
+  const regTs=m.regularMarketTime||0;
+  const useExt = (ms!=='REGULAR') && extended!=null && (extTs==null || extTs>=regTs);
+  const price = useExt ? extended : m.regularMarketPrice;
   const prev=m.chartPreviousClose!=null?m.chartPreviousClose:(m.previousClose!=null?m.previousClose:m.regularMarketPrice);
   return {
     price, currency:(m.currency||'USD').toUpperCase(),

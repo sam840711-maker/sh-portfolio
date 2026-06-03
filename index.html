@@ -3097,11 +3097,15 @@ function qeRecalc(id){
   }
 }
 /* 입력 칸 변경 시 — 바뀐 칸 강조 + 평균단가 재계산 */
+let qeAutoSaveTimer=null;
 function qeInput(inp,id){
   const init=parseFloat(inp.dataset.init)||0;
   const cur=parseFloat(inp.value)||0;
   inp.classList.toggle('qe-changed', cur!==init);
   qeRecalc(id);
+  // 수정 중 자동 저장 (디바운스) — 앱이 내려갔다 새로고침돼도 입력값 보존
+  if(qeAutoSaveTimer) clearTimeout(qeAutoSaveTimer);
+  qeAutoSaveTimer=setTimeout(()=>{ try{ commitQuickEntry(); saveState(); }catch(e){} }, 400);
 }
 function qeHasUnsaved(){
   return document.querySelectorAll('#qe-list input.qe-changed').length>0;
@@ -4003,7 +4007,9 @@ async function refreshAllPrices(quiet){
   state.prices.lastFetch=Date.now();
   isFetching=false; setRefreshSpin(false);
   await saveState();
-  switchView(currentView);
+  // 빠른입력에서 자산군 수정 중이면 화면 재렌더 생략 (입력 중 값 리셋 방지)
+  const editingQE = currentView==='quickentry' && qeUnlocked && Object.values(qeUnlocked).some(Boolean);
+  if(!editingQE) switchView(currentView);
   if(quiet){
     if(fail>0) toast(`자동 갱신 · ${fail}종 실패`);
   } else {
@@ -4057,9 +4063,16 @@ function freshenIfStale(maxAgeSec){
   const lf=state.prices&&state.prices.lastFetch;
   if (!lf || (Date.now()-lf) > maxAgeSec*1000) refreshAllPrices(true);
 }
+function qeCommitIfEditing(){
+  if(currentView==='quickentry' && qeUnlocked && Object.values(qeUnlocked).some(Boolean)){
+    try{ commitQuickEntry(); saveState(); }catch(e){}
+  }
+}
 document.addEventListener('visibilitychange',()=>{
-  if (document.visibilityState==='visible') freshenIfStale(60);
+  if (document.visibilityState==='hidden') qeCommitIfEditing();   // 백그라운드 진입 전 즉시 저장
+  else if (document.visibilityState==='visible') freshenIfStale(60);
 });
+window.addEventListener('pagehide',qeCommitIfEditing);
 window.addEventListener('focus',()=>freshenIfStale(60));
 window.addEventListener('pageshow',()=>freshenIfStale(60));
 

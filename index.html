@@ -1494,7 +1494,8 @@ function renderAllocChart(s){
     const dev=pct-tgtPct;
     const balanced=Math.abs(dev)<0.5;
     const devCls=balanced?'muted':(dev>0?'up':'down');
-    const tgtMark=hasTgt?`<span class="abar-target" style="left:${Math.min(tgtPct,100)}%"></span>`:'';
+    const tgtColor = !hasTgt ? 'var(--text)' : (balanced ? 'var(--text)' : (dev>0 ? 'var(--up)' : 'var(--down)'));
+    const tgtMark=hasTgt?`<span class="abar-target" style="left:${Math.min(tgtPct,100)}%;background:${tgtColor};box-shadow:0 0 0 1.5px rgba(14,17,23,0.55)${balanced?'':',0 0 6px '+tgtColor}"></span>`:'';
     // 목표 도달을 위한 조정 금액
     const adjust=total*it.target-it.val;
     const action=Math.abs(adjust)>10000

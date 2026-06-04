@@ -2685,7 +2685,6 @@ window.saveItaxYear=saveItaxYear; window.deleteItaxYear=deleteItaxYear;
 /* === 실현손익 (확정 손익) — 연도별 시장(해외/국내)별 기록 === */
 function rpnlYear(y){ return (state.realizedPnl||{})[y]||[]; }
 function rpnlYearMarket(y,mk){ return rpnlYear(y).filter(r=>r.market===mk).reduce((s,r)=>s+(r.amount||0),0); }
-function rpnlYearTotal(y){ return rpnlYear(y).reduce((s,r)=>s+(r.amount||0),0); }
 function rpnlYears(){ return Object.keys(state.realizedPnl||{}).filter(y=>rpnlYear(y).length).sort((a,b)=>b.localeCompare(a)); }
 function rpnlOverseasTax(y){
   const ov=rpnlYearMarket(y,'overseas');
@@ -3289,7 +3288,6 @@ async function saveQuickEntry(){
   qeUnlocked={};   // 저장 후 다시 잠금 (실수 변경 방지)
   renderQuickEntry();
 }
-/* 종목 순서 이동 (같은 자산군 내) — 입력 중인 값은 먼저 반영 */
 /* 종목 순서 이동 (같은 자산군 내) — 공통 로직 */
 function reorderHolding(id,dir){
   const arr=state.holdings;

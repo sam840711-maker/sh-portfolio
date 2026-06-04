@@ -2732,13 +2732,14 @@ function openRpnlEntry(year,id){
   const date=rec?rec.date:today;
   const market=rec?rec.market:'';        // 무조건 직접 선택
   const acct=rec?rec.account:'us_stock';
-  const amount=rec?rec.amount:'';
-  const amountFx=rec&&rec.amountFx?rec.amountFx:'';
+  const sign=rec?(rec.amount<0?'-':'+'):'+';
+  const amount=rec?Math.abs(rec.amount):'';
+  const amountFx=rec&&rec.amountFx?Math.abs(rec.amountFx):'';
   const delBtn=rec?`<button class="btn btn-danger btn-sm" onclick="deleteRpnl('${y}','${id}')">삭제</button>`:'';
   const acctChips=Object.keys(CATEGORIES).map(k=>
     `<button type="button" class="btn ${acct===k?'btn-primary':'btn-secondary'} btn-sm" style="flex:0 0 auto" onclick="rpnlSetAcct('${k}')" id="rpnl-acct-${k}">${CATEGORIES[k].label}</button>`).join('');
   openModal(`<h3>실현손익 ${rec?'수정':'기록'}</h3>
-    <div class="modal-sub">매도로 확정한 손익을 계좌별로 기록하세요. 증권사 「실현손익합계」를 그대로 입력 — 해외는 원화·외화 둘 다, 국내는 원화만. 손실은 음수(−)로.</div>
+    <div class="modal-sub">매도로 확정한 손익을 계좌별로 기록하세요. 증권사 「실현손익합계」를 그대로 입력 — 해외는 원화·외화 둘 다, 국내는 원화만.</div>
     <div class="field"><label>날짜</label><input id="rpnl-date" type="date" value="${date}"></div>
     <div class="field"><label>계좌 (자산군)</label>
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:5px">${acctChips}</div>
@@ -2751,13 +2752,25 @@ function openRpnlEntry(year,id){
       </div>
       <input type="hidden" id="rpnl-mkt" value="${market}">
     </div>
-    <div class="field"><label>원화 실현손익 (₩)</label><input id="rpnl-amt" type="number" step="1" inputmode="numeric" value="${amount}" placeholder="예: 48166520"></div>
-    <div class="field" id="rpnl-fx-field" style="display:${market==='overseas'?'block':'none'}"><label>외화 실현손익 ($) — 참고용</label><input id="rpnl-amtfx" type="number" step="0.01" inputmode="decimal" value="${amountFx}" placeholder="예: 29854.06"></div>
+    <div class="field"><label>구분 (이익 / 손실)</label>
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <button type="button" class="btn ${sign==='+'?'btn-primary':'btn-secondary'}" style="flex:1" onclick="rpnlSetSign('+')" id="rpnl-sign-p">＋ 이익</button>
+        <button type="button" class="btn ${sign==='-'?'btn-primary':'btn-secondary'}" style="flex:1" onclick="rpnlSetSign('-')" id="rpnl-sign-m">－ 손실</button>
+      </div>
+      <input type="hidden" id="rpnl-sign" value="${sign}">
+    </div>
+    <div class="field"><label>원화 실현손익 (₩)</label><input id="rpnl-amt" type="number" step="1" min="0" inputmode="numeric" value="${amount}" placeholder="예: 48166520"></div>
+    <div class="field" id="rpnl-fx-field" style="display:${market==='overseas'?'block':'none'}"><label>외화 실현손익 ($) — 참고용</label><input id="rpnl-amtfx" type="number" step="0.01" min="0" inputmode="decimal" value="${amountFx}" placeholder="예: 29854.06"></div>
     <div class="btn-row">
       ${delBtn}
       <button class="btn btn-secondary" onclick="closeModal()">취소</button>
       <button class="btn btn-primary" onclick="saveRpnl('${y}','${id||''}')">저장</button>
     </div>`);
+}
+function rpnlSetSign(s){
+  document.getElementById('rpnl-sign').value=s;
+  document.getElementById('rpnl-sign-p').className='btn '+(s==='+'?'btn-primary':'btn-secondary');
+  document.getElementById('rpnl-sign-m').className='btn '+(s==='-'?'btn-primary':'btn-secondary');
 }
 function rpnlSetAcct(k){
   document.getElementById('rpnl-acct').value=k;
@@ -2776,8 +2789,9 @@ async function saveRpnl(origYear,id){
   const date=document.getElementById('rpnl-date').value||new Date().toISOString().slice(0,10);
   const market=document.getElementById('rpnl-mkt').value||'';
   const account=document.getElementById('rpnl-acct').value||'us_stock';
-  const amount=Math.round(parseFloat(document.getElementById('rpnl-amt').value)||0);
-  const amountFx=(market==='overseas')?(parseFloat(document.getElementById('rpnl-amtfx').value)||0):0;
+  const sgn=(document.getElementById('rpnl-sign').value==='-')?-1:1;
+  const amount=sgn*Math.round(Math.abs(parseFloat(document.getElementById('rpnl-amt').value)||0));
+  const amountFx=(market==='overseas')?(sgn*Math.abs(parseFloat(document.getElementById('rpnl-amtfx').value)||0)):0;
   if(!market){ toast('시장(해외/국내)을 선택하세요'); return; }
   if(!amount){ toast('원화 실현손익을 입력하세요'); return; }
   const y=date.slice(0,4);
@@ -2795,7 +2809,7 @@ async function deleteRpnl(year,id){
   }
   await saveState(); closeModal(); toast('기록 삭제됨'); switchView('transactions');
 }
-window.openRpnlEntry=openRpnlEntry; window.rpnlSetMkt=rpnlSetMkt; window.rpnlSetAcct=rpnlSetAcct;
+window.openRpnlEntry=openRpnlEntry; window.rpnlSetMkt=rpnlSetMkt; window.rpnlSetAcct=rpnlSetAcct; window.rpnlSetSign=rpnlSetSign;
 window.saveRpnl=saveRpnl; window.deleteRpnl=deleteRpnl;
 
 /* === 대기 자금 이자 — 연도별 월별 입력 (이자 수령 → 대기 자금에 자동 가산) === */

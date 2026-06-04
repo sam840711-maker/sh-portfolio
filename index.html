@@ -493,6 +493,11 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div id="itax-list"></div>
     </div>
     <div class="card">
+      <div class="card-title">실현손익 (확정 손익) <span class="action" id="add-rpnl">＋ 기록</span></div>
+      <p class="muted" style="font-size:11px;margin:-4px 0 10px">매도로 확정한 손익을 시장(해외/국내)별로 기록 — 증권사 「실현손익합계(원화)」를 그대로 입력하세요. 세금 화면에서 연도별 양도세가 자동 계산됩니다.</p>
+      <div id="rpnl-list"></div>
+    </div>
+    <div class="card">
       <div class="card-title">대기 자금 이자 <span class="action" id="add-ri">＋ 추가</span></div>
       <p class="muted" style="font-size:11px;margin:-4px 0 10px">단기 예금 · MMF 이자 수령액 — 저장 시 대기 자금 잔액에 자동 가산됩니다</p>
       <div id="ri-list"></div>
@@ -840,6 +845,8 @@ function normalizeState(){
   }
   // 납입은 deposits에서 관리하므로 거래목록에서 제외
   state.transactions = (state.transactions||[]).filter(t=>t.type!=='deposit');
+  // 실현손익 장부 — { 연도: [{id,date,market:'overseas'|'domestic',amount}] }
+  if (!state.realizedPnl) state.realizedPnl = {};
   if (!state.settings.classTargets){
     state.settings.classTargets = {};
     for (const k in CATEGORIES) state.settings.classTargets[k] = CATEGORIES[k].target;
@@ -2675,6 +2682,122 @@ async function deleteItaxYear(year){
 window.openItaxYear=openItaxYear; window.itaxRecalc=itaxRecalc;
 window.saveItaxYear=saveItaxYear; window.deleteItaxYear=deleteItaxYear;
 
+/* === 실현손익 (확정 손익) — 연도별 시장(해외/국내)별 기록 === */
+function rpnlYear(y){ return (state.realizedPnl||{})[y]||[]; }
+function rpnlYearMarket(y,mk){ return rpnlYear(y).filter(r=>r.market===mk).reduce((s,r)=>s+(r.amount||0),0); }
+function rpnlYearTotal(y){ return rpnlYear(y).reduce((s,r)=>s+(r.amount||0),0); }
+function rpnlYears(){ return Object.keys(state.realizedPnl||{}).filter(y=>rpnlYear(y).length).sort((a,b)=>b.localeCompare(a)); }
+function rpnlOverseasTax(y){
+  const ov=rpnlYearMarket(y,'overseas');
+  const ded=state.settings.overseasDeduction||2500000;
+  const rate=(state.settings.taxRates&&state.settings.taxRates.overseas)||0.22;
+  return Math.round(Math.max(0, ov-ded)*rate);
+}
+function renderRealizedList(){
+  const el=document.getElementById('rpnl-list'); if(!el) return;
+  const years=rpnlYears();
+  if(!years.length){ el.innerHTML='<div class="empty">실현손익 기록이 없습니다. ＋ 기록으로 추가하세요.</div>'; return; }
+  el.innerHTML=years.map(y=>{
+    const ov=rpnlYearMarket(y,'overseas'), dm=rpnlYearMarket(y,'domestic');
+    const tot=ov+dm;
+    const rows=rpnlYear(y).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(r=>{
+      const cls=r.amount>=0?'up':'down';
+      const mk=r.market==='overseas'?'해외':'국내';
+      const cat=CATEGORIES[r.account];
+      const acctLabel=cat?cat.label:(r.account||'기타');
+      const color=cat?cat.color:'#888';
+      const fxTxt=(r.market==='overseas'&&r.amountFx)?` · $${r.amountFx>=0?'+':'-'}${Math.abs(r.amountFx).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`:'';
+      return `<div class="txn" onclick="openRpnlEntry('${y}','${r.id}')" style="cursor:pointer;padding:8px 0">
+        <div class="txn-icon" style="background:${color}22;color:${color};font-size:10px">${mk}</div>
+        <div class="txn-info"><div class="txn-title" style="font-size:13px">${acctLabel} <span style="font-size:10px;color:var(--text-3);font-weight:400">${mk}</span></div><div class="txn-date">${r.date}${fxTxt}</div></div>
+        <div class="txn-amount num ${cls}">${r.amount>=0?'+':'-'}${fmtKRW(Math.abs(r.amount))}</div></div>`;
+    }).join('');
+    const tax=rpnlOverseasTax(y);
+    return `<div style="background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:13px 14px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+        <span style="font-size:15px;font-weight:700">${y}년</span>
+        <span class="num ${tot>=0?'up':'down'}" style="font-size:17px;font-weight:700">${tot>=0?'+':'-'}${fmtKRW(Math.abs(tot))}</span>
+      </div>
+      <div class="tax-line"><span>해외 실현손익</span><span class="num ${ov>=0?'up':'down'}">${ov>=0?'+':'-'}${fmtKRW(Math.abs(ov))}</span></div>
+      <div class="tax-line"><span>국내 실현손익</span><span class="num ${dm>=0?'up':'down'}">${dm>=0?'+':'-'}${fmtKRW(Math.abs(dm))}</span></div>
+      <div class="tax-line"><span>해외 양도세 추정</span><span class="num down">${tax>0?'-'+fmtKRW(tax):'0'}</span></div>
+      <div style="margin-top:8px;border-top:1px solid var(--hairline);padding-top:6px">${rows}</div>
+    </div>`;
+  }).join('');
+}
+function openRpnlEntry(year,id){
+  const y=year||String(new Date().getFullYear());
+  const today=new Date().toISOString().slice(0,10);
+  const rec=id?rpnlYear(y).find(r=>r.id===id):null;
+  const date=rec?rec.date:today;
+  const market=rec?rec.market:'';        // 무조건 직접 선택
+  const acct=rec?rec.account:'us_stock';
+  const amount=rec?rec.amount:'';
+  const amountFx=rec&&rec.amountFx?rec.amountFx:'';
+  const delBtn=rec?`<button class="btn btn-danger btn-sm" onclick="deleteRpnl('${y}','${id}')">삭제</button>`:'';
+  const acctChips=Object.keys(CATEGORIES).map(k=>
+    `<button type="button" class="btn ${acct===k?'btn-primary':'btn-secondary'} btn-sm" style="flex:0 0 auto" onclick="rpnlSetAcct('${k}')" id="rpnl-acct-${k}">${CATEGORIES[k].label}</button>`).join('');
+  openModal(`<h3>실현손익 ${rec?'수정':'기록'}</h3>
+    <div class="modal-sub">매도로 확정한 손익을 계좌별로 기록하세요. 증권사 「실현손익합계」를 그대로 입력 — 해외는 원화·외화 둘 다, 국내는 원화만. 손실은 음수(−)로.</div>
+    <div class="field"><label>날짜</label><input id="rpnl-date" type="date" value="${date}"></div>
+    <div class="field"><label>계좌 (자산군)</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:5px">${acctChips}</div>
+      <input type="hidden" id="rpnl-acct" value="${acct}">
+    </div>
+    <div class="field"><label>시장 (과세 구분) — 직접 선택</label>
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <button type="button" class="btn ${market==='overseas'?'btn-primary':'btn-secondary'}" style="flex:1" onclick="rpnlSetMkt('overseas')" id="rpnl-mkt-ov">해외</button>
+        <button type="button" class="btn ${market==='domestic'?'btn-primary':'btn-secondary'}" style="flex:1" onclick="rpnlSetMkt('domestic')" id="rpnl-mkt-dm">국내</button>
+      </div>
+      <input type="hidden" id="rpnl-mkt" value="${market}">
+    </div>
+    <div class="field"><label>원화 실현손익 (₩)</label><input id="rpnl-amt" type="number" step="1" inputmode="numeric" value="${amount}" placeholder="예: 48166520"></div>
+    <div class="field" id="rpnl-fx-field" style="display:${market==='overseas'?'block':'none'}"><label>외화 실현손익 ($) — 참고용</label><input id="rpnl-amtfx" type="number" step="0.01" inputmode="decimal" value="${amountFx}" placeholder="예: 29854.06"></div>
+    <div class="btn-row">
+      ${delBtn}
+      <button class="btn btn-secondary" onclick="closeModal()">취소</button>
+      <button class="btn btn-primary" onclick="saveRpnl('${y}','${id||''}')">저장</button>
+    </div>`);
+}
+function rpnlSetAcct(k){
+  document.getElementById('rpnl-acct').value=k;
+  Object.keys(CATEGORIES).forEach(c=>{
+    const b=document.getElementById('rpnl-acct-'+c);
+    if(b) b.className='btn '+(c===k?'btn-primary':'btn-secondary')+' btn-sm';
+  });
+}
+function rpnlSetMkt(mk){
+  document.getElementById('rpnl-mkt').value=mk;
+  document.getElementById('rpnl-mkt-ov').className='btn '+(mk==='overseas'?'btn-primary':'btn-secondary');
+  document.getElementById('rpnl-mkt-dm').className='btn '+(mk==='domestic'?'btn-primary':'btn-secondary');
+  const fx=document.getElementById('rpnl-fx-field'); if(fx) fx.style.display=(mk==='overseas')?'block':'none';
+}
+async function saveRpnl(origYear,id){
+  const date=document.getElementById('rpnl-date').value||new Date().toISOString().slice(0,10);
+  const market=document.getElementById('rpnl-mkt').value||'';
+  const account=document.getElementById('rpnl-acct').value||'us_stock';
+  const amount=Math.round(parseFloat(document.getElementById('rpnl-amt').value)||0);
+  const amountFx=(market==='overseas')?(parseFloat(document.getElementById('rpnl-amtfx').value)||0):0;
+  if(!market){ toast('시장(해외/국내)을 선택하세요'); return; }
+  if(!amount){ toast('원화 실현손익을 입력하세요'); return; }
+  const y=date.slice(0,4);
+  if(!state.realizedPnl) state.realizedPnl={};
+  if(id){ for(const yy in state.realizedPnl) state.realizedPnl[yy]=state.realizedPnl[yy].filter(r=>r.id!==id); }
+  if(!state.realizedPnl[y]) state.realizedPnl[y]=[];
+  state.realizedPnl[y].push({id:id||('rp'+Date.now()), date, account, market, amount, amountFx:amountFx||null});
+  for(const yy in state.realizedPnl){ if(!state.realizedPnl[yy].length) delete state.realizedPnl[yy]; }
+  await saveState(); closeModal(); toast('실현손익 저장됨'); switchView('transactions');
+}
+async function deleteRpnl(year,id){
+  if(state.realizedPnl&&state.realizedPnl[year]){
+    state.realizedPnl[year]=state.realizedPnl[year].filter(r=>r.id!==id);
+    if(!state.realizedPnl[year].length) delete state.realizedPnl[year];
+  }
+  await saveState(); closeModal(); toast('기록 삭제됨'); switchView('transactions');
+}
+window.openRpnlEntry=openRpnlEntry; window.rpnlSetMkt=rpnlSetMkt; window.rpnlSetAcct=rpnlSetAcct;
+window.saveRpnl=saveRpnl; window.deleteRpnl=deleteRpnl;
+
 /* === 대기 자금 이자 — 연도별 월별 입력 (이자 수령 → 대기 자금에 자동 가산) === */
 function riYearTotal(y){
   const a=(state.reserveInterest||{})[y]||[];
@@ -2901,6 +3024,7 @@ window.saveDepositYear=saveDepositYear; window.deleteDepositYear=deleteDepositYe
 
 function renderTransactions(){
   renderItaxList();
+  renderRealizedList();
   renderRiList();
   renderDepositList();
 }
@@ -3276,6 +3400,32 @@ function renderTax(){
   html+=`<div class="tax-row-sum"><span class="tax-row-name">예상 양도세 합계</span>`
     +`<span class="num down">${est.totalTax>0?'-'+fmtKRW(est.totalTax)+'원':'0원'}</span></div></div>`;
 
+  // 연도별 실현 양도세 (확정 손익 기준)
+  const rYears=rpnlYears();
+  html+=`<div class="card"><div class="card-title">연도별 실현 양도세 (확정) <span class="action" id="tax-rpnl">거래에서 기록 ▸</span></div>`;
+  if(rYears.length){
+    const ded=state.settings.overseasDeduction||2500000;
+    const rate=(state.settings.taxRates&&state.settings.taxRates.overseas)||0.22;
+    for(const y of rYears){
+      const ov=rpnlYearMarket(y,'overseas'), dm=rpnlYearMarket(y,'domestic');
+      const base=Math.max(0,ov-ded);
+      const tax=rpnlOverseasTax(y);
+      html+=`<div class="tax-row">
+        <div class="tax-row-top">
+          <span class="tax-row-name">${y}년</span>
+          <span class="num down">예상 납부 ${tax>0?fmtKRW(tax)+'원':'없음'}</span>
+        </div>
+        <div class="tax-row-sub"><span>해외 실현손익 <b class="num ${ov>=0?'up':'down'}">${ov>=0?'+':'-'}${fmtKRW(Math.abs(ov))}</b></span><span>기본공제 ${fmtKRW(ded)} · ${(rate*100).toFixed(0)}%</span></div>
+        <div class="tax-row-sub"><span>과세표준 <b class="num">${fmtKRW(base)}</b></span><span>국내 ${dm>=0?'+':'-'}${fmtKRW(Math.abs(dm))} · 비과세</span></div>
+      </div>`;
+    }
+    const totTax=rYears.reduce((s,y)=>s+rpnlOverseasTax(y),0);
+    html+=`<div class="tax-row-sum"><span class="tax-row-name">실현 양도세 합계</span><span class="num down">${totTax>0?'-'+fmtKRW(totTax)+'원':'0원'}</span></div>`;
+  } else {
+    html+=`<div style="color:var(--text-2);font-size:13px;padding:6px 0">기록된 실현손익이 없습니다. 거래 화면에서 매도 확정 손익을 기록하세요.</div>`;
+  }
+  html+=`</div>`;
+
   // 기 납부 이자·세금
   const years=Object.keys(state.itax||{}).filter(y=>itaxYearTotal(y)>0).sort((a,b)=>b.localeCompare(a));
   html+=`<div class="card"><div class="card-title">기 납부 이자·세금 <span class="action" id="tax-itax">거래에서 수정 ▸</span></div>`;
@@ -3293,6 +3443,7 @@ function renderTax(){
   document.getElementById('tax-body').innerHTML=html;
   document.getElementById('tax-edit').onclick=openTaxRateEditor;
   document.getElementById('tax-itax').onclick=()=>switchView('transactions');
+  const tr=document.getElementById('tax-rpnl'); if(tr) tr.onclick=()=>switchView('transactions');
 }
 
 function openTaxRateEditor(){
@@ -3374,6 +3525,7 @@ document.querySelectorAll('#holding-sort button').forEach(b=>b.onclick=()=>{
 });
 document.getElementById('edit-cash').onclick=openCashEditor;
 document.getElementById('add-itax').onclick=()=>openItaxYear();
+document.getElementById('add-rpnl').onclick=()=>openRpnlEntry();
 document.getElementById('add-ri').onclick=()=>openRiYear();
 document.getElementById('add-deposit').onclick=()=>openDepositYear();
 document.getElementById('add-withdraw').onclick=()=>openWithdrawModal();

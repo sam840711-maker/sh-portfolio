@@ -1152,8 +1152,9 @@ function renderMarketBanner(){
     // (한국 오전엔 미국 현지가 전날이라 주말로 오인돼 안 뜨던 문제 해결)
     const refTz = (mk==='us') ? 'Asia/Seoul' : h.tz;
     const ymd=new Date().toLocaleDateString('en-CA',{timeZone:refTz});
-    // 주말이면 표시 안 함
-    const wd=new Intl.DateTimeFormat('en-US',{timeZone:refTz,weekday:'short'}).format(new Date());
+    // 주말이면 표시 안 함 — 사용자(한국) 기준 요일로 판단
+    // (영국장은 한국 토요일 오전 = 런던 금요일 밤이라 평일로 오인돼 뜨던 문제 해결)
+    const wd=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Seoul',weekday:'short'}).format(new Date());
     if(wd==='Sat'||wd==='Sun') continue;
     // 휴장일 체크
     const holKey={us:'us',kr:'kr',london:'uk'}[mk];

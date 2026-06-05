@@ -395,6 +395,10 @@ input,select,textarea{font-family:inherit;color:inherit}
         <span class="pill" id="hero-pill-total">—</span>
         <span class="muted" id="hero-profit-total">—</span>
       </div>
+      <div class="hero-sub" id="hero-daily-row" style="margin-top:6px;display:none">
+        <span class="muted" style="font-size:12px">전일 대비</span>
+        <span class="num" id="hero-daily">—</span>
+      </div>
       <div class="hero-sub2">
         <span class="hero-label2">보유 평가액</span>
         <span class="hero-amount2 num" id="hero-cur-value">—</span>
@@ -913,6 +917,19 @@ function recordSnapshot(){
   else { state.history.push({ d, total: s.totalWithCash, byClass, ts: Date.now() }); }
   state.history.sort((a,b)=>(a.d||'').localeCompare(b.d||''));
 }
+// 전일 대비 변동 — 오늘 이전의 가장 최근 기록(전 영업일)과 현재 총자산 비교
+function dailyChange(){
+  const hist=(state.history||[]).filter(h=>h.d).sort((a,b)=>a.d.localeCompare(b.d));
+  if(hist.length<1) return null;
+  const today=new Date().toISOString().slice(0,10);
+  let prev=null;
+  for(let i=hist.length-1;i>=0;i--){ if(hist[i].d<today){ prev=hist[i]; break; } }
+  if(!prev || !prev.total) return null;
+  const cur=portfolioStats().totalWithCash;
+  const abs=cur-prev.total;
+  const pct=prev.total?abs/prev.total:0;
+  return {abs, pct, prevDate:prev.d, prevTotal:prev.total};
+}
 
 /* ================================================================
    FORMATTERS & CALC
@@ -1252,6 +1269,17 @@ function renderDashboard(){
   renderMarketBanner();
   document.getElementById('hero-total').textContent=fmtKRW(s.totalWithCash);
   const totalDeposits=depositsTotal();
+
+  // 전일 대비 변동
+  const dc=dailyChange();
+  const dcRow=document.getElementById('hero-daily-row');
+  const dcEl=document.getElementById('hero-daily');
+  if(dc){
+    const dcls=dc.abs>=0?'up':'down';
+    dcRow.style.display='flex';
+    dcEl.className='num '+dcls;
+    dcEl.innerHTML=`${dc.abs>=0?'+':'-'}${fmtKRW(Math.abs(dc.abs))} <span style="font-size:12px">(${fmtPctSigned(dc.pct)})</span>`;
+  } else { dcRow.style.display='none'; }
 
   // 총자산 기준 (예수금 포함) — 납입원금 대비 손익·수익률
   const depProfit=s.totalWithCash-totalDeposits;

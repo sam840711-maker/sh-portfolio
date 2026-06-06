@@ -1803,6 +1803,13 @@ function renderTrendChart(){
   }
 
   const datasets=[];
+  // 자산군 선의 앞쪽 빈 구간(byClass 없던 초기 기록)을 첫 실측값으로 수평 연결 — 그 구간은 점선 처리
+  function bfLead(pts){
+    let i=0; while(i<pts.length && pts[i].y==null) i++;
+    if(i<=0 || i>=pts.length) return {data:pts, firstX:(i<pts.length?pts[i].x:null)};
+    const fy=pts[i].y, fx=pts[i].x;
+    return {data:pts.map((p,idx)=> idx<i?{x:p.x,y:fy}:p), firstX:fx};
+  }
   // 최고점 마커 — 선택한 기간 내 데이터의 최고점 (종합=평가 자산 / 단일=해당 자산군)
   const mainPts = (trendView==='all')
     ? assetPts
@@ -1824,9 +1831,11 @@ function renderTrendChart(){
     for(const k of cats){
       const pts=hist.map(h=>({x:toMs(h.d), y:(h.byClass&&h.byClass[k]!=null)?h.byClass[k]:null}));
       if(pts.some(p=>p.y!=null)){
-        datasets.push({label:CATEGORIES[k].label,data:pts,borderColor:CATEGORIES[k].color,
+        const bf=bfLead(pts);
+        datasets.push({label:CATEGORIES[k].label,data:bf.data,borderColor:CATEGORIES[k].color,
           borderWidth:1.2,fill:false,tension:0.3,spanGaps:true,
-          pointRadius:0,pointHoverRadius:3,order:2});
+          pointRadius:0,pointHoverRadius:3,order:2,
+          segment: bf.firstX ? { borderDash: ctx => (ctx.p0.parsed.x < bf.firstX) ? [3,3] : undefined } : undefined});
       }
     }
     datasets.push({label:'납입 원금',data:principalPts,borderColor:'#565967',borderWidth:1.5,
@@ -1837,12 +1846,13 @@ function renderTrendChart(){
     const cgrad=ctx.createLinearGradient(0,0,0,290);
     cgrad.addColorStop(0, col+'52'); cgrad.addColorStop(1, col+'00');
     const pts=hist.map(h=>({x:toMs(h.d), y:(h.byClass&&h.byClass[trendView]!=null)?h.byClass[trendView]:null}));
-    datasets.push({label:CATEGORIES[trendView].label,data:pts,borderColor:col,backgroundColor:cgrad,
+    const bf=bfLead(pts);
+    datasets.push({label:CATEGORIES[trendView].label,data:bf.data,borderColor:col,backgroundColor:cgrad,
       borderWidth:2,fill:true,tension:0.3,spanGaps:true,
       pointRadius:0,
       pointBackgroundColor:col,pointBorderColor:'#0E1117',pointBorderWidth:1.5,
       pointHoverRadius:4,
-      segment: firstActualMs ? { borderDash: ctx => (ctx.p0.parsed.x < firstActualMs) ? [3,3] : undefined } : undefined});
+      segment: bf.firstX ? { borderDash: ctx => (ctx.p0.parsed.x < bf.firstX) ? [3,3] : undefined } : undefined});
   }
 
   if (chartTrend) chartTrend.destroy();

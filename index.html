@@ -1835,7 +1835,7 @@ function renderTrendChart(){
         datasets.push({label:CATEGORIES[k].label,data:bf.data,borderColor:CATEGORIES[k].color,
           borderWidth:1.2,fill:false,tension:0.3,spanGaps:true,
           pointRadius:0,pointHoverRadius:3,order:2,
-          segment: bf.firstX ? { borderDash: ctx => (ctx.p0.parsed.x < bf.firstX) ? [3,3] : undefined } : undefined});
+          segment: firstActualMs ? { borderDash: ctx => (ctx.p0.parsed.x < firstActualMs) ? [3,3] : undefined } : undefined});
       }
     }
     datasets.push({label:'납입 원금',data:principalPts,borderColor:'#565967',borderWidth:1.5,
@@ -1852,7 +1852,7 @@ function renderTrendChart(){
       pointRadius:0,
       pointBackgroundColor:col,pointBorderColor:'#0E1117',pointBorderWidth:1.5,
       pointHoverRadius:4,
-      segment: bf.firstX ? { borderDash: ctx => (ctx.p0.parsed.x < bf.firstX) ? [3,3] : undefined } : undefined});
+      segment: firstActualMs ? { borderDash: ctx => (ctx.p0.parsed.x < firstActualMs) ? [3,3] : undefined } : undefined});
   }
 
   if (chartTrend) chartTrend.destroy();

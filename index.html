@@ -2629,12 +2629,17 @@ function openCashEditor(){
   const cb=state.settings.cashByClass||{};
   const rows=Object.keys(CATEGORIES).map(k=>{
     const c=cb[k]||{krw:0,usd:0};
-    return `<div class="field"><label>${CATEGORIES[k].label}</label>
-      <div class="field-row">
-        <input id="cash-${k}-krw" type="number" step="1" value="${c.krw||0}" placeholder="원화 ₩">
-        <input id="cash-${k}-usd" type="number" step="0.01" value="${c.usd||0}" placeholder="달러 $">
+    return `<div class="field"><label>${CATEGORIES[k].label} <span style="font-size:11px;color:var(--text-3);font-weight:400">현재 ₩${fmtKRW(c.krw||0)}${(c.usd||0)?` · $${(c.usd||0).toLocaleString()}`:''}</span></label>
+      <div class="field-row" style="align-items:center">
+        <div style="display:flex;gap:5px">
+          <button type="button" class="btn btn-primary btn-sm" id="cash-${k}-sp" style="padding:8px 11px" onclick="cashSign('${k}','+')">＋</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="cash-${k}-sm" style="padding:8px 11px" onclick="cashSign('${k}','-')">－</button>
+        </div>
+        <input id="cash-${k}-krw" type="number" step="1" inputmode="numeric" placeholder="원화 ₩" style="flex:1">
+        <input id="cash-${k}-usd" type="number" step="0.01" inputmode="decimal" placeholder="달러 $" style="flex:1">
+        <input type="hidden" id="cash-${k}-sign" value="+">
       </div>
-      <small>왼쪽 = 원화 예수금(₩) · 오른쪽 = 달러 예수금($)</small></div>`;
+      <small>＋/− 선택 후 금액 입력 = 현재 잔액에 가감 (빈 칸은 유지)</small></div>`;
   }).join('');
   openModal(`<h3>예수금 관리</h3>
     <div class="modal-sub">현금 계정 + 대기 자금 + 각 자산군의 현금 잔액</div>
@@ -2654,9 +2659,13 @@ function openCashEditor(){
 async function saveCashEditor(){
   const cb={};
   for(const k in CATEGORIES){
+    const cur=(state.settings.cashByClass&&state.settings.cashByClass[k])||{krw:0,usd:0};
+    const sgn=(document.getElementById('cash-'+k+'-sign')?.value==='-')?-1:1;
+    const aKrw=Math.abs(parseFloat(document.getElementById('cash-'+k+'-krw').value)||0);
+    const aUsd=Math.abs(parseFloat(document.getElementById('cash-'+k+'-usd').value)||0);
     cb[k]={
-      krw:parseFloat(document.getElementById('cash-'+k+'-krw').value)||0,
-      usd:parseFloat(document.getElementById('cash-'+k+'-usd').value)||0,
+      krw: aKrw ? Math.max(0,(cur.krw||0)+sgn*aKrw) : (cur.krw||0),
+      usd: aUsd ? Math.max(0,(cur.usd||0)+sgn*aUsd) : (cur.usd||0),
     };
   }
   state.settings.cashByClass=cb;
@@ -2664,6 +2673,13 @@ async function saveCashEditor(){
   state.settings.reserveCash=Math.max(0,parseFloat(document.getElementById('cash-reserve').value)||0);
   await saveState(); closeModal(); toast('예수금 저장됨'); switchView('quickentry');
 }
+function cashSign(k,s){
+  const f=document.getElementById('cash-'+k+'-sign'); if(f) f.value=s;
+  const p=document.getElementById('cash-'+k+'-sp'), m=document.getElementById('cash-'+k+'-sm');
+  if(p) p.className='btn '+(s==='+'?'btn-primary':'btn-secondary')+' btn-sm';
+  if(m) m.className='btn '+(s==='-'?'btn-primary':'btn-secondary')+' btn-sm';
+}
+window.cashSign=cashSign;
 window.openCashEditor=openCashEditor; window.saveCashEditor=saveCashEditor;
 
 /* === 이자 · 세금 — 연도별 월별 입력 === */

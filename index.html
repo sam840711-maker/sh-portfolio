@@ -2629,24 +2629,25 @@ function openCashEditor(){
   const cb=state.settings.cashByClass||{};
   const rows=Object.keys(CATEGORIES).map(k=>{
     const c=cb[k]||{krw:0,usd:0};
-    return `<div class="field"><label>${CATEGORIES[k].label} <span style="font-size:11px;color:var(--text-3);font-weight:400">현재 ₩${fmtKRW(c.krw||0)}${(c.usd||0)?` · $${(c.usd||0).toLocaleString()}`:''}</span></label>
+    const kSign=(c.krw||0)<0?'-':'+', uSign=(c.usd||0)<0?'-':'+';
+    return `<div class="field"><label>${CATEGORIES[k].label}</label>
       <div class="field-row" style="align-items:center;margin-bottom:6px">
         <div style="display:flex;gap:5px">
-          <button type="button" class="btn btn-primary btn-sm" id="cash-${k}-krw-sp" style="padding:8px 11px" onclick="cashSign('${k}','krw','+')">＋</button>
-          <button type="button" class="btn btn-secondary btn-sm" id="cash-${k}-krw-sm" style="padding:8px 11px" onclick="cashSign('${k}','krw','-')">－</button>
+          <button type="button" class="btn ${kSign==='+'?'btn-primary':'btn-secondary'} btn-sm" id="cash-${k}-krw-sp" style="padding:8px 11px" onclick="cashSign('${k}','krw','+')">＋</button>
+          <button type="button" class="btn ${kSign==='-'?'btn-primary':'btn-secondary'} btn-sm" id="cash-${k}-krw-sm" style="padding:8px 11px" onclick="cashSign('${k}','krw','-')">－</button>
         </div>
-        <input id="cash-${k}-krw" type="number" step="1" inputmode="numeric" placeholder="원화 조정 ₩" style="flex:1">
-        <input type="hidden" id="cash-${k}-krw-sign" value="+">
+        <input id="cash-${k}-krw" type="number" step="1" inputmode="numeric" value="${Math.abs(c.krw||0)||''}" placeholder="원화 ₩" style="flex:1">
+        <input type="hidden" id="cash-${k}-krw-sign" value="${kSign}">
       </div>
       <div class="field-row" style="align-items:center">
         <div style="display:flex;gap:5px">
-          <button type="button" class="btn btn-primary btn-sm" id="cash-${k}-usd-sp" style="padding:8px 11px" onclick="cashSign('${k}','usd','+')">＋</button>
-          <button type="button" class="btn btn-secondary btn-sm" id="cash-${k}-usd-sm" style="padding:8px 11px" onclick="cashSign('${k}','usd','-')">－</button>
+          <button type="button" class="btn ${uSign==='+'?'btn-primary':'btn-secondary'} btn-sm" id="cash-${k}-usd-sp" style="padding:8px 11px" onclick="cashSign('${k}','usd','+')">＋</button>
+          <button type="button" class="btn ${uSign==='-'?'btn-primary':'btn-secondary'} btn-sm" id="cash-${k}-usd-sm" style="padding:8px 11px" onclick="cashSign('${k}','usd','-')">－</button>
         </div>
-        <input id="cash-${k}-usd" type="number" step="0.01" inputmode="decimal" placeholder="달러 조정 $" style="flex:1">
-        <input type="hidden" id="cash-${k}-usd-sign" value="+">
+        <input id="cash-${k}-usd" type="number" step="0.01" inputmode="decimal" value="${Math.abs(c.usd||0)||''}" placeholder="달러 $" style="flex:1">
+        <input type="hidden" id="cash-${k}-usd-sign" value="${uSign}">
       </div>
-      <small>원화·달러 각각 ＋/− 선택 후 금액 입력 = 현재 잔액에 가감 (빈 칸은 유지)</small></div>`;
+      <small>현재 잔액(절댓값)이 채워져 있음 · ＋/− 로 부호 선택 (미결제 시 달러는 −)</small></div>`;
   }).join('');
   openModal(`<h3>예수금 관리</h3>
     <div class="modal-sub">현금 계정 + 대기 자금 + 각 자산군의 현금 잔액</div>
@@ -2666,15 +2667,11 @@ function openCashEditor(){
 async function saveCashEditor(){
   const cb={};
   for(const k in CATEGORIES){
-    const cur=(state.settings.cashByClass&&state.settings.cashByClass[k])||{krw:0,usd:0};
     const sgnK=(document.getElementById('cash-'+k+'-krw-sign')?.value==='-')?-1:1;
     const sgnU=(document.getElementById('cash-'+k+'-usd-sign')?.value==='-')?-1:1;
-    const aKrw=Math.abs(parseFloat(document.getElementById('cash-'+k+'-krw').value)||0);
-    const aUsd=Math.abs(parseFloat(document.getElementById('cash-'+k+'-usd').value)||0);
-    cb[k]={
-      krw: aKrw ? Math.max(0,(cur.krw||0)+sgnK*aKrw) : (cur.krw||0),
-      usd: aUsd ? Math.max(0,(cur.usd||0)+sgnU*aUsd) : (cur.usd||0),
-    };
+    const vKrw=Math.abs(parseFloat(document.getElementById('cash-'+k+'-krw').value)||0);
+    const vUsd=Math.abs(parseFloat(document.getElementById('cash-'+k+'-usd').value)||0);
+    cb[k]={ krw: sgnK*vKrw, usd: sgnU*vUsd };   // 부호 그대로 저장 (미결제 달러 음수 허용)
   }
   state.settings.cashByClass=cb;
   state.settings.cashAccount=Math.max(0,parseFloat(document.getElementById('cash-account').value)||0);

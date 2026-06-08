@@ -4080,6 +4080,44 @@ async function proxyFetchJson(targetUrl){
 
 /* Yahoo — 정규장 + 프리장·애프터장 시세 반영 (Apps Script YAHOO()와 동일 소스) */
 async function fetchYahoo(symbol){
+  // 1순위: quote API — 야후가 계산한 수치(현재가·전일종가·변동률·프리장)를 그대로 사용
+  try {
+    const q=await fetchYahooQuote(symbol);
+    if(q) return q;
+  } catch(e){ /* 인증/CORS 실패 시 chart 방식으로 폴백 */ }
+  // 폴백: chart API (1분봉에서 직접 추출)
+  return await fetchYahooChart(symbol);
+}
+/* quote API — 완성된 수치 제공 (정규장/프리장/애프터장 자동) */
+async function fetchYahooQuote(symbol){
+  const url=`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbol)}&t=${Date.now()}`;
+  const data=await proxyFetchJson(url);
+  const r=data&&data.quoteResponse&&data.quoteResponse.result&&data.quoteResponse.result[0];
+  if(!r || r.regularMarketPrice==null) return null;
+  const st=(r.marketState||'REGULAR').toUpperCase();   // PRE / REGULAR / POST / POSTPOST / PREPRE / CLOSED
+  let price, prev, ms;
+  if((st==='PRE'||st==='PREPRE') && r.preMarketPrice!=null){
+    price=r.preMarketPrice;
+    prev=(r.regularMarketPrice!=null)?r.regularMarketPrice:r.regularMarketPreviousClose;  // 프리장 기준 = 직전 정규장 종가
+    ms='PRE';
+  } else if((st==='POST'||st==='POSTPOST') && r.postMarketPrice!=null){
+    price=r.postMarketPrice;
+    prev=(r.regularMarketPrice!=null)?r.regularMarketPrice:r.regularMarketPreviousClose;  // 애프터장 기준 = 당일 정규장 종가
+    ms='POST';
+  } else {
+    price=r.regularMarketPrice;
+    prev=(r.regularMarketPreviousClose!=null)?r.regularMarketPreviousClose:r.regularMarketPrice;
+    ms=(st==='REGULAR')?'REGULAR':'CLOSED';
+  }
+  return {
+    price, currency:(r.currency||'USD').toUpperCase(),
+    prevClose:prev, dayChangePct:prev?(price-prev)/prev:0,
+    hi52:r.fiftyTwoWeekHigh, lo52:r.fiftyTwoWeekLow,
+    name:r.longName||r.shortName||'',
+    marketState:ms,
+  };
+}
+async function fetchYahooChart(symbol){
   // range=2d: 정규장 개장 전(프리장)에도 오늘 프리장 1분봉이 포함되도록 (1d는 개장 전 전일 데이터만 반환)
   const yurl=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1m&range=2d&includePrePost=true&t=${Date.now()}`;
   const data=await proxyFetchJson(yurl);
@@ -4110,20 +4148,24 @@ async function fetchYahoo(symbol){
     const nowSec=Math.floor(Date.now()/1000);
     ms=(cp&&cp.regular&&nowSec>=cp.regular.start&&nowSec<cp.regular.end)?'REGULAR':'CLOSED';
   }
-  // 변동률 기준 '직전 정규장 종가'를 시계열에서 직접 추출 (range=2d의 chartPreviousClose는 이틀 전이라 부정확)
-  //  · 오늘 세션 시작(cp.regular.start, 없으면 cp.pre.start) 이전의 마지막 유효 종가 = 전일 종가
+  // 변동률 기준 '직전 정규장 종가'
+  //  1순위: 야후 공식 전일 정규장 종가 필드 (regularMarketPreviousClose / previousClose)
+  //  2순위: 시계열에서 '오늘 정규장 시작' 직전의 마지막 종가 (range=2d의 chartPreviousClose는 이틀 전이라 부정확)
   let prevClose=null;
-  const todayStart = (cp && cp.pre && cp.pre.start) ? cp.pre.start
-                   : (cp && cp.regular && cp.regular.start) ? cp.regular.start : null;
+  // 시계열 경계는 '정규장 시작' 기준 — 프리장 시작으로 잡으면 런던 종목 등에서 어제 시간외 종가를 잘못 집음
+  const todayStart = (cp && cp.regular && cp.regular.start) ? cp.regular.start
+                   : (cp && cp.pre && cp.pre.start) ? cp.pre.start : null;
   if(q && Array.isArray(q.close) && todayStart){
     for(let i=q.close.length-1;i>=0;i--){
       if(q.close[i]!=null && ts[i]!=null && ts[i] < todayStart){ prevClose=q.close[i]; break; }
     }
   }
-  // 프리장/애프터장(useExt)이면 '직전 정규장 종가'(regularMarketPrice)가 가장 정확한 기준
+  const officialPrev = (m.regularMarketPreviousClose!=null) ? m.regularMarketPreviousClose
+                     : (m.previousClose!=null ? m.previousClose : null);
+  // 프리장/애프터장(useExt)이면 '직전 정규장 종가'(regularMarketPrice = 마지막 정규장 종가)가 가장 정확
   const prev = useExt
-    ? (m.regularMarketPrice!=null ? m.regularMarketPrice : (prevClose!=null?prevClose:m.chartPreviousClose))
-    : (prevClose!=null ? prevClose : (m.chartPreviousClose!=null?m.chartPreviousClose:(m.previousClose!=null?m.previousClose:m.regularMarketPrice)));
+    ? (m.regularMarketPrice!=null ? m.regularMarketPrice : (officialPrev!=null?officialPrev:(prevClose!=null?prevClose:m.chartPreviousClose)))
+    : (officialPrev!=null ? officialPrev : (prevClose!=null ? prevClose : (m.chartPreviousClose!=null?m.chartPreviousClose:m.regularMarketPrice)));
   return {
     price, currency:(m.currency||'USD').toUpperCase(),
     prevClose:prev, dayChangePct:prev?(price-prev)/prev:0,

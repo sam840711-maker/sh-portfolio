@@ -616,14 +616,9 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div id="cash-list"></div>
     </div>
     <div class="card">
-      <div class="card-title">대기 자금 입력</div>
-      <div class="info-text" style="margin-bottom:10px">매도 회수금·이자는 <b>＋추가</b>, 인출·투입은 <b>－차감</b> 선택 후 금액 입력 → <b>전체 저장</b> 시 대기 자금에 반영됩니다</div>
-      <div style="display:flex;gap:8px;margin-bottom:10px">
-        <button type="button" class="btn btn-primary" style="flex:1" id="qe-reserve-sign-p" onclick="qeReserveSign('+')">＋ 추가</button>
-        <button type="button" class="btn btn-secondary" style="flex:1" id="qe-reserve-sign-m" onclick="qeReserveSign('-')">－ 차감</button>
-      </div>
-      <input type="hidden" id="qe-reserve-sign" value="+">
-      <input id="qe-reserve-add" type="number" step="1" min="0" inputmode="numeric" placeholder="금액 (₩)" style="width:100%;background:var(--frame);border:1px solid var(--hairline);border-radius:9px;padding:11px 12px;font-size:15px;font-variant-numeric:tabular-nums;color:var(--text)">
+      <div class="card-title">대기 자금 추가</div>
+      <div class="info-text" style="margin-bottom:10px">매도 회수금이나 이자 수령액을 입력 후 <b>전체 저장</b>을 누르면 더해집니다 · 차감은 예수금 편집에서</div>
+      <input id="qe-reserve-add" type="number" step="1" min="0" inputmode="numeric" placeholder="+ 추가할 금액 (₩)" style="width:100%;background:var(--frame);border:1px solid var(--hairline);border-radius:9px;padding:11px 12px;font-size:15px;font-variant-numeric:tabular-nums;color:var(--text)">
       <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--hairline)">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
           <span style="font-size:12px;color:var(--text-2)">자산군별 예수금</span>
@@ -2639,7 +2634,16 @@ function openCashEditor(){
         <input id="cash-${k}-krw" type="number" step="1" value="${c.krw||0}" placeholder="원화 ₩">
         <input id="cash-${k}-usd" type="number" step="0.01" value="${c.usd||0}" placeholder="달러 $">
       </div>
-      <small>왼쪽 = 원화 예수금(₩) · 오른쪽 = 달러 예수금($)</small></div>`;
+      <div class="field-row" style="margin-top:6px">
+        <div style="display:flex;gap:5px;flex:1">
+          <button type="button" class="btn btn-primary btn-sm" id="cadj-${k}-sp" style="padding:6px 9px" onclick="cashAdjSign('${k}','+')">＋</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="cadj-${k}-sm" style="padding:6px 9px" onclick="cashAdjSign('${k}','-')">－</button>
+          <input id="cadj-${k}-krw" type="number" step="1" inputmode="numeric" placeholder="원화 조정 ₩" style="flex:1">
+        </div>
+        <input id="cadj-${k}-usd" type="number" step="0.01" inputmode="decimal" placeholder="달러 조정 $" style="flex:1">
+        <input type="hidden" id="cadj-${k}-sign" value="+">
+      </div>
+      <small>위 = 현재 잔액(덮어쓰기) · 아래 = ＋/− 조정액 입력 시 잔액에 가감</small></div>`;
   }).join('');
   openModal(`<h3>예수금 관리</h3>
     <div class="modal-sub">현금 계정 + 대기 자금 + 각 자산군의 현금 잔액</div>
@@ -2659,16 +2663,28 @@ function openCashEditor(){
 async function saveCashEditor(){
   const cb={};
   for(const k in CATEGORIES){
-    cb[k]={
-      krw:parseFloat(document.getElementById('cash-'+k+'-krw').value)||0,
-      usd:parseFloat(document.getElementById('cash-'+k+'-usd').value)||0,
-    };
+    let krw=parseFloat(document.getElementById('cash-'+k+'-krw').value)||0;
+    let usd=parseFloat(document.getElementById('cash-'+k+'-usd').value)||0;
+    // ＋/− 조정액 반영 (현재 잔액에 가감)
+    const sgn=(document.getElementById('cadj-'+k+'-sign')?.value==='-')?-1:1;
+    const aKrw=Math.abs(parseFloat(document.getElementById('cadj-'+k+'-krw')?.value)||0);
+    const aUsd=Math.abs(parseFloat(document.getElementById('cadj-'+k+'-usd')?.value)||0);
+    if(aKrw) krw=Math.max(0, krw + sgn*aKrw);
+    if(aUsd) usd=Math.max(0, usd + sgn*aUsd);
+    cb[k]={krw,usd};
   }
   state.settings.cashByClass=cb;
   state.settings.cashAccount=Math.max(0,parseFloat(document.getElementById('cash-account').value)||0);
   state.settings.reserveCash=Math.max(0,parseFloat(document.getElementById('cash-reserve').value)||0);
   await saveState(); closeModal(); toast('예수금 저장됨'); switchView('quickentry');
 }
+function cashAdjSign(k,s){
+  const f=document.getElementById('cadj-'+k+'-sign'); if(f) f.value=s;
+  const p=document.getElementById('cadj-'+k+'-sp'), m=document.getElementById('cadj-'+k+'-sm');
+  if(p) p.className='btn '+(s==='+'?'btn-primary':'btn-secondary')+' btn-sm';
+  if(m) m.className='btn '+(s==='-'?'btn-primary':'btn-secondary')+' btn-sm';
+}
+window.cashAdjSign=cashAdjSign;
 window.openCashEditor=openCashEditor; window.saveCashEditor=saveCashEditor;
 
 /* === 이자 · 세금 — 연도별 월별 입력 === */
@@ -3319,26 +3335,16 @@ function commitQuickEntry(){
     }
   }
 }
-function qeReserveSign(s){
-  const f=document.getElementById('qe-reserve-sign'); if(f) f.value=s;
-  const p=document.getElementById('qe-reserve-sign-p'), m=document.getElementById('qe-reserve-sign-m');
-  if(p) p.className='btn '+(s==='+'?'btn-primary':'btn-secondary');
-  if(m) m.className='btn '+(s==='-'?'btn-primary':'btn-secondary');
-  const inp=document.getElementById('qe-reserve-add'); if(inp) inp.placeholder=(s==='-'?'차감할':'추가할')+' 금액 (₩)';
-}
-window.qeReserveSign=qeReserveSign;
 async function saveQuickEntry(){
   commitQuickEntry();
-  // 대기 자금 추가/차감 처리
+  // 대기 자금 추가분 처리
   const addEl=document.getElementById('qe-reserve-add');
-  const sgn=(document.getElementById('qe-reserve-sign')?.value==='-')?-1:1;
-  const mag=Math.max(0,Math.round(parseFloat(addEl?.value)||0));
-  const delta=sgn*mag;
-  if(delta!==0){
-    state.settings.reserveCash=Math.max(0,(state.settings.reserveCash||0)+delta);
+  const addAmt=Math.max(0,Math.round(parseFloat(addEl?.value)||0));
+  if(addAmt>0){
+    state.settings.reserveCash=(state.settings.reserveCash||0)+addAmt;
   }
   await saveState();
-  toast('저장 완료'+(delta!==0?` · 대기 자금 ${delta>0?'+':'-'}₩${fmtKRW(Math.abs(delta))}`:''));
+  toast('저장 완료'+(addAmt>0?` · 대기 자금 +₩${fmtKRW(addAmt)}`:''));
   qeUnlocked={};   // 저장 후 다시 잠금 (실수 변경 방지)
   renderQuickEntry();
 }

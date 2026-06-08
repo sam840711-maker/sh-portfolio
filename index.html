@@ -4110,7 +4110,20 @@ async function fetchYahoo(symbol){
     const nowSec=Math.floor(Date.now()/1000);
     ms=(cp&&cp.regular&&nowSec>=cp.regular.start&&nowSec<cp.regular.end)?'REGULAR':'CLOSED';
   }
-  const prev=m.chartPreviousClose!=null?m.chartPreviousClose:(m.previousClose!=null?m.previousClose:m.regularMarketPrice);
+  // 변동률 기준 '직전 정규장 종가'를 시계열에서 직접 추출 (range=2d의 chartPreviousClose는 이틀 전이라 부정확)
+  //  · 오늘 세션 시작(cp.regular.start, 없으면 cp.pre.start) 이전의 마지막 유효 종가 = 전일 종가
+  let prevClose=null;
+  const todayStart = (cp && cp.pre && cp.pre.start) ? cp.pre.start
+                   : (cp && cp.regular && cp.regular.start) ? cp.regular.start : null;
+  if(q && Array.isArray(q.close) && todayStart){
+    for(let i=q.close.length-1;i>=0;i--){
+      if(q.close[i]!=null && ts[i]!=null && ts[i] < todayStart){ prevClose=q.close[i]; break; }
+    }
+  }
+  // 프리장/애프터장(useExt)이면 '직전 정규장 종가'(regularMarketPrice)가 가장 정확한 기준
+  const prev = useExt
+    ? (m.regularMarketPrice!=null ? m.regularMarketPrice : (prevClose!=null?prevClose:m.chartPreviousClose))
+    : (prevClose!=null ? prevClose : (m.chartPreviousClose!=null?m.chartPreviousClose:(m.previousClose!=null?m.previousClose:m.regularMarketPrice)));
   return {
     price, currency:(m.currency||'USD').toUpperCase(),
     prevClose:prev, dayChangePct:prev?(price-prev)/prev:0,

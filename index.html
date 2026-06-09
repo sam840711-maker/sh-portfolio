@@ -3711,31 +3711,22 @@ window.addEventListener('popstate',(e)=>{
 let fabCat='us_stock', fabSym='';
 document.getElementById('fab').onclick=()=>{
   fabCat='us_stock'; fabSym='';
-  openModal(`<h3>추가</h3><div class="modal-sub">종목·납입·이자·세금을 기록합니다</div>
-    <div class="field"><label>종류</label>
-      <select id="m-type">
-        <option value="holding">새 종목 추가</option>
-        <option value="deposit">납입 (원금 입금)</option>
-        <option value="itax">이자 · 세금</option>
-        <option value="fx">환율 업데이트</option>
-      </select></div>
+  openModal(`<h3>새 종목 추가</h3><div class="modal-sub">보유 종목을 추가합니다 · 납입·이자·세금·실현손익은 거래 탭에서 입력</div>
     <div id="m-dynamic"></div>
     <div class="btn-row">
       <button class="btn btn-secondary" onclick="closeModal()">취소</button>
       <button class="btn btn-primary" onclick="submitFab()">저장</button>
     </div>`);
   renderFabFields();
-  document.getElementById('m-type').onchange=renderFabFields;
 };
 function renderFabFields(){
   const catEl=document.getElementById('m-cat');
   const symEl=document.getElementById('m-symbol');
   if(catEl) fabCat=catEl.value;
   if(symEl) fabSym=symEl.value;
-  const t=document.getElementById('m-type').value;
   const today=new Date().toISOString().split('T')[0];
   const d=document.getElementById('m-dynamic');
-  if (t==='holding'){
+  {
     d.innerHTML=`
       <div class="field"><label>자산 구분</label><select id="m-cat" onchange="renderFabFields()">
         ${Object.keys(CATEGORIES).map(k=>`<option value="${k}" ${fabCat===k?'selected':''}>${CATEGORIES[k].label}</option>`).join('')}</select></div>
@@ -3753,15 +3744,6 @@ function renderFabFields(){
       :`
       <div class="field"><label>총 매입금액 (₩) — 입력 시 평균단가 자동 계산</label><input id="m-tot" type="number" step="1" placeholder="0" oninput="syncPurchase('m','tot')"><small>수량과 총 매입금액을 넣으면 평균단가가 자동 계산됩니다</small></div>`}
       <div class="field"><label>현재가 ${isUSDcat(fabCat)?'($)':'(₩)'}</label><input id="m-cur" type="number" step="0.00000001" placeholder="조회 시 자동 입력"></div>`;
-  } else if (t==='deposit'){
-    d.innerHTML=`<div class="info-text">납입은 연도별 월별 입력 화면에서 관리합니다. 저장을 누르면 월별 입력 화면이 열립니다.</div>`;
-  } else if (t==='itax'){
-    d.innerHTML=`<div class="info-text">이자·세금은 연도별 월별 입력 화면에서 관리합니다. 저장을 누르면 월별 입력 화면이 열립니다.</div>`;
-  } else {
-    d.innerHTML=`
-      <div class="field"><label>USD/KRW 환율</label><div class="field-row">
-        <input id="m-fx" type="number" step="0.01" value="${state.settings.fxRate}">
-        <button class="btn btn-secondary btn-sm" onclick="fetchFxToField()">가져오기</button></div></div>`;
   }
 }
 
@@ -3833,25 +3815,11 @@ async function lookupTicker(){
 }
 async function fetchFxToField(){
   toast('환율 조회 중...');
-  try { const fx=await fetchFx(); document.getElementById('m-fx').value=fx.toFixed(2); toast('환율 '+fx.toFixed(2)); }
+  try { const fx=await fetchFx(); const el=document.getElementById('m-fx'); if(el) el.value=fx.toFixed(2); toast('환율 '+fx.toFixed(2)); }
   catch(e){ toast('환율 조회 실패'); }
 }
 async function submitFab(){
-  const t=document.getElementById('m-type').value;
-  if (t==='fx'){
-    const v=parseFloat(document.getElementById('m-fx').value);
-    if(v>0){ state.settings.fxRate=v; await saveState(); closeModal(); toast('환율 업데이트됨'); switchView(currentView); }
-    return;
-  }
-  if (t==='deposit'){
-    closeModal(); openDepositYear();
-    return;
-  }
-  if (t==='itax'){
-    closeModal(); openItaxYear();
-    return;
-  }
-  if (t==='holding'){
+  {
     const cat=document.getElementById('m-cat').value;
     const sym=(document.getElementById('m-symbol').value||'').trim();
     const name=(document.getElementById('m-name').value||'').trim()||sym;

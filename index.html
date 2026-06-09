@@ -82,6 +82,14 @@ input,select,textarea{font-family:inherit;color:inherit}
 .hero-meta>div{display:flex;flex-direction:column;gap:3px}
 .hm-label{font-size:10px;color:var(--text-2);letter-spacing:0.08em;text-transform:uppercase}
 .hm-val{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums}
+.hero-cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}
+.hcard{background:var(--surface);border:1px solid var(--hairline);border-radius:13px;padding:13px 14px}
+.hcard-wide{grid-column:1 / -1}
+.hcard-title{font-size:10.5px;color:var(--text-3);font-weight:600;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:9px}
+.hcard-row{display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;font-size:12.5px;color:var(--text-2);gap:10px}
+.hcard-row>span:first-child{white-space:nowrap}
+.hcard-row .num{font-size:14px;font-weight:600;color:var(--text);text-align:right}
+.hcard-div{height:1px;background:var(--hairline);margin:8px 0}
 .pill.up-pill{background:var(--up-soft);color:var(--up)}
 .pill.down-pill{background:var(--down-soft);color:var(--down)}
 .freshness{margin:0 0 12px;padding:12px 15px;background:var(--surface);border:1px solid var(--hairline);border-radius:10px;display:flex;align-items:center;justify-content:space-between;font-size:14px;color:var(--text-2);cursor:pointer;transition:border-color .15s}
@@ -409,16 +417,26 @@ input,select,textarea{font-family:inherit;color:inherit}
         <span class="pill" id="hero-pill">—</span>
         <span class="muted" id="hero-pnl">—</span>
       </div>
-      <div class="hero-meta">
-        <div><span class="hm-label">총 납입금액</span><span class="hm-val num" id="hero-deposits">—</span></div>
-        <div><span class="hm-label">총 투자금액</span><span class="hm-val num" id="hero-invested">—</span></div>
-        <div><span class="hm-label">예수금</span><span class="hm-val num" id="hero-cash">—</span></div>
-        <div><span class="hm-label">달러 투자금액</span><span class="hm-val num" id="hero-usd-invested">—</span></div>
-        <div><span class="hm-label">달러 평가액</span><span class="hm-val num" id="hero-usd-value">—</span></div>
-        <div><span class="hm-label">달러자산 원화손익</span><span class="hm-val num" id="hero-usd-pnl">—</span></div>
-        <div id="hero-fx-wrap"><span class="hm-label">환차손익</span><span class="hm-val num" id="hero-fxgain">—</span></div>
-        <div><span class="hm-label">달러 주가손익</span><span class="hm-val num" id="hero-exfx-pnl">—</span></div>
-        <div><span class="hm-label">누적 이자·세금</span><span class="hm-val num" id="hero-itax">—</span></div>
+      <div class="hero-cards">
+        <div class="hcard">
+          <div class="hcard-title">원금 · 투자</div>
+          <div class="hcard-row"><span>총 납입금액</span><span class="num" id="hero-deposits">—</span></div>
+          <div class="hcard-row"><span>총 투자금액</span><span class="num" id="hero-invested">—</span></div>
+        </div>
+        <div class="hcard">
+          <div class="hcard-title">현금 · 세금</div>
+          <div class="hcard-row"><span>예수금</span><span class="num" id="hero-cash">—</span></div>
+          <div class="hcard-row"><span>누적 이자·세금</span><span class="num" id="hero-itax">—</span></div>
+        </div>
+        <div class="hcard hcard-wide">
+          <div class="hcard-title">달러 자산</div>
+          <div class="hcard-row"><span>투자금액</span><span class="num" id="hero-usd-invested">—</span></div>
+          <div class="hcard-row"><span>평가액</span><span class="num" id="hero-usd-value">—</span></div>
+          <div class="hcard-div"></div>
+          <div class="hcard-row"><span>달러자산 원화손익</span><span class="num" id="hero-usd-pnl">—</span></div>
+          <div class="hcard-row" id="hero-fx-wrap"><span>환차손익</span><span class="num" id="hero-fxgain">—</span></div>
+          <div class="hcard-row"><span>달러 주가손익</span><span class="num" id="hero-exfx-pnl">—</span></div>
+        </div>
       </div>
     </div>
 

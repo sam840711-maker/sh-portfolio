@@ -60,7 +60,7 @@ input,select,textarea{font-family:inherit;color:inherit}
 .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
 .up{color:var(--up)} .down{color:var(--down)} .muted{color:var(--text-2)}
 
-.hero{padding:8px 4px 16px}
+.hero{padding:8px 0 16px}
 .mkt-banner{margin:0 4px 10px;padding:9px 14px;background:var(--surface);border:1px solid var(--hairline);border-radius:10px;font-size:12px;line-height:1.6;color:var(--text)}
 .mkt-banner.mb-hasHol{background:var(--up-soft);border-color:rgba(229,72,77,0.35)}
 .mkt-banner .mb-row{display:flex;align-items:center;gap:8px}
@@ -83,12 +83,15 @@ input,select,textarea{font-family:inherit;color:inherit}
 .hm-label{font-size:10px;color:var(--text-2);letter-spacing:0.08em;text-transform:uppercase}
 .hm-val{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums}
 .hero-cards{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin-top:18px}
-.hcard{background:var(--surface);border:1px solid var(--hairline);border-radius:13px;padding:13px 14px;min-width:0;overflow:hidden}
+.hcard{background:var(--surface);border:1px solid var(--hairline);border-radius:14px;padding:14px;min-width:0;overflow:hidden}
 .hcard-wide{grid-column:1 / -1}
-.hcard-title{font-size:10.5px;color:var(--text-3);font-weight:600;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:9px}
-.hcard-row{display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;font-size:12px;color:var(--text-2);gap:8px;min-width:0}
+.hcard-title{font-size:10px;color:var(--text-2);font-weight:600;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:10px}
+.hcard-row{display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;font-size:12.5px;color:var(--text-2);gap:8px;min-width:0}
 .hcard-row>span:first-child{white-space:nowrap;flex:0 0 auto}
-.hcard-row .num{font-size:13.5px;font-weight:600;color:var(--text);text-align:right;white-space:normal;overflow-wrap:break-word;min-width:0}
+.hcard-row .num{font-size:13.5px;font-weight:600;color:var(--text);text-align:right;white-space:nowrap;min-width:0}
+/* 좁은 카드(원금·투자, 현금·세금)는 라벨 위·값 아래로 쌓아 9자리 숫자가 안 깨지게 */
+.hcard:not(.hcard-wide) .hcard-row{flex-direction:column;align-items:flex-start;gap:1px;padding:5px 0}
+.hcard:not(.hcard-wide) .hcard-row .num{text-align:left;font-size:16px}
 .hcard-div{height:1px;background:var(--hairline);margin:8px 0}
 .pill.up-pill{background:var(--up-soft);color:var(--up)}
 .pill.down-pill{background:var(--down-soft);color:var(--down)}

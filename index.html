@@ -71,6 +71,7 @@ input,select,textarea{font-family:inherit;color:inherit}
 .mkt-banner .mb-hol{color:var(--up);font-weight:700}
 .mkt-banner .mb-sub{color:var(--text-2);font-size:11px}
 .hero-label{font-size:11px;color:var(--text-2);letter-spacing:0.14em;text-transform:uppercase;margin-bottom:6px}
+.hero-summary{background:linear-gradient(160deg,rgba(201,166,107,0.07),rgba(201,166,107,0.02));border:1px solid rgba(201,166,107,0.22);border-radius:18px;padding:18px 18px 20px;margin-top:4px}
 .hero-amount{font-size:38px;font-weight:700;letter-spacing:-0.025em;font-variant-numeric:tabular-nums;display:flex;align-items:baseline;gap:6px}
 .hero-amount .unit{font-size:16px;font-weight:500;color:var(--text-2)}
 .hero-sub2{display:flex;align-items:baseline;gap:8px;margin-top:15px}
@@ -402,23 +403,26 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div class="goal-pace" id="goal-pace"></div>
     </div>
     <div class="hero">
-      <div class="hero-label">총 자산</div>
-      <div class="hero-amount"><span id="hero-total">—</span><span class="unit">원</span></div>
-      <div class="hero-sub">
-        <span class="pill" id="hero-pill-total">—</span>
-        <span class="muted" id="hero-profit-total">—</span>
-      </div>
-      <div class="hero-sub" id="hero-daily-row" style="margin-top:6px;display:none">
-        <span class="muted" style="font-size:12px">전일 대비</span>
-        <span class="num" id="hero-daily">—</span>
-      </div>
-      <div class="hero-sub2">
-        <span class="hero-label2">보유 평가액</span>
-        <span class="hero-amount2 num" id="hero-cur-value">—</span>
-      </div>
-      <div class="hero-sub">
-        <span class="pill" id="hero-pill">—</span>
-        <span class="muted" id="hero-pnl">—</span>
+      <div class="hero-summary">
+        <div class="hero-label">총 자산</div>
+        <div class="hero-amount"><span id="hero-total">—</span><span class="unit">원</span></div>
+        <div class="hero-sub">
+          <span class="pill" id="hero-pill-total">—</span>
+          <span class="muted" id="hero-profit-total">—</span>
+        </div>
+        <div class="hero-sub" id="hero-daily-row" style="margin-top:6px;display:none">
+          <span class="muted" style="font-size:12px">전일 대비</span>
+          <span class="num" id="hero-daily">—</span>
+        </div>
+        <div class="hcard-div" style="margin:14px 0"></div>
+        <div class="hero-sub2" style="margin-top:0">
+          <span class="hero-label2">보유 평가액</span>
+          <span class="hero-amount2 num" id="hero-cur-value">—</span>
+        </div>
+        <div class="hero-sub">
+          <span class="pill" id="hero-pill">—</span>
+          <span class="muted" id="hero-pnl">—</span>
+        </div>
       </div>
       <div class="hero-cards">
         <div class="hcard">

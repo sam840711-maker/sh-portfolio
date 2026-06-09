@@ -290,6 +290,8 @@ input,select,textarea{font-family:inherit;color:inherit}
 /* === 빠른 입력 페이지 — 엑셀형 그리드 입력 (열 우선 DOM) === */
 .qe-cat{font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--gold);margin:20px 4px 6px;display:flex;justify-content:space-between;align-items:center;gap:8px}
 .qe-cat-sum{font-size:10px;color:var(--text-3);font-weight:500;letter-spacing:0}
+.qe-catsum{margin:8px 2px 4px;padding:9px 12px;background:rgba(201,166,107,0.07);border:1px solid rgba(201,166,107,0.18);border-radius:9px;font-size:12.5px;font-weight:600;color:var(--text-2);text-align:right;font-variant-numeric:tabular-nums}
+.qe-catsum b{color:var(--gold);font-weight:700}
 .qe-edit-btn{font-size:10px;font-weight:600;letter-spacing:0;border:1px solid var(--hairline);background:transparent;color:var(--text-2);border-radius:6px;padding:4px 9px;cursor:pointer;text-transform:none;white-space:nowrap}
 .qe-edit-btn.on{border-color:var(--gold);color:var(--gold);background:var(--gold-soft)}
 .qe-grid{display:grid;gap:7px 6px;align-items:center;margin-bottom:4px}
@@ -3242,6 +3244,7 @@ function renderQuickEntry(){
       cells+=`<input class="qe-cell qe-cusd" id="qe-${r.h.id}-usd" style="grid-column:5;grid-row:${gi+2}" type="text" inputmode="decimal" enterkeyhint="next" value="${r.initUsd}" data-init="${r.initUsd}" ${dis} onfocus="qeFocus(this)" oninput="qeInput(this,'${r.h.id}')" onkeydown="qeKey(event)">`;
     });
     html+=`<div class="qe-grid" style="grid-template-columns:${cols}">${cells}</div>`;
+    html+=`<div class="qe-catsum" id="qe-catsum-${k}"></div>`;
   }
   if(!html){
     el.innerHTML = qeFilter==='rebal'
@@ -3251,6 +3254,8 @@ function renderQuickEntry(){
     el.innerHTML = html;
   }
   renderCashList();
+  // 자산군별 매입 합계 (검산용)
+  for(const k in CATEGORIES) qeCatSum(k);
   // 대기 자금 입력 초기화 + 총 현금 합계 표시
   const radd=document.getElementById('qe-reserve-add');
   if(radd) radd.value='';
@@ -3296,17 +3301,33 @@ window.qeFocus=qeFocus; window.qeCursorEnd=qeCursorEnd; window.qeSelectAll=qeSel
 function qeRecalc(id){
   const h=state.holdings.find(x=>x.id===id);
   const calc=document.getElementById('qe-'+id+'-calc');
-  if(!h||!calc) return;
-  const v=i=>{ const e=document.getElementById('qe-'+id+'-'+i); return e?parseFloat(e.value)||0:0; };
-  const qty=v('qty'), krw=v('krw');
-  if(isUSDcat(h.cat)){
-    const usd=v('usd');
-    const avgU=qty>0?usd/qty:0, fxR=usd>0?krw/usd:0;
-    calc.textContent='→ 평균단가 '+(avgU?fmtUSD(avgU):'$0')+' · 매입환율 '+(fxR?fxR.toFixed(2):'—');
-  } else {
-    const avgK=qty>0?krw/qty:0;
-    calc.textContent='→ 평균단가 '+(avgK?fmtKRWFull(avgK):'₩0');
+  if(!h) return;
+  if(calc){
+    const v=i=>{ const e=document.getElementById('qe-'+id+'-'+i); return e?parseFloat(e.value)||0:0; };
+    const qty=v('qty'), krw=v('krw');
+    if(isUSDcat(h.cat)){
+      const usd=v('usd');
+      const avgU=qty>0?usd/qty:0, fxR=usd>0?krw/usd:0;
+      calc.textContent='→ 평균단가 '+(avgU?fmtUSD(avgU):'$0')+' · 매입환율 '+(fxR?fxR.toFixed(2):'—');
+    } else {
+      const avgK=qty>0?krw/qty:0;
+      calc.textContent='→ 평균단가 '+(avgK?fmtKRWFull(avgK):'₩0');
+    }
   }
+  qeCatSum(h.cat);   // 자산군 합계 갱신 (검산)
+}
+function qeCatSum(k){
+  const el=document.getElementById('qe-catsum-'+k); if(!el) return;
+  const usd=isUSDcat(k);
+  let krw=0, ud=0, n=0;
+  state.holdings.filter(h=>h.cat===k).forEach(h=>{
+    const ke=document.getElementById('qe-'+h.id+'-krw'); if(ke){ krw+=parseFloat(ke.value)||0; n++; }
+    if(usd){ const ue=document.getElementById('qe-'+h.id+'-usd'); if(ue) ud+=parseFloat(ue.value)||0; }
+  });
+  if(!n){ el.textContent=''; return; }
+  el.innerHTML = usd
+    ? `합계 한화 <b>₩${fmtKRW(Math.round(krw))}</b> · 달러 <b>$${ud.toLocaleString('en-US',{maximumFractionDigits:2})}</b>`
+    : `합계 한화 <b>₩${fmtKRW(Math.round(krw))}</b>`;
 }
 /* 입력 칸 변경 시 — 바뀐 칸 강조 + 평균단가 재계산 */
 let qeAutoSaveTimer=null;

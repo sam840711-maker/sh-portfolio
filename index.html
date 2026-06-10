@@ -97,6 +97,9 @@ input,select,textarea{font-family:inherit;color:inherit}
 .hcard-div{height:1px;background:var(--hairline);margin:8px 0}
 .hcard-total>span:first-child{color:var(--text);font-weight:600}
 .hcard-total .num{font-size:15.5px;font-weight:700}
+/* 카드 내 숫자 기본색(--text)이 손익색을 덮지 않도록 — 특이도 상향 */
+.hcard-row .num.up{color:var(--up)}
+.hcard-row .num.down{color:var(--down)}
 .pill.up-pill{background:var(--up-soft);color:var(--up)}
 .pill.down-pill{background:var(--down-soft);color:var(--down)}
 .freshness{margin:0 0 12px;padding:12px 15px;background:var(--surface);border:1px solid var(--hairline);border-radius:10px;display:flex;align-items:center;justify-content:space-between;font-size:14px;color:var(--text-2);cursor:pointer;transition:border-color .15s}

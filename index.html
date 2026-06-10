@@ -372,16 +372,16 @@ input,select,textarea{font-family:inherit;color:inherit}
   <div class="topbar">
     <h1>SH Portfolio</h1>
     <div class="topbar-right">
-      <button class="icon-btn" id="quotes-btn" title="보유 종목 시세">
+      <button class="icon-btn" id="quotes-btn" title="보유 종목 시세" aria-label="보유 종목 시세">
         <svg fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24"><polyline points="3 16 9 10 13 14 21 6"/><polyline points="15 6 21 6 21 12"/></svg>
       </button>
-      <button class="icon-btn" id="tax-btn" title="세금 · 온핸드">
+      <button class="icon-btn" id="tax-btn" title="세금 · 온핸드" aria-label="세금 온핸드">
         <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><line x1="9.5" y1="8" x2="14.5" y2="8"/><line x1="9.5" y1="12" x2="14.5" y2="12"/></svg>
       </button>
-      <button class="icon-btn" id="refresh-btn" title="시세 갱신">
+      <button class="icon-btn" id="refresh-btn" title="시세 갱신" aria-label="시세 갱신">
         <svg fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>
       </button>
-      <button class="icon-btn" id="gear-btn" title="설정">
+      <button class="icon-btn" id="gear-btn" title="설정" aria-label="설정">
         <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 0 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 0 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
       </button>
     </div>
@@ -549,7 +549,7 @@ input,select,textarea{font-family:inherit;color:inherit}
   <div class="view hidden" id="view-settings">
     <div style="padding:16px 4px 12px;display:flex;justify-content:space-between;align-items:baseline">
       <h2 style="font-size:24px;font-weight:700;letter-spacing:-0.02em">설정</h2>
-      <button class="icon-btn" id="settings-close" style="color:var(--text-2)">✕</button>
+      <button class="icon-btn" id="settings-close" aria-label="닫기" style="color:var(--text-2)">✕</button>
     </div>
 
     <div class="card">
@@ -623,12 +623,13 @@ input,select,textarea{font-family:inherit;color:inherit}
       <button class="btn btn-secondary" style="width:100%;margin-bottom:10px" id="export-btn">데이터 내보내기 (JSON)</button>
       <button class="btn btn-secondary" style="width:100%;margin-bottom:10px" id="import-btn">데이터 가져오기 (JSON)</button>
       <input type="file" id="import-file" accept="application/json,.json" style="display:none">
+      <div id="snap-list" style="margin-bottom:10px"></div>
       <button class="btn btn-danger" style="width:100%" id="reset-btn">초기 데이터로 되돌리기</button>
       <div class="sync-meta" id="last-fetch-meta" style="font-size:11px;color:var(--text-3);margin-top:12px;text-align:center"></div>
     </div>
   </div>
 
-  <button class="fab" id="fab" title="추가">＋</button>
+  <button class="fab" id="fab" title="새 종목 추가" aria-label="새 종목 추가">＋</button>
 
   <!-- QUICK ENTRY -->
   <div class="view hidden" id="view-quickentry">
@@ -672,7 +673,7 @@ input,select,textarea{font-family:inherit;color:inherit}
   <div class="view hidden" id="view-quotes">
     <div style="padding:16px 4px 12px;display:flex;justify-content:space-between;align-items:baseline">
       <h2 style="font-size:24px;font-weight:700;letter-spacing:-0.02em">보유 종목 시세</h2>
-      <button class="icon-btn" id="quotes-close" style="color:var(--text-2)">✕</button>
+      <button class="icon-btn" id="quotes-close" aria-label="닫기" style="color:var(--text-2)">✕</button>
     </div>
     <div id="quotes-summary"></div>
     <button class="btn btn-secondary" id="quotes-refresh" style="width:100%;margin-bottom:14px">시세 갱신</button>
@@ -912,15 +913,66 @@ function normalizeState(){
       h.avgFx = h.cat==='leverage' ? 1486.95 : 1465.57;
     }
   }
+  downsampleHistory();   // 1년 이상 지난 일별 기록 → 주 1개로 압축 (저장 용량·속도)
+}
+/* === history 다운샘플 — 365일 이전 구간은 ISO주당 마지막 기록만 유지 === */
+function downsampleHistory(){
+  if(!Array.isArray(state.history) || state.history.length<60) return;
+  const cutoff=new Date(Date.now()-365*86400000).toISOString().slice(0,10);
+  const isoWeek=d=>{ const dt=new Date(d+'T00:00:00Z'); const day=(dt.getUTCDay()+6)%7; dt.setUTCDate(dt.getUTCDate()-day+3);
+    const w1=new Date(Date.UTC(dt.getUTCFullYear(),0,4)); return dt.getUTCFullYear()+'-W'+String(1+Math.round(((dt-w1)/86400000-3+((w1.getUTCDay()+6)%7))/7)).padStart(2,'0'); };
+  const old=state.history.filter(h=>h.d&&h.d<cutoff);
+  if(old.length<20) return;   // 압축할 만큼 쌓였을 때만
+  const recent=state.history.filter(h=>!h.d || h.d>=cutoff);
+  const byWeek={};
+  for(const h of old){ byWeek[isoWeek(h.d)]=h; }   // 같은 주는 마지막(날짜순 정렬돼 있음) 것만
+  const kept=Object.values(byWeek);
+  if(kept.length>=old.length) return;   // 줄어들 게 없으면 그대로
+  state.history=[...kept,...recent].sort((a,b)=>(a.d||'').localeCompare(b.d||''));
 }
 async function saveState(){
   try {
     if (state && state.holdings){ recordSnapshot(); maybeUpdatePick(); }
     await window.storage.set(STORE_KEY, JSON.stringify(state));
+    rotateLocalSnap();   // 하루 1회 순환 스냅샷 (실수 복구용, 3슬롯)
   } catch(e){
     try{ toast('⚠ 저장에 실패했습니다 — 데이터 백업을 권장합니다'); }catch(_){}
   }
 }
+/* === 로컬 순환 스냅샷 — 하루 1회, 3슬롯 (잘못된 수정·삭제 복구용) === */
+let _snapDone=false;
+async function rotateLocalSnap(){
+  try{
+    const today=new Date().toISOString().slice(0,10);
+    if(_snapDone) return;
+    const metaR=await window.storage.get(STORE_KEY+'_snapmeta');
+    const meta=metaR&&metaR.value?JSON.parse(metaR.value):{idx:0,days:{}};
+    if(Object.values(meta.days||{}).includes(today)){ _snapDone=true; return; }   // 오늘 것 이미 있음
+    const slot=meta.idx%3;
+    await window.storage.set(STORE_KEY+'_snap'+slot, JSON.stringify(state));
+    meta.days=meta.days||{}; meta.days[slot]=today; meta.idx=(meta.idx+1)%3;
+    await window.storage.set(STORE_KEY+'_snapmeta', JSON.stringify(meta));
+    _snapDone=true;
+  }catch(e){}
+}
+async function listLocalSnaps(){
+  try{
+    const metaR=await window.storage.get(STORE_KEY+'_snapmeta');
+    const meta=metaR&&metaR.value?JSON.parse(metaR.value):{days:{}};
+    return [0,1,2].map(i=>({slot:i,date:(meta.days||{})[i]||null})).filter(s=>s.date);
+  }catch(e){ return []; }
+}
+async function restoreLocalSnap(slot){
+  try{
+    const r=await window.storage.get(STORE_KEY+'_snap'+slot);
+    if(!r||!r.value){ toast('스냅샷이 없습니다'); return; }
+    if(!confirm('현재 데이터를 이 스냅샷으로 되돌립니다. 계속할까요?\n(되돌리기 전 현재 상태도 JSON으로 내보내 두는 것을 권장)')) return;
+    state=JSON.parse(r.value); normalizeState();
+    await window.storage.set(STORE_KEY, JSON.stringify(state));
+    toast('스냅샷으로 복원됨'); renderTopbar(); switchView('dashboard');
+  }catch(e){ toast('복원 실패'); }
+}
+window.restoreLocalSnap=restoreLocalSnap;
 
 /* 고점(pick value) 갱신 — 현재 총자산이 기존 고점을 넘으면 갱신 (고수위선) */
 function maybeUpdatePick(){
@@ -3448,7 +3500,7 @@ function quoteRowHTML(h){
   return `<div class="holding" data-id="${h.id}">
     <div class="h-icon" style="background:${col}22;color:${col}">${ini}</div>
     <div class="h-info">
-      <div class="h-ticker">${esc(h.symbol.replace('.KS','').replace('.L',''))}${ses.label?`<span class="ses-badge ${ses.cls}">${ses.label}</span>`:''}</div>
+      <div class="h-ticker">${esc(h.symbol.replace('.KS','').replace('.L',''))}${lastFailed.has(h.symbol)?' <span class="h-warn" title="최근 갱신 실패 — 이전 시세">⚠</span>':''}${ses.label?`<span class="ses-badge ${ses.cls}">${ses.label}</span>`:''}</div>
       <div class="h-name">${esc(h.name)}</div>
     </div>
     <div class="h-val">
@@ -4399,6 +4451,14 @@ function renderSettings(){
   const meta=document.getElementById('last-fetch-meta');
   meta.textContent=state.prices.lastFetch?'최근 시세 갱신: '+new Date(state.prices.lastFetch).toLocaleString('ko-KR'):'시세를 아직 갱신하지 않았습니다';
   renderBackupMeta();
+  // 로컬 순환 스냅샷 목록
+  listLocalSnaps().then(snaps=>{
+    const el=document.getElementById('snap-list'); if(!el) return;
+    if(!snaps.length){ el.innerHTML=''; return; }
+    el.innerHTML='<div style="font-size:11px;color:var(--text-3);margin-bottom:6px">자동 스냅샷 (하루 1회 자동 저장 · 실수 복구용)</div>'
+      + snaps.sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(s=>
+        `<button class="btn btn-secondary btn-sm" style="width:100%;margin-bottom:6px" onclick="restoreLocalSnap(${s.slot})">↩ ${s.date} 상태로 복원</button>`).join('');
+  });
 }
 document.getElementById('gear-btn').onclick=()=>{
   document.querySelectorAll('.view').forEach(el=>el.classList.add('hidden'));

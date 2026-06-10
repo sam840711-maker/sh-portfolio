@@ -913,10 +913,10 @@ function normalizeState(){
       h.avgFx = h.cat==='leverage' ? 1486.95 : 1465.57;
     }
   }
-  downsampleHistory();   // 1년 이상 지난 일별 기록 → 주 1개로 압축 (저장 용량·속도)
+  try{ compactOldHistory(); }catch(e){}   // 1년 이상 지난 일별 기록 → 주 1개로 압축 (실패해도 부팅 지속)
 }
-/* === history 다운샘플 — 365일 이전 구간은 ISO주당 마지막 기록만 유지 === */
-function downsampleHistory(){
+/* === history 압축 — 365일 이전 구간은 ISO주당 마지막 기록만 유지 === */
+function compactOldHistory(){
   if(!Array.isArray(state.history) || state.history.length<60) return;
   const cutoff=new Date(Date.now()-365*86400000).toISOString().slice(0,10);
   const isoWeek=d=>{ const dt=new Date(d+'T00:00:00Z'); const day=(dt.getUTCDay()+6)%7; dt.setUTCDate(dt.getUTCDate()-day+3);

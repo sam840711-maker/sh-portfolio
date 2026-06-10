@@ -95,6 +95,8 @@ input,select,textarea{font-family:inherit;color:inherit}
 .hcard:not(.hcard-wide) .hcard-row{flex-direction:column;align-items:flex-start;gap:1px;padding:5px 0}
 .hcard:not(.hcard-wide) .hcard-row .num{text-align:left;font-size:16px}
 .hcard-div{height:1px;background:var(--hairline);margin:8px 0}
+.hcard-total>span:first-child{color:var(--text);font-weight:600}
+.hcard-total .num{font-size:15.5px;font-weight:700}
 .pill.up-pill{background:var(--up-soft);color:var(--up)}
 .pill.down-pill{background:var(--down-soft);color:var(--down)}
 .freshness{margin:0 0 12px;padding:12px 15px;background:var(--surface);border:1px solid var(--hairline);border-radius:10px;display:flex;align-items:center;justify-content:space-between;font-size:14px;color:var(--text-2);cursor:pointer;transition:border-color .15s}
@@ -441,9 +443,10 @@ input,select,textarea{font-family:inherit;color:inherit}
           <div class="hcard-row"><span>투자금액</span><span class="num" id="hero-usd-invested">—</span></div>
           <div class="hcard-row"><span>평가액</span><span class="num" id="hero-usd-value">—</span></div>
           <div class="hcard-div"></div>
-          <div class="hcard-row"><span>달러자산 원화손익</span><span class="num" id="hero-usd-pnl">—</span></div>
           <div class="hcard-row" id="hero-fx-wrap"><span>환차손익</span><span class="num" id="hero-fxgain">—</span></div>
           <div class="hcard-row"><span>달러 주가손익</span><span class="num" id="hero-exfx-pnl">—</span></div>
+          <div class="hcard-div"></div>
+          <div class="hcard-row hcard-total"><span>달러자산 총손익</span><span class="num" id="hero-usd-pnl">—</span></div>
         </div>
       </div>
     </div>

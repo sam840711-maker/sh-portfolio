@@ -1904,12 +1904,17 @@ function renderTrendChart(){
     const fy=pts[i].y, fx=pts[i].x;
     return {data:pts.map((p,idx)=> idx<i?{x:p.x,y:fy}:p), firstX:fx};
   }
-  // 최고점 마커 — 선택한 기간 내 데이터의 최고점 (종합=평가 자산 / 단일=해당 자산군)
+  // 최고점·최저점 마커 — 선택한 기간 내 데이터 (종합=평가 자산 / 단일=해당 자산군)
   const mainPts = (trendView==='all')
     ? assetPts
     : hist.map(h=>({x:toMs(h.d), y:(h.byClass&&h.byClass[trendView]!=null)?h.byClass[trendView]:null}));
-  let peakPt=null;
-  for(const p of mainPts){ if(p.y!=null && (!peakPt || p.y>peakPt.y)) peakPt={x:p.x, y:p.y}; }
+  let peakPt=null, lowPt=null;
+  for(const p of mainPts){
+    if(p.y==null) continue;
+    if(!peakPt || p.y>peakPt.y) peakPt={x:p.x, y:p.y};
+    if(!lowPt  || p.y<lowPt.y)  lowPt ={x:p.x, y:p.y};
+  }
+  if(peakPt && lowPt && peakPt.x===lowPt.x && peakPt.y===lowPt.y) lowPt=null;   // 점이 하나뿐이면 최저점 생략
   const peakColor = trendView==='all' ? '#C9A66B' : CATEGORIES[trendView].color;
 
   if(trendView==='all'){
@@ -1975,35 +1980,40 @@ function renderTrendChart(){
       tipEl.style.left='6px'; tipEl.style.right='auto';
     }
   };
-  // 최고점 라벨을 그리는 인라인 플러그인
+  // 최고점·최저점 라벨을 그리는 인라인 플러그인
   const peakPlugin={
     id:'peakLabel',
     afterDatasetsDraw(chart){
-      if(!peakPt) return;
       const xs=chart.scales.x, ys=chart.scales.y, area=chart.chartArea;
-      if(peakPt.x<xs.min || peakPt.x>xs.max) return;   // 화면 밖이면 생략
-      const px=xs.getPixelForValue(peakPt.x), py=ys.getPixelForValue(peakPt.y);
       const g=chart.ctx;
-      g.save();
-      // 고점 위치 점
-      g.fillStyle=peakColor; g.strokeStyle='#0E1117'; g.lineWidth=1.5;
-      g.beginPath(); g.arc(px, py, 4.5, 0, Math.PI*2); g.fill(); g.stroke();
-      // 라벨
-      const label='최고점 '+fmtEok(peakPt.y);
-      g.font='600 10px Pretendard';
-      const w=g.measureText(label).width+12;
-      let bx=px-w/2;
-      bx=Math.max(area.left+2, Math.min(bx, area.right-w-2));
-      let by=py-22; if(by<area.top+2) by=py+8;
-      g.fillStyle='rgba(27,32,48,0.92)';
-      g.strokeStyle=peakColor; g.lineWidth=1;
-      g.beginPath();
-      g.roundRect(bx, by, w, 17, 5);
-      g.fill(); g.stroke();
-      g.fillStyle=peakColor;
-      g.textAlign='left'; g.textBaseline='middle';
-      g.fillText(label, bx+6, by+9);
-      g.restore();
+      const drawMark=(pt, text, color, below)=>{
+        if(!pt) return;
+        if(pt.x<xs.min || pt.x>xs.max) return;   // 화면 밖이면 생략
+        const px=xs.getPixelForValue(pt.x), py=ys.getPixelForValue(pt.y);
+        g.save();
+        // 위치 점
+        g.fillStyle=color; g.strokeStyle='#0E1117'; g.lineWidth=1.5;
+        g.beginPath(); g.arc(px, py, 4.5, 0, Math.PI*2); g.fill(); g.stroke();
+        // 라벨 (최고점=점 위, 최저점=점 아래 / 영역 벗어나면 반대편)
+        g.font='600 10px Pretendard';
+        const w=g.measureText(text).width+12;
+        let bx=px-w/2;
+        bx=Math.max(area.left+2, Math.min(bx, area.right-w-2));
+        let by = below ? py+8 : py-22;
+        if(!below && by<area.top+2) by=py+8;
+        if(below && by+17>area.bottom-2) by=py-22;
+        g.fillStyle='rgba(27,32,48,0.92)';
+        g.strokeStyle=color; g.lineWidth=1;
+        g.beginPath();
+        g.roundRect(bx, by, w, 17, 5);
+        g.fill(); g.stroke();
+        g.fillStyle=color;
+        g.textAlign='left'; g.textBaseline='middle';
+        g.fillText(text, bx+6, by+9);
+        g.restore();
+      };
+      drawMark(peakPt, '최고점 '+fmtEok(peakPt?peakPt.y:0), peakColor, false);
+      drawMark(lowPt,  '최저점 '+fmtEok(lowPt?lowPt.y:0),  '#7A8FB8',  true);
     }
   };
   // 전체 보기에서만 확대·좌우 스크롤 활성화

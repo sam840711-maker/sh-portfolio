@@ -1446,7 +1446,8 @@ async function renderVix(){
           callbacks:{title:items=>items.length?new Date(items[0].parsed.x).toISOString().slice(0,10):'',
                      label:item=>' '+item.parsed.y.toFixed(2)}}},
         scales:{
-          x:{type:'linear',ticks:{maxTicksLimit:longRange?6:5,color:'#565967',font:{size:9.5},
+          x:{type:'linear',min:pts[0].x,max:pts[pts.length-1].x,
+             ticks:{maxTicksLimit:longRange?6:5,color:'#565967',font:{size:9.5},
               callback:v=>{const d=new Date(v);return longRange ? String(d.getFullYear()) : (d.getFullYear()%100)+'.'+String(d.getMonth()+1).padStart(2,'0');}},
              grid:{display:false},border:{display:false}},
           y:{grace:'6%',beginAtZero:false,ticks:{maxTicksLimit:5,color:'#565967',font:{size:9.5}},

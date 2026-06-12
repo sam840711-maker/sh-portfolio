@@ -1541,12 +1541,12 @@ async function renderBtc(){
     const cv=document.getElementById('chart-btc');
     if(!cv||!full||!full.length) return;
     const allPts=full.map(p=>({x:new Date(p.t+'T00:00:00').getTime(), y:p.v}));
-    // 200일 이동평균 (누적합으로 O(n))
-    const ma=[]; let run=0;
+    // 200일 이동평균 (누적합으로 O(n)) — x값 기준 맵으로 보관해 가격선과 같은 격자에 정렬
+    const maByX=new Map(); let run=0;
     for(let i=0;i<allPts.length;i++){
       run+=allPts[i].y;
       if(i>=200) run-=allPts[i-200].y;
-      if(i>=199) ma.push({x:allPts[i].x, y:run/200});
+      if(i>=199) maByX.set(allPts[i].x, run/200);
     }
     // 전고점 (일별 종가 기준)
     let ath=null;
@@ -1556,7 +1556,6 @@ async function renderBtc(){
     const lastX=allPts[allPts.length-1].x;
     const cutoff=days?lastX-days*86400000:-Infinity;
     let pts=allPts.filter(p=>p.x>=cutoff);
-    let maPts=ma.filter(p=>p.x>=cutoff);
     // 장기 구간 솎아내기 (첫/끝 점 보존)
     const thin=arr=>{
       if(arr.length<=900) return arr;
@@ -1565,7 +1564,10 @@ async function renderBtc(){
       if(t[t.length-1]!==arr[arr.length-1]) t.push(arr[arr.length-1]);
       return t;
     };
-    pts=thin(pts); maPts=thin(maPts);
+    pts=thin(pts);
+    // 이평선을 가격선과 동일 x 격자로 매핑 (툴팁 index 모드에서 날짜가 정확히 짝지어지도록)
+    const maPts=pts.map(p=>({x:p.x, y:maByX.has(p.x)?maByX.get(p.x):null}));
+    const maVisible=maPts.some(p=>p.y!=null);
     const longRange=(btcRange==='5y'||btcRange==='max');
     if(chartBtc) chartBtc.destroy();
     const c2=cv.getContext('2d');
@@ -1578,26 +1580,36 @@ async function renderBtc(){
       beforeDatasetsDraw(chart){
         if(!ath) return;
         const ys=chart.scales.y, area=chart.chartArea, g=chart.ctx;
-        if(ath.y<ys.min || ath.y>ys.max) return;
-        const py=ys.getPixelForValue(ath.y);
         g.save();
-        g.setLineDash([4,4]); g.lineWidth=1; g.strokeStyle='rgba(255,255,255,0.35)';
-        g.beginPath(); g.moveTo(area.left,py); g.lineTo(area.right,py); g.stroke();
-        g.fillStyle='rgba(255,255,255,0.5)';
-        g.font='600 9px Pretendard'; g.textBaseline='middle'; g.textAlign='left';
-        g.fillText('ATH '+fmtK(ath.y), area.left+4, py-6);
+        g.font='600 9px Pretendard'; g.textBaseline='middle';
+        if(ath.y>=ys.min && ath.y<=ys.max){
+          const py=ys.getPixelForValue(ath.y);
+          g.setLineDash([4,4]); g.lineWidth=1; g.strokeStyle='rgba(255,255,255,0.35)';
+          g.beginPath(); g.moveTo(area.left,py); g.lineTo(area.right,py); g.stroke();
+          g.fillStyle='rgba(255,255,255,0.5)';
+          g.textAlign='left';
+          g.fillText('ATH '+fmtK(ath.y), area.left+4, py-6);
+        } else if(ath.y>ys.max){
+          // 전고점이 화면 위쪽 범위 밖 — 우상단에 위치만 안내
+          const cur=pts[pts.length-1].y;
+          const off=((cur-ath.y)/ath.y*100).toFixed(1);
+          g.fillStyle='rgba(255,255,255,0.4)';
+          g.textAlign='right';
+          g.fillText('ATH '+fmtK(ath.y)+' ↑ ('+off+'%)', area.right-2, area.top+7);
+        }
         g.restore();
       }
     };
     chartBtc=new Chart(c2,{type:'line',
       data:{datasets:[
         {label:'BTC',data:pts,borderColor:'#F7931A',backgroundColor:grad,borderWidth:1.8,fill:true,tension:0.3,pointRadius:0,pointHoverRadius:3,clip:8,order:1},
-        ...(maPts.length>1?[{label:'200일',data:maPts,borderColor:'rgba(201,166,107,0.85)',borderWidth:1.2,fill:false,tension:0.2,pointRadius:0,pointHoverRadius:0,clip:8,order:2}]:[])
+        ...(maVisible?[{label:'200일',data:maPts,borderColor:'rgba(201,166,107,0.85)',borderWidth:1.2,fill:false,tension:0.2,spanGaps:false,pointRadius:0,pointHoverRadius:0,clip:8,order:2}]:[])
       ]},
       plugins:[btcGuides],
       options:{responsive:true,maintainAspectRatio:false,
         interaction:{mode:'index',intersect:false},
         plugins:{legend:{display:false},tooltip:{
+          filter:item=>item.parsed.y!=null,
           callbacks:{title:items=>items.length?new Date(items[0].parsed.x).toISOString().slice(0,10):'',
                      label:item=>' '+(item.dataset.label||'')+' $'+Math.round(item.parsed.y).toLocaleString('en-US')}}},
         scales:{

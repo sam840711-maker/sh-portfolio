@@ -530,7 +530,7 @@ input,select,textarea{font-family:inherit;color:inherit}
         <button data-br="max" onclick="setBtcRange('max',this)">전체</button>
       </div>
       <div class="chart-wrap" style="height:150px"><canvas id="chart-btc"></canvas></div>
-      <div style="font-size:10.5px;color:var(--text-3);margin-top:7px;text-align:center">BTC-USD · 24시간 거래 — <span style="color:rgba(201,166,107,0.85)">━ 200일 이평선</span> · ┄ ATH(전고점)</div>
+      <div style="font-size:10.5px;color:var(--text-3);margin-top:7px;text-align:center">BTC-USD · 24시간 거래 — <span style="color:#E2C285">━ 200일 이평선</span> · ┄ ATH(전고점)<span id="btc-res"></span></div>
     </div>
   </div>
 
@@ -1436,10 +1436,12 @@ async function renderVix(){
     }
   }catch(e){ /* 현재값 실패 시 차트만이라도 */ }
   try{
-    // 기간 차트 (범위별 30분 캐시)
+    // 기간 차트 (범위별 30분 캐시) — '전체'는 일봉 병합(월봉 강제변환 방지)
     const ck=vixRange;
     if(!_vixCache[ck] || now-_vixCache[ck].ts>30*60*1000){
-      const hist=await fetchYahooHistoryDaily('^VIX', vixRange);
+      const hist=(vixRange==='max')
+        ? (await fetchHistMerged('^VIX')).all
+        : await fetchYahooHistoryDaily('^VIX', vixRange);
       _vixCache[ck]={ts:now,hist};
     }
     const hist=_vixCache[ck].hist;
@@ -1500,6 +1502,37 @@ async function renderVix(){
   }
 }
 /* === BTC 카드 — VIX와 동일 컨셉 (24시간 거래라 장 구분 없음) === */
+/* 야후는 range=max에서 interval=1d를 무시하고 월봉으로 내려줄 수 있음 →
+   간격을 검사해 일봉이 아니면 10y(일봉 보장)로 재요청하고, 그보다 오래된 구간만 월봉을 앞에 이어붙임 */
+function medianGapDays(hist){
+  if(!hist || hist.length<3) return 999;
+  const gaps=[];
+  for(let i=1;i<Math.min(hist.length,60);i++)
+    gaps.push((new Date(hist[i].t)-new Date(hist[i-1].t))/86400000);
+  gaps.sort((a,b)=>a-b);
+  return gaps[Math.floor(gaps.length/2)];
+}
+async function fetchHistMerged(symbol){
+  // 일봉을 먼저 확보(10y→5y→2y, 사이 백오프로 프록시 연속호출 실패 완화) → max(전체)는 과거 보강용
+  let daily=null;
+  for(const r of ['10y','5y','2y']){
+    try{ const d=await fetchYahooHistoryDaily(symbol,r); if(medianGapDays(d)<=3){ daily=d; break; } }catch(e){}
+    await new Promise(s=>setTimeout(s,300));
+  }
+  let maxh=null;
+  try{ maxh=await fetchYahooHistoryDaily(symbol,'max'); }catch(e){}
+  if(daily && daily.length){
+    if(maxh && medianGapDays(maxh)<=3) return {all:maxh, daily:maxh, res:'daily'};      // max 자체가 일봉
+    const firstD=new Date(daily[0].t).getTime();
+    const older=(maxh||[]).filter(p=>new Date(p.t).getTime()<firstD);
+    return {all:[...older,...daily], daily, res: older.length?'merged':'daily'};        // 과거 월봉 + 최근 일봉
+  }
+  if(maxh && maxh.length){
+    const isDaily=medianGapDays(maxh)<=3;
+    return {all:maxh, daily:isDaily?maxh:[], res:isDaily?'daily':'coarse'};             // 일봉 전부 실패 → 월봉만
+  }
+  throw new Error('no data');
+}
 let btcRange='6mo';
 let chartBtc=null;
 let _btcCache={};
@@ -1532,21 +1565,26 @@ async function renderBtc(){
     if(krwEl && state.settings.fxRate>0) krwEl.textContent='≈ ₩'+fmtKRW(Math.round(q.price*state.settings.fxRate));
   }catch(e){ /* 현재값 실패 시 차트만 */ }
   try{
-    // 전체 일별 데이터를 한 번만 받아 캐시 → 200일 이평·전고점 계산 + 구간 슬라이스 (요청 1회로 모든 기간 커버)
-    if(!_btcCache.maxhist || now-_btcCache.maxhist.ts>30*60*1000){
-      const hist=await fetchYahooHistoryDaily('BTC-USD','max');
-      _btcCache.maxhist={ts:now,hist};
+    // 일봉 보장 병합 시리즈 캐시 (월봉만 받아진 경우는 5분 뒤 재시도)
+    const ttl=(_btcCache.merged&&_btcCache.merged.res==='coarse')?5*60*1000:30*60*1000;
+    if(!_btcCache.merged || now-_btcCache.merged.ts>ttl){
+      const m=await fetchHistMerged('BTC-USD');
+      _btcCache.merged={ts:now,...m};
     }
-    const full=_btcCache.maxhist.hist;
+    const full=_btcCache.merged.all;
+    const dailyArr=_btcCache.merged.daily;
+    const resEl=document.getElementById('btc-res');
+    if(resEl) resEl.textContent=_btcCache.merged.res==='coarse'?' · ⚠ 일봉 로드 실패(월봉 표시)':(_btcCache.merged.res==='merged'?' · 과거 구간은 월봉':'');
     const cv=document.getElementById('chart-btc');
     if(!cv||!full||!full.length) return;
     const allPts=full.map(p=>({x:new Date(p.t+'T00:00:00').getTime(), y:p.v}));
-    // 200일 이동평균 (누적합으로 O(n)) — x값 기준 맵으로 보관해 가격선과 같은 격자에 정렬
+    const dailyPts=dailyArr.map(p=>({x:new Date(p.t+'T00:00:00').getTime(), y:p.v}));
+    // 200일 이동평균 — 반드시 일봉에서만 계산
     const maByX=new Map(); let run=0;
-    for(let i=0;i<allPts.length;i++){
-      run+=allPts[i].y;
-      if(i>=200) run-=allPts[i-200].y;
-      if(i>=199) maByX.set(allPts[i].x, run/200);
+    for(let i=0;i<dailyPts.length;i++){
+      run+=dailyPts[i].y;
+      if(i>=200) run-=dailyPts[i-200].y;
+      if(i>=199) maByX.set(dailyPts[i].x, run/200);
     }
     // 전고점 (일별 종가 기준)
     let ath=null;
@@ -1600,10 +1638,14 @@ async function renderBtc(){
         g.restore();
       }
     };
+    // Y축 범위 — 데이터(가격+이평) 기준 수동 산출 (0부터 시작해 공간 낭비되는 것 방지)
+    const yVals=[...pts.map(p=>p.y), ...maPts.filter(p=>p.y!=null).map(p=>p.y)];
+    const dMin=Math.min(...yVals), dMax=Math.max(...yVals), dRng=Math.max(1,dMax-dMin);
+    const yLo=Math.max(0, dMin-dRng*0.06), yHi=dMax+dRng*0.08;
     chartBtc=new Chart(c2,{type:'line',
       data:{datasets:[
-        {label:'BTC',data:pts,borderColor:'#F7931A',backgroundColor:grad,borderWidth:1.8,fill:true,tension:0.3,pointRadius:0,pointHoverRadius:3,clip:8,order:1},
-        ...(maVisible?[{label:'200일',data:maPts,borderColor:'rgba(201,166,107,0.85)',borderWidth:1.2,fill:false,tension:0.2,spanGaps:false,pointRadius:0,pointHoverRadius:0,clip:8,order:2}]:[])
+        {label:'BTC',data:pts,borderColor:'#F7931A',backgroundColor:grad,borderWidth:1.8,fill:true,tension:0.3,pointRadius:0,pointHoverRadius:3,clip:8,order:2},
+        ...(maVisible?[{label:'200일',data:maPts,borderColor:'#E2C285',borderWidth:1.4,fill:false,tension:0.2,spanGaps:false,pointRadius:0,pointHoverRadius:0,clip:8,order:1}]:[])
       ]},
       plugins:[btcGuides],
       options:{responsive:true,maintainAspectRatio:false,
@@ -1617,7 +1659,7 @@ async function renderBtc(){
              ticks:{maxTicksLimit:longRange?6:5,color:'#565967',font:{size:9.5},
               callback:v=>{const d=new Date(v);return longRange ? String(d.getFullYear()) : (d.getFullYear()%100)+'.'+String(d.getMonth()+1).padStart(2,'0');}},
              grid:{display:false},border:{display:false}},
-          y:{grace:'6%',beginAtZero:false,ticks:{maxTicksLimit:5,color:'#565967',font:{size:9.5},callback:fmtK},
+          y:{min:yLo,max:yHi,ticks:{maxTicksLimit:5,color:'#565967',font:{size:9.5},callback:fmtK},
              grid:{color:'rgba(255,255,255,0.05)'},border:{display:false}}
         }}});
   }catch(e){}

@@ -482,8 +482,8 @@ input,select,textarea{font-family:inherit;color:inherit}
         <button data-rk="2w" onclick="setTrendRange('2w',this)">2W</button>
         <button data-rk="1m" onclick="setTrendRange('1m',this)">1M</button>
         <button data-rk="3m" onclick="setTrendRange('3m',this)">3M</button>
-        <button data-rk="6m" onclick="setTrendRange('6m',this)">6M</button>
-        <button data-rk="1y" class="active" onclick="setTrendRange('1y',this)">1Y</button>
+        <button data-rk="6m" class="active" onclick="setTrendRange('6m',this)">6M</button>
+        <button data-rk="1y" onclick="setTrendRange('1y',this)">1Y</button>
         <button data-rk="all" onclick="setTrendRange('all',this)">전체</button>
       </div>
       <div class="chips" id="trend-view-chips" style="margin:2px 0 8px"></div>
@@ -1168,7 +1168,7 @@ function taxEstimate(){
    ================================================================ */
 let chartAlloc=null, chartRb=null, chartTrend=null, currentView='dashboard';
 let priceChartObj=null, pcHolding=null, pcRange='1y';
-let trendRange='1y';   // 자산 추이 차트 기간 ('1m'·'3m'·'6m'·'1y'·'all') — 기본 1년
+let trendRange='6m';   // 자산 추이 차트 기간 ('1m'·'3m'·'6m'·'1y'·'all') — 기본 6개월
 let trendView='all';   // 자산 추이 보기 ('all'=종합 / 자산군 키)
 function setTrendRange(rk,btn){
   trendRange=rk;

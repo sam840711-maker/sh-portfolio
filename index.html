@@ -366,6 +366,7 @@ input,select,textarea{font-family:inherit;color:inherit}
 .itax-m label{font-size:10px;color:var(--text-2)}
 .itax-m input{width:100%;background:var(--frame);border:1px solid var(--hairline);border-radius:9px;padding:9px 10px;font-size:14px;font-variant-numeric:tabular-nums;color:var(--text)}
 .itax-m input:focus{outline:none;border-color:var(--gold)}
+.itax-calc{font-size:10px;color:var(--gold);min-height:12px;font-variant-numeric:tabular-nums}
 .itax-sum{display:flex;justify-content:space-between;align-items:baseline;padding:11px 14px;background:var(--surface);border:1px solid var(--hairline);border-radius:11px;margin-bottom:14px;font-size:13px;font-weight:600}
 .itax-sum b{font-size:17px;font-weight:700;color:var(--gold)}
 .toast.show{opacity:1}
@@ -2808,11 +2809,12 @@ function openItaxYear(year){
   let grid='';
   for (let m=0;m<12;m++){
     grid+=`<div class="itax-m"><label>${m+1}월</label>
-      <input id="itax-m${m}" type="number" step="1" inputmode="numeric" value="${arr[m]||''}" placeholder="0" oninput="itaxRecalc()"></div>`;
+      <input id="itax-m${m}" type="text" autocomplete="off" value="${arr[m]||''}" placeholder="0" oninput="itaxRecalc()">
+      <small id="itax-c${m}" class="itax-calc"></small></div>`;
   }
   const delBtn=exists?`<button class="btn btn-danger btn-sm" onclick="deleteItaxYear('${y}')">삭제</button>`:'';
   openModal(`<h3>이자·세금 — 월별 입력</h3>
-    <div class="modal-sub">해당 연도의 월별 이자·세금을 입력하면 연 합계로 자동 합산됩니다</div>
+    <div class="modal-sub">여러 곳에서 나가면 <b>+로 이어 입력</b>하세요 (예: 474116+123456) — 자동 합산됩니다</div>
     <div class="field"><label>연도</label><input id="itax-year" type="number" step="1" value="${y}"></div>
     <div class="itax-grid">${grid}</div>
     <div class="itax-sum">연 합계 <b id="itax-total" class="num">₩0</b></div>
@@ -2823,9 +2825,31 @@ function openItaxYear(year){
     </div>`);
   itaxRecalc();
 }
+/* 수식 평가 — 숫자와 +,- 만 허용 (예: "474116+123456-500") */
+function evalAmountExpr(str){
+  const s=String(str||'').replace(/[,\s₩원]/g,'');
+  if(!s) return 0;
+  if(!/^[-+]?\d+(\.\d+)?([-+]\d+(\.\d+)?)*$/.test(s)) return NaN;   // 숫자와 +,- 조합만
+  let total=0;
+  for(const t of s.match(/[-+]?\d+(\.\d+)?/g)||[]) total+=parseFloat(t);
+  return total;
+}
 function itaxRecalc(){
   let s=0;
-  for (let m=0;m<12;m++){ const e=document.getElementById('itax-m'+m); if(e) s+=parseFloat(e.value)||0; }
+  for (let m=0;m<12;m++){
+    const e=document.getElementById('itax-m'+m); if(!e) continue;
+    const v=evalAmountExpr(e.value);
+    const c=document.getElementById('itax-c'+m);
+    if(isNaN(v)){
+      if(c) c.textContent='숫자와 + 만 입력하세요';
+      e.style.borderColor='var(--up)';
+      continue;
+    }
+    e.style.borderColor='';
+    // 수식(+/- 포함)일 때만 계산 결과 표시
+    if(c) c.textContent=/[+\-].*\d/.test(e.value.slice(1)) && e.value.trim()!=='' ? '→ ₩'+Math.round(v).toLocaleString('ko-KR') : '';
+    s+=v;
+  }
   const t=document.getElementById('itax-total');
   if(t) t.textContent='₩'+Math.round(s).toLocaleString('ko-KR');
 }
@@ -2833,7 +2857,12 @@ async function saveItaxYear(origYear){
   const y=String(parseInt(document.getElementById('itax-year').value,10)||0);
   if(y.length!==4){ toast('연도를 4자리로 입력하세요'); return; }
   const arr=new Array(12).fill(0);
-  for (let m=0;m<12;m++){ const e=document.getElementById('itax-m'+m); arr[m]=Math.round(parseFloat(e.value)||0); }
+  for (let m=0;m<12;m++){
+    const e=document.getElementById('itax-m'+m);
+    const v=evalAmountExpr(e.value);
+    if(isNaN(v)){ toast((m+1)+'월 입력을 확인하세요 (숫자와 + 만)'); return; }
+    arr[m]=Math.round(v);
+  }
   if(!state.itax) state.itax={};
   if(origYear && origYear!==y) delete state.itax[origYear];
   state.itax[y]=arr;

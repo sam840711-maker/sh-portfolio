@@ -1438,8 +1438,29 @@ async function renderVix(){
     const c2=cv.getContext('2d');
     const grad=c2.createLinearGradient(0,0,0,150);
     grad.addColorStop(0,'rgba(229,72,77,0.22)'); grad.addColorStop(1,'rgba(229,72,77,0)');
+    // 기준선 — 20(안정/경계), 30(경계/공포)
+    const vixGuides={
+      id:'vixGuides',
+      beforeDatasetsDraw(chart){
+        const ys=chart.scales.y, area=chart.chartArea, g=chart.ctx;
+        const lines=[{v:20,color:'rgba(201,166,107,0.55)',label:'20'},{v:30,color:'rgba(229,72,77,0.55)',label:'30'}];
+        g.save();
+        g.setLineDash([4,4]); g.lineWidth=1;
+        g.font='600 9px Pretendard'; g.textBaseline='middle'; g.textAlign='left';
+        for(const ln of lines){
+          if(ln.v<ys.min || ln.v>ys.max) continue;   // 보이는 범위일 때만
+          const py=ys.getPixelForValue(ln.v);
+          g.strokeStyle=ln.color;
+          g.beginPath(); g.moveTo(area.left,py); g.lineTo(area.right,py); g.stroke();
+          g.fillStyle=ln.color;
+          g.fillText(ln.label, area.right-14, py-6);
+        }
+        g.restore();
+      }
+    };
     chartVix=new Chart(c2,{type:'line',
       data:{datasets:[{data:pts,borderColor:'#E5484D',backgroundColor:grad,borderWidth:1.8,fill:true,tension:0.3,pointRadius:0,pointHoverRadius:3,clip:8}]},
+      plugins:[vixGuides],
       options:{responsive:true,maintainAspectRatio:false,
         interaction:{mode:'index',intersect:false},
         plugins:{legend:{display:false},tooltip:{

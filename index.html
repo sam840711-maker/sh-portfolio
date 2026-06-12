@@ -2143,6 +2143,9 @@ function renderTrendChart(){
   const deposits=depositFlows();   // {ym, date, amount}
   let hist=(state.history||[]).filter(h=>h.d).slice().sort((a,b)=>a.d.localeCompare(b.d));
   const estCount = hist.filter(h=>h._est).length;
+  // 전 기간 ATH (기간 필터 전 기준) — MDD 고점과 동일 소스
+  let athVal=null;
+  for(const h of hist) if(h.total!=null && (athVal==null||h.total>athVal)) athVal=h.total;
 
   // 기간 필터 — 마지막 기록 기준 N일/N개월 이내
   if(trendRange!=='all' && hist.length){
@@ -2251,6 +2254,19 @@ function renderTrendChart(){
     }
     datasets.push({label:'납입 원금',data:principalPts,borderColor:'#565967',borderWidth:1.5,
       borderDash:[4,3],fill:false,stepped:true,pointRadius:0,pointHoverRadius:3,order:3});
+    // 목표 페이스 곡선 — 시점별 '있어야 할 자산' (해당 시점까지의 납입만 연 목표수익률로 복리)
+    // targetFV(오늘)과 동일 수식이되, 과거 시점엔 그 이후 납입을 포함하지 않도록 시점 필터
+    const Yms=365.25*86400000;
+    const paceAt=x=>{
+      let s=0;
+      for(const d of deposits){ if(d.date<=x) s+=d.amount*Math.pow(1+state.settings.targetCAGR,(x-d.date)/Yms); }
+      return s;
+    };
+    const pacePts=assetPts.map(p=>({x:p.x, y:paceAt(p.x)}));   // 평가 자산과 같은 x 격자 (툴팁 날짜 일치)
+    if(pacePts.some(p=>p.y>0)){
+      datasets.push({label:'목표 페이스',data:pacePts,borderColor:'rgba(201,166,107,0.55)',
+        borderWidth:1.2,borderDash:[5,4],fill:false,tension:0.15,pointRadius:0,pointHoverRadius:3,order:4});
+    }
   } else {
     // 단일 자산군 — 해당 자산군 평가액만 (카테고리 색)
     const col=CATEGORIES[trendView].color;
@@ -2298,6 +2314,17 @@ function renderTrendChart(){
     afterDatasetsDraw(chart){
       const xs=chart.scales.x, ys=chart.scales.y, area=chart.chartArea;
       const g=chart.ctx;
+      // 전 기간 ATH 가로선 (종합 보기에서만)
+      if(trendView==='all' && athVal!=null && athVal>=ys.min && athVal<=ys.max){
+        const py=ys.getPixelForValue(athVal);
+        g.save();
+        g.setLineDash([4,4]); g.lineWidth=1; g.strokeStyle='rgba(255,255,255,0.30)';
+        g.beginPath(); g.moveTo(area.left,py); g.lineTo(area.right,py); g.stroke();
+        g.fillStyle='rgba(255,255,255,0.45)';
+        g.font='600 9px Pretendard'; g.textBaseline='middle'; g.textAlign='left';
+        g.fillText('ATH '+fmtEok(athVal), area.left+4, py-6);
+        g.restore();
+      }
       const drawMark=(pt, text, color, below)=>{
         if(!pt) return;
         if(pt.x<xs.min || pt.x>xs.max) return;   // 화면 밖이면 생략

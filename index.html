@@ -37,6 +37,8 @@ input,select,textarea{font-family:inherit;color:inherit}
 
 .topbar{padding:calc(24px + env(safe-area-inset-top)) 22px 12px;display:flex;align-items:center;justify-content:space-between}
 .topbar h1{font-size:13px;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:var(--gold)}
+.topbar-brand{display:flex;flex-direction:column;gap:3px;min-width:0}
+.topbar-date{font-size:11px;color:var(--text-2);font-weight:500;letter-spacing:0.01em;font-variant-numeric:tabular-nums}
 .topbar-right{display:flex;align-items:center;gap:6px}
 .icon-btn{display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:9px;color:var(--text-2);transition:all .15s}
 .icon-btn:hover,.icon-btn:active{background:var(--surface);color:var(--gold)}
@@ -376,7 +378,10 @@ input,select,textarea{font-family:inherit;color:inherit}
 <div class="stage">
 <div class="phone">
   <div class="topbar">
-    <h1>SH Portfolio</h1>
+    <div class="topbar-brand">
+      <h1>SH Portfolio</h1>
+      <div class="topbar-date" id="topbar-date">—</div>
+    </div>
     <div class="topbar-right">
       <button class="icon-btn" id="quotes-btn" title="보유 종목 시세" aria-label="보유 종목 시세">
         <svg fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24"><polyline points="3 16 9 10 13 14 21 6"/><polyline points="15 6 21 6 21 12"/></svg>
@@ -1214,6 +1219,17 @@ function downsampleHistory(hist){
 }
 
 function renderTopbar(){
+  const dEl=document.getElementById('topbar-date');
+  if(dEl){
+    const now=new Date();
+    const ymd=new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',year:'numeric',month:'long',day:'numeric'}).format(now).replace(/\.$/,'').trim();
+    const wd=new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',weekday:'short'}).format(now);
+    // 한국 기준 요일 인덱스 (0=일 … 6=토) — 토 파랑 / 일 빨강
+    const dow=Number(new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Seoul',weekday:'short'}).format(now)
+      .replace(/Sun|Mon|Tue|Wed|Thu|Fri|Sat/,m=>({Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6}[m])));
+    const wdColor = dow===0 ? 'var(--up)' : (dow===6 ? '#4A90E2' : 'var(--text-2)');
+    dEl.innerHTML=ymd+' (<span style="color:'+wdColor+';font-weight:600">'+wd+'</span>)';
+  }
   document.getElementById('fx-val').textContent = state.settings.fxRate.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2});
   const ft=document.getElementById('fresh-text');
   ft.textContent = state.prices.lastFetch ? '시세 '+relTime(state.prices.lastFetch) : '탭하여 시세 갱신';

@@ -537,6 +537,28 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div class="chart-wrap" style="height:150px"><canvas id="chart-btc"></canvas></div>
       <div style="font-size:10.5px;color:var(--text-3);margin-top:7px;text-align:center">BTC-USD · 24시간 거래 — <span style="color:#E2C285">━ 200일 이평선</span> · ┄ ATH(전고점)<span id="btc-res"></span></div>
     </div>
+
+    <div class="card">
+      <div class="card-title">MSTR vs MST3 (레버리지 상관)</div>
+      <div style="display:flex;gap:14px;margin:2px 0 8px;flex-wrap:wrap">
+        <div><div style="font-size:10px;color:var(--text-3)">MSTR</div>
+          <span class="num" id="mstr-val" style="font-size:18px;font-weight:700">—</span>
+          <span class="num" id="mstr-chg" style="font-size:11px;font-weight:600">—</span></div>
+        <div><div style="font-size:10px;color:var(--text-3)">MST3.L (3x)</div>
+          <span class="num" id="mst3-val" style="font-size:18px;font-weight:700">—</span>
+          <span class="num" id="mst3-chg" style="font-size:11px;font-weight:600">—</span></div>
+        <div style="margin-left:auto;text-align:right"><div style="font-size:10px;color:var(--text-3)">기간 배율</div>
+          <span class="num" id="lev-ratio" style="font-size:16px;font-weight:700;color:var(--gold)">—</span></div>
+      </div>
+      <div class="seg trend-seg" id="mst-seg" style="margin-bottom:8px">
+        <button data-mr="1mo" onclick="setMstRange('1mo',this)">1M</button>
+        <button data-mr="3mo" class="active" onclick="setMstRange('3mo',this)">3M</button>
+        <button data-mr="6mo" onclick="setMstRange('6mo',this)">6M</button>
+        <button data-mr="1y" onclick="setMstRange('1y',this)">1Y</button>
+      </div>
+      <div class="chart-wrap" style="height:160px"><canvas id="chart-mst"></canvas></div>
+      <div style="font-size:10.5px;color:var(--text-3);margin-top:7px;text-align:center">기준일=100 정규화 비교 — <span style="color:#4FB6C4">━ MSTR</span> · <span style="color:#E5484D">━ MST3.L</span> · MST3는 MSTR의 3배 레버리지(일간)</div>
+    </div>
   </div>
 
   <!-- HOLDINGS -->
@@ -1680,6 +1702,90 @@ async function renderBtc(){
         }}});
   }catch(e){}
 }
+/* === MSTR vs MST3.L 정규화 비교 (기준일=100) — 레버리지 상관성 === */
+let mstRange='3mo';
+let chartMst=null;
+let _mstCache={};
+function setMstRange(r,btn){
+  mstRange=r;
+  document.querySelectorAll('#mst-seg button').forEach(b=>b.classList.toggle('active',b===btn));
+  renderMst();
+}
+window.setMstRange=setMstRange;
+async function renderMst(){
+  const cv=document.getElementById('chart-mst');
+  if(!cv) return;
+  const now=Date.now();
+  // 현재가 + 일간 변동 (각 10분 캐시)
+  const setQuote=(pfx,q)=>{
+    const v=document.getElementById(pfx+'-val'), ch=document.getElementById(pfx+'-chg');
+    if(v) v.textContent='$'+q.price.toFixed(2);
+    if(ch){ const c=q.price-(q.prevClose||q.price), p=(q.prevClose>0)?c/q.prevClose:0;
+      ch.textContent=(c>=0?'+':'')+(p*100).toFixed(2)+'%'; ch.className='num '+(c>=0?'up':'down'); }
+  };
+  try{
+    if(!_mstCache.q || now-_mstCache.q.ts>10*60*1000){
+      const [a,b]=await Promise.all([fetchYahoo('MSTR'),fetchYahoo('MST3.L')]);
+      _mstCache.q={ts:now,mstr:a,mst3:b};
+    }
+    setQuote('mstr',_mstCache.q.mstr); setQuote('mst3',_mstCache.q.mst3);
+  }catch(e){}
+  try{
+    const ck='h_'+mstRange;
+    if(!_mstCache[ck] || now-_mstCache[ck].ts>30*60*1000){
+      const [a,b]=await Promise.all([
+        fetchYahooHistoryDaily('MSTR',mstRange),
+        fetchYahooHistoryDaily('MST3.L',mstRange)
+      ]);
+      _mstCache[ck]={ts:now,mstr:a,mst3:b};
+    }
+    const A=_mstCache[ck].mstr, B=_mstCache[ck].mst3;
+    if(!A||!A.length||!B||!B.length) return;
+    // 공통 날짜로 정렬 (런던/뉴욕 휴장일 차이 보정) — 양쪽 다 있는 날짜만
+    const mapB=new Map(B.map(p=>[p.t,p.v]));
+    const common=A.filter(p=>mapB.has(p.t)).map(p=>({t:p.t, a:p.v, b:mapB.get(p.t)}));
+    if(common.length<2) return;
+    const a0=common[0].a, b0=common[0].b;
+    const toMs=d=>new Date(d+'T00:00:00').getTime();
+    let aPts=common.map(p=>({x:toMs(p.t), y:p.a/a0*100}));
+    let bPts=common.map(p=>({x:toMs(p.t), y:p.b/b0*100}));
+    // 솎아내기 (첫/끝 보존)
+    const thin=arr=>{ if(arr.length<=900) return arr; const step=Math.ceil(arr.length/900),t=[];
+      for(let i=0;i<arr.length;i+=step)t.push(arr[i]); if(t[t.length-1]!==arr[arr.length-1])t.push(arr[arr.length-1]); return t; };
+    aPts=thin(aPts); bPts=thin(bPts);
+    // 기간 배율 = MST3 변화율 / MSTR 변화율 (레버리지 실현 배수)
+    const aRet=(aPts[aPts.length-1].y-100), bRet=(bPts[bPts.length-1].y-100);
+    const ratioEl=document.getElementById('lev-ratio');
+    if(ratioEl) ratioEl.textContent=(Math.abs(aRet)>0.5)?(bRet/aRet).toFixed(2)+'x':'—';
+    if(chartMst) chartMst.destroy();
+    const c2=cv.getContext('2d');
+    chartMst=new Chart(c2,{type:'line',
+      data:{datasets:[
+        {label:'MSTR',data:aPts,borderColor:'#4FB6C4',borderWidth:1.6,fill:false,tension:0.25,pointRadius:0,pointHoverRadius:3,clip:8},
+        {label:'MST3.L',data:bPts,borderColor:'#E5484D',borderWidth:1.6,fill:false,tension:0.25,pointRadius:0,pointHoverRadius:3,clip:8}
+      ]},
+      plugins:[{id:'base100',beforeDatasetsDraw(chart){
+        const ys=chart.scales.y, area=chart.chartArea, g=chart.ctx;
+        if(100<ys.min||100>ys.max) return;
+        const py=ys.getPixelForValue(100);
+        g.save(); g.setLineDash([3,3]); g.lineWidth=1; g.strokeStyle='rgba(255,255,255,0.25)';
+        g.beginPath(); g.moveTo(area.left,py); g.lineTo(area.right,py); g.stroke(); g.restore();
+      }}],
+      options:{responsive:true,maintainAspectRatio:false,
+        interaction:{mode:'index',intersect:false},
+        plugins:{legend:{display:false},tooltip:{
+          callbacks:{title:items=>items.length?new Date(items[0].parsed.x).toISOString().slice(0,10):'',
+            label:item=>' '+item.dataset.label+' '+(item.parsed.y>=100?'+':'')+(item.parsed.y-100).toFixed(1)+'%'}}},
+        scales:{
+          x:{type:'linear',min:aPts[0].x,max:aPts[aPts.length-1].x,
+             ticks:{maxTicksLimit:5,color:'#565967',font:{size:9.5},
+              callback:v=>{const d=new Date(v);return (d.getFullYear()%100)+'.'+String(d.getMonth()+1).padStart(2,'0');}},
+             grid:{display:false},border:{display:false}},
+          y:{grace:'6%',ticks:{maxTicksLimit:5,color:'#565967',font:{size:9.5},callback:v=>v.toFixed(0)},
+             grid:{color:'rgba(255,255,255,0.05)'},border:{display:false}}
+        }}});
+  }catch(e){}
+}
 function renderDashboard(){
   const s=portfolioStats(), st=state.settings, fx=st.fxRate;
   renderMarketBanner();
@@ -1848,6 +1954,7 @@ function renderDashboard(){
   renderTrendChart();
   renderVix();
   renderBtc();
+  renderMst();
   renderTopbar();
   renderRebalAlert(s);
   renderCagrAlert();

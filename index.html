@@ -543,10 +543,12 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div style="display:flex;gap:14px;margin:2px 0 8px;flex-wrap:wrap">
         <div><div style="font-size:10px;color:var(--text-3)">MSTR</div>
           <span class="num" id="mstr-val" style="font-size:18px;font-weight:700">—</span>
-          <span class="num" id="mstr-chg" style="font-size:11px;font-weight:600">—</span></div>
+          <span class="num" id="mstr-chg" style="font-size:11px;font-weight:600">—</span>
+          <div class="num" id="mstr-per" style="font-size:10.5px;color:var(--text-2)">기간 —</div></div>
         <div><div style="font-size:10px;color:var(--text-3)">MST3.L (3x)</div>
           <span class="num" id="mst3-val" style="font-size:18px;font-weight:700">—</span>
-          <span class="num" id="mst3-chg" style="font-size:11px;font-weight:600">—</span></div>
+          <span class="num" id="mst3-chg" style="font-size:11px;font-weight:600">—</span>
+          <div class="num" id="mst3-per" style="font-size:10.5px;color:var(--text-2)">기간 —</div></div>
         <div style="margin-left:auto;text-align:right"><div style="font-size:10px;color:var(--text-3)">기간 배율</div>
           <span class="num" id="lev-ratio" style="font-size:16px;font-weight:700;color:var(--gold)">—</span></div>
       </div>
@@ -1769,6 +1771,10 @@ async function renderMst(){
     const aRet=(aPts[aPts.length-1].y-100), bRet=(bPts[bPts.length-1].y-100);
     const ratioEl=document.getElementById('lev-ratio');
     if(ratioEl) ratioEl.textContent=(Math.abs(aRet)>0.5)?(bRet/aRet).toFixed(2)+'x':'—';
+    // 기간 수익률 (선택 구간 시작 대비 현재) — 차트 끝점과 동일 기준, 시작점 차이로 인한 혼란 해소
+    const perTxt=(r)=>'기간 '+(r>=0?'+':'')+r.toFixed(1)+'%';
+    const setPer=(id,r)=>{ const e=document.getElementById(id); if(e){ e.textContent=perTxt(r); e.style.color=(r>=0?'var(--up)':'var(--down)'); } };
+    setPer('mstr-per',aRet); setPer('mst3-per',bRet);
     if(chartMst) chartMst.destroy();
     const c2=cv.getContext('2d');
     chartMst=new Chart(c2,{type:'line',

@@ -2761,7 +2761,7 @@ function renderHoldings(){
   chips.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{activeCategory=c.dataset.cat;renderHoldings();});
   document.querySelectorAll('#holding-sort button').forEach(b=>b.classList.toggle('active',b.dataset.hs===holdingSort));
 
-  const filtered=state.holdings.filter(h=>(activeCategory==='all'||h.cat===activeCategory)&&h.qty>0);
+  const filtered=state.holdings.filter(h=>(activeCategory==='all'||h.cat===activeCategory));
   const el=document.getElementById('holdings-list');
   if (!filtered.length){ el.innerHTML='<div class="empty">보유 종목이 없습니다.<br>＋ 버튼으로 추가하세요.</div>'; return; }
 

@@ -4429,10 +4429,10 @@ async function submitFab(){
     const cat=document.getElementById('m-cat').value;
     const sym=(document.getElementById('m-symbol').value||'').trim();
     const name=(document.getElementById('m-name').value||'').trim()||sym;
-    const qty=parseFloat(document.getElementById('m-qty').value);
-    const avg=parseFloat(document.getElementById('m-avg').value);
-    const cur=parseFloat(document.getElementById('m-cur').value)||avg;
-    if(!sym||!(qty>0)||!(avg>0)){ toast('티커·수량·단가를 확인하세요'); return; }
+    const qty=parseFloat(document.getElementById('m-qty').value)||0;
+    const avg=parseFloat(document.getElementById('m-avg').value)||0;
+    const cur=parseFloat(document.getElementById('m-cur').value)||avg||0;
+    if(!sym){ toast('티커를 입력하세요'); return; }   // 수량·단가 0이어도 추가 가능 (목표 비중만 잡는 예정 종목)
     const h={id:cat+'_'+sym.replace(/[^\w]/g,'_')+'_'+Date.now().toString(36),cat,symbol:sym,name,qty,targetWt:0};
     if (isUSDcat(cat)){
       h.avgUSD=avg; h.curUSD=cur;
@@ -4440,7 +4440,7 @@ async function submitFab(){
       h.avgFx=(afx>0)?afx:state.settings.fxRate;
     } else { h.avgKRW=avg; h.curKRW=cur; }
     state.holdings.push(h);
-    await saveState(); closeModal(); toast('종목 추가됨'); switchView('holdings');
+    await saveState(); closeModal(); toast(qty>0?'종목 추가됨':'종목 추가됨 (수량 0 · 목표 비중 설정용)'); switchView('holdings');
     return;
   }
 }

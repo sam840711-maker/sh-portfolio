@@ -1734,18 +1734,20 @@ async function renderMst(){
     const ck='h_'+mstRange;
     if(!_mstCache[ck] || now-_mstCache[ck].ts>30*60*1000){
       const [a,b]=await Promise.all([
-        fetchYahooHistoryDaily('MSTR',mstRange),
-        fetchYahooHistoryDaily('MST3.L',mstRange)
+        fetchYahooHistoryDaily('MSTR',mstRange,true),
+        fetchYahooHistoryDaily('MST3.L',mstRange,true)
       ]);
       _mstCache[ck]={ts:now,mstr:a,mst3:b};
     }
     const A=_mstCache[ck].mstr, B=_mstCache[ck].mst3;
     if(!A||!A.length||!B||!B.length) return;
-    // 공통 날짜로 정렬 (런던/뉴욕 휴장일 차이 보정) — 양쪽 다 있는 날짜만
-    const mapB=new Map(B.map(p=>[p.t,p.v]));
-    const common=A.filter(p=>mapB.has(p.t)).map(p=>({t:p.t, a:p.v, b:mapB.get(p.t)}));
+    // 공통 날짜로 정렬 (런던/뉴욕 휴장일 차이 보정) — 양쪽 다 '유효한(>0)' 값이 있는 날만
+    const mapB=new Map(B.filter(p=>p.v>0).map(p=>[p.t,p.v]));
+    let common=A.filter(p=>p.v>0 && mapB.has(p.t)).map(p=>({t:p.t, a:p.v, b:mapB.get(p.t)}));
     if(common.length<2) return;
+    // 기준값(첫 유효값) — 0/결측이면 정규화가 폭발하므로 반드시 유효해야
     const a0=common[0].a, b0=common[0].b;
+    if(!(a0>0)||!(b0>0)) return;
     const toMs=d=>new Date(d+'T00:00:00').getTime();
     let aPts=common.map(p=>({x:toMs(p.t), y:p.a/a0*100}));
     let bPts=common.map(p=>({x:toMs(p.t), y:p.b/b0*100}));
@@ -2093,15 +2095,18 @@ function renderAllocChart(s){
 }
 
 /* === 추정치 백필 — 보유 종목 × 1년치 일별 시세 × 환율 → 주별 추정치를 state.history에 기록 === */
-async function fetchYahooHistoryDaily(symbol, range){
-  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${range}&t=${Date.now()}`;
+async function fetchYahooHistoryDaily(symbol, range, adjusted){
+  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${range}&events=split&t=${Date.now()}`;
   const data=await pcProxyJson(url);
   const r=data&&data.chart&&data.chart.result&&data.chart.result[0];
   if(!r||!r.timestamp) throw new Error('no data');
   const close=(r.indicators&&r.indicators.quote&&r.indicators.quote[0]&&r.indicators.quote[0].close)||[];
+  // adjusted=true면 분할·병합 보정된 adjclose 우선 (레버리지 ETP 병합 불연속 제거)
+  const adj=(adjusted&&r.indicators&&r.indicators.adjclose&&r.indicators.adjclose[0]&&r.indicators.adjclose[0].adjclose)||null;
   const out=[];
   for(let i=0;i<r.timestamp.length;i++){
-    if(close[i]!=null) out.push({t:new Date(r.timestamp[i]*1000).toISOString().slice(0,10), v:close[i]});
+    const v=(adj&&adj[i]!=null)?adj[i]:close[i];
+    if(v!=null) out.push({t:new Date(r.timestamp[i]*1000).toISOString().slice(0,10), v});
   }
   return out;
 }

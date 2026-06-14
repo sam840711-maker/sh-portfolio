@@ -369,6 +369,8 @@ input,select,textarea{font-family:inherit;color:inherit}
 .itax-m input{width:100%;background:var(--frame);border:1px solid var(--hairline);border-radius:9px;padding:9px 10px;font-size:14px;font-variant-numeric:tabular-nums;color:var(--text)}
 .itax-m input:focus{outline:none;border-color:var(--gold)}
 .itax-calc{font-size:10px;color:var(--gold);min-height:12px;font-variant-numeric:tabular-nums}
+.chart-note{font-size:11.5px;color:var(--text-2);margin-top:9px;text-align:center;line-height:1.45;padding:0 6px}
+.chart-note b{color:var(--text-1);font-weight:600}
 .itax-sum{display:flex;justify-content:space-between;align-items:baseline;padding:11px 14px;background:var(--surface);border:1px solid var(--hairline);border-radius:11px;margin-bottom:14px;font-size:13px;font-weight:600}
 .itax-sum b{font-size:17px;font-weight:700;color:var(--gold)}
 .toast.show{opacity:1}
@@ -495,6 +497,7 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div class="chart-wrap" style="height:300px"><canvas id="chart-trend"></canvas>
         <div id="trend-tip" style="position:absolute;top:4px;pointer-events:none;background:rgba(20,24,36,0.95);border:1px solid var(--hairline);border-radius:9px;padding:7px 9px;font-size:10.5px;line-height:1.5;color:var(--text);display:none;z-index:5;max-width:46%;box-shadow:0 4px 14px rgba(0,0,0,0.4)"></div>
       </div>
+      <div class="chart-note" id="trend-insight"></div>
       <div id="trend-note" style="font-size:11px;color:var(--text-3);margin-top:8px;text-align:center"></div>
     </div>
 
@@ -515,6 +518,7 @@ input,select,textarea{font-family:inherit;color:inherit}
         <button data-vr="max" onclick="setVixRange('max',this)">전체</button>
       </div>
       <div class="chart-wrap" style="height:150px"><canvas id="chart-vix"></canvas></div>
+      <div class="chart-note" id="vix-note"></div>
       <div style="font-size:10.5px;color:var(--text-3);margin-top:7px;text-align:center">S&P500 옵션 내재변동성 — 20 미만 안정 · 20~30 경계 · 30 이상 공포 (본장에만 산출)</div>
     </div>
 
@@ -535,6 +539,7 @@ input,select,textarea{font-family:inherit;color:inherit}
         <button data-br="max" onclick="setBtcRange('max',this)">전체</button>
       </div>
       <div class="chart-wrap" style="height:150px"><canvas id="chart-btc"></canvas></div>
+      <div class="chart-note" id="btc-note"></div>
       <div style="font-size:10.5px;color:var(--text-3);margin-top:7px;text-align:center">BTC-USD · 24시간 거래 — <span style="color:#E2C285">━ 200일 이평선</span> · ┄ ATH(전고점)<span id="btc-res"></span></div>
     </div>
 
@@ -559,6 +564,7 @@ input,select,textarea{font-family:inherit;color:inherit}
         <button data-mr="1y" onclick="setMstRange('1y',this)">1Y</button>
       </div>
       <div class="chart-wrap" style="height:160px"><canvas id="chart-mst"></canvas></div>
+      <div class="chart-note" id="mst-note"></div>
       <div style="font-size:10.5px;color:var(--text-3);margin-top:7px;text-align:center">기준일=100 정규화 비교 — <span style="color:#4FB6C4">━ MSTR</span> · <span style="color:#E5484D">━ MST3.L</span> · MST3는 MSTR의 3배 레버리지(일간)</div>
     </div>
   </div>
@@ -1474,6 +1480,16 @@ async function renderVix(){
       else if(v<30){ zone.textContent='경계 구간'; zone.style.color='var(--gold)'; }
       else { zone.textContent='공포 구간'; zone.style.color='var(--up)'; }
     }
+    const note=document.getElementById('vix-note');
+    if(note){
+      const v=q.price;
+      const dir = chg>0.3 ? '전일 대비 상승' : (chg<-0.3 ? '전일 대비 하락' : '전일과 보합');
+      let band;
+      if(v<20) band='역사적으로 낮은 변동성 영역으로, 시장 공포가 진정된 상태';
+      else if(v<30) band='변동성이 다소 높아진 영역으로, 경계가 필요한 구간';
+      else band='변동성이 크게 확대된 공포 영역';
+      note.innerHTML='현재 <b>'+v.toFixed(1)+'</b>, '+band+'. '+dir+'입니다.';
+    }
   }catch(e){ /* 현재값 실패 시 차트만이라도 */ }
   try{
     // 기간 차트 (범위별 30분 캐시) — '전체'는 일봉 병합(월봉 강제변환 방지)
@@ -1646,6 +1662,22 @@ async function renderBtc(){
     // 이평선을 가격선과 동일 x 격자로 매핑 (툴팁 index 모드에서 날짜가 정확히 짝지어지도록)
     const maPts=pts.map(p=>({x:p.x, y:maByX.has(p.x)?maByX.get(p.x):null}));
     const maVisible=maPts.some(p=>p.y!=null);
+    // 한 줄 상태 요약 — 200일선 대비 위치 + 전고점 대비 낙폭 (중립 서술)
+    const noteEl=document.getElementById('btc-note');
+    if(noteEl){
+      const last=pts[pts.length-1].y;
+      const lastMa=[...maPts].reverse().find(p=>p.y!=null);
+      let maTxt='';
+      if(lastMa){
+        const gap=(last/lastMa.y-1)*100;
+        maTxt=(gap>=0)
+          ? '200일선 위 <b>+'+gap.toFixed(1)+'%</b>로, 장기 추세는 상승 우위'
+          : '200일선 아래 <b>'+gap.toFixed(1)+'%</b>로, 장기 추세는 하락 우위';
+      }
+      const offAth=ath?(last/ath.y-1)*100:0;
+      const athTxt=ath?('전고점 대비 <b>'+offAth.toFixed(1)+'%</b>'):'';
+      noteEl.innerHTML=[maTxt,athTxt].filter(Boolean).join(' · ')+'.';
+    }
     const longRange=(btcRange==='5y'||btcRange==='max');
     if(chartBtc) chartBtc.destroy();
     const c2=cv.getContext('2d');
@@ -1775,6 +1807,24 @@ async function renderMst(){
     const perTxt=(r)=>'기간 '+(r>=0?'+':'')+r.toFixed(1)+'%';
     const setPer=(id,r)=>{ const e=document.getElementById(id); if(e){ e.textContent=perTxt(r); e.style.color=(r>=0?'var(--up)':'var(--down)'); } };
     setPer('mstr-per',aRet); setPer('mst3-per',bRet);
+    // 한 줄 상태 요약 — 레버리지 실현 배수 + 같은 방향 여부 (중립 서술)
+    const mstNote=document.getElementById('mst-note');
+    if(mstNote){
+      const sameDir=(aRet>=0)===(bRet>=0);
+      let s;
+      if(Math.abs(aRet)<0.5){
+        s='기간 변동이 미미해 레버리지 배수를 논하기 이른 구간';
+      } else if(sameDir){
+        const lev=bRet/aRet;
+        s='같은 방향으로 움직이며, MST3가 MSTR의 <b>'+lev.toFixed(1)+'배</b>로 반응 — '
+          + (lev>=2.5 && lev<=3.5 ? '레버리지가 이론치(3배)에 가깝게 작동'
+             : (lev>3.5 ? '이론치(3배)보다 크게 증폭된 상태'
+             : '변동성 마모로 3배에 못 미치는 상태'));
+      } else {
+        s='두 종목이 반대 방향 — 추적 괴리가 발생한 구간';
+      }
+      mstNote.innerHTML=s+'.';
+    }
     if(chartMst) chartMst.destroy();
     const c2=cv.getContext('2d');
     chartMst=new Chart(c2,{type:'line',
@@ -2411,7 +2461,23 @@ function renderTrendChart(){
       datasets.push({label:'목표 페이스',data:pacePts,borderColor:'rgba(201,166,107,0.55)',
         borderWidth:1.2,borderDash:[5,4],fill:false,tension:0.15,pointRadius:0,pointHoverRadius:3,order:4});
     }
+    // 한 줄 상태 요약 — 목표 페이스 대비 현재 위치 (중립 서술)
+    const insEl=document.getElementById('trend-insight');
+    if(insEl){
+      const lastAsset=[...assetPts].reverse().find(p=>p.y!=null);
+      const lastPace=pacePts.length?pacePts[pacePts.length-1].y:0;
+      if(lastAsset && lastPace>0){
+        const gap=(lastAsset.y/lastPace-1)*100;
+        const athGap=(athVal&&athVal>0)?(lastAsset.y/athVal-1)*100:null;
+        let s=(gap>=0)
+          ? '목표 페이스 대비 <b>+'+gap.toFixed(1)+'%</b>로, 계획을 앞서는 흐름'
+          : '목표 페이스 대비 <b>'+gap.toFixed(1)+'%</b>로, 계획에 다소 못 미치는 흐름';
+        if(athGap!=null && athGap<-1) s+=' · 전고점 대비 '+athGap.toFixed(1)+'%';
+        insEl.innerHTML=s+'.';
+      } else insEl.innerHTML='';
+    }
   } else {
+    const insEl=document.getElementById('trend-insight'); if(insEl) insEl.innerHTML='';   // 단일 자산군 보기엔 의견 숨김
     // 단일 자산군 — 해당 자산군 평가액만 (카테고리 색)
     const col=CATEGORIES[trendView].color;
     const cgrad=ctx.createLinearGradient(0,0,0,290);

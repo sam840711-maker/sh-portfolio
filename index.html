@@ -1741,16 +1741,26 @@ async function renderMst(){
     }
     const A=_mstCache[ck].mstr, B=_mstCache[ck].mst3;
     if(!A||!A.length||!B||!B.length) return;
-    // 공통 날짜로 정렬 (런던/뉴욕 휴장일 차이 보정) — 양쪽 다 '유효한(>0)' 값이 있는 날만
+    // 공통 날짜 + 양쪽 유효(>0)
     const mapB=new Map(B.filter(p=>p.v>0).map(p=>[p.t,p.v]));
     let common=A.filter(p=>p.v>0 && mapB.has(p.t)).map(p=>({t:p.t, a:p.v, b:mapB.get(p.t)}));
     if(common.length<2) return;
-    // 기준값(첫 유효값) — 0/결측이면 정규화가 폭발하므로 반드시 유효해야
-    const a0=common[0].a, b0=common[0].b;
-    if(!(a0>0)||!(b0>0)) return;
+    // === 일간 수익률 누적 곱으로 정규화 (가격비율 방식은 병합·결측에 취약) ===
+    //  · 하루 변동이 ±40% 초과면 주식병합/분할 또는 데이터 오류로 보고 그 날 변동은 0% 처리(불연속 제거)
     const toMs=d=>new Date(d+'T00:00:00').getTime();
-    let aPts=common.map(p=>({x:toMs(p.t), y:p.a/a0*100}));
-    let bPts=common.map(p=>({x:toMs(p.t), y:p.b/b0*100}));
+    const chain=(arr,key)=>{
+      const out=[{x:toMs(arr[0].t), y:100}]; let idx=100;
+      for(let i=1;i<arr.length;i++){
+        const prev=arr[i-1][key], cur=arr[i][key];
+        let r=(prev>0)?cur/prev-1:0;
+        if(!isFinite(r) || Math.abs(r)>0.70) r=0;   // 병합/이상치 컷 (3x 레버리지 정상 변동은 보존)
+        idx*=(1+r);
+        out.push({x:toMs(arr[i].t), y:idx});
+      }
+      return out;
+    };
+    let aPts=chain(common,'a');
+    let bPts=chain(common,'b');
     // 솎아내기 (첫/끝 보존)
     const thin=arr=>{ if(arr.length<=900) return arr; const step=Math.ceil(arr.length/900),t=[];
       for(let i=0;i<arr.length;i+=step)t.push(arr[i]); if(t[t.length-1]!==arr[arr.length-1])t.push(arr[arr.length-1]); return t; };

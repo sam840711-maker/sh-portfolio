@@ -1456,6 +1456,48 @@ function setVixRange(r,btn){
   renderVix();
 }
 window.setVixRange=setVixRange;
+/* 기간 내 최고점·최저점 마커 플러그인 팩토리 (차트 공용)
+   opts: {hi:bool, lo:bool, fmt:fn(v)->str, color:'#..'}  */
+function makeHiLoMarkers(pts, opts){
+  let hi=null, lo=null;
+  for(const p of pts){ if(p.y==null) continue;
+    if(!hi||p.y>hi.y) hi={x:p.x,y:p.y};
+    if(!lo||p.y<lo.y) lo={x:p.x,y:p.y};
+  }
+  if(hi&&lo&&hi.x===lo.x&&hi.y===lo.y) lo=null;   // 점 하나뿐이면 최저 생략
+  const fmt=opts.fmt||(v=>String(Math.round(v)));
+  const hiColor=opts.color||'#C9A66B';
+  return {
+    id:'hilo',
+    afterDatasetsDraw(chart){
+      const xs=chart.scales.x, ys=chart.scales.y, area=chart.chartArea, g=chart.ctx;
+      const mark=(pt,text,color,below)=>{
+        if(!pt||pt.x<xs.min||pt.x>xs.max||pt.y<ys.min||pt.y>ys.max) return;
+        const px=xs.getPixelForValue(pt.x), py=ys.getPixelForValue(pt.y);
+        g.save();
+        g.fillStyle=color; g.strokeStyle='#0E1117'; g.lineWidth=1.5;
+        g.beginPath(); g.arc(px,py,4,0,Math.PI*2); g.fill(); g.stroke();
+        g.font='600 9.5px Pretendard';
+        const w=g.measureText(text).width+11;
+        let bx=Math.max(area.left+2,Math.min(px-w/2,area.right-w-2));
+        let by=below?py+8:py-21;
+        if(!below&&by<area.top+2) by=py+8;
+        if(below&&by+16>area.bottom-2) by=py-21;
+        g.fillStyle='rgba(27,32,48,0.92)'; g.strokeStyle=color; g.lineWidth=1;
+        g.beginPath(); g.roundRect(bx,by,w,16,5); g.fill(); g.stroke();
+        g.fillStyle=color; g.textAlign='left'; g.textBaseline='middle';
+        g.fillText(text,bx+6,by+8.5);
+        g.restore();
+      };
+      if(opts.hi){
+        // 기간 최고점이 ATH와 사실상 같으면(=전체 기간 등) 마커 생략 — ATH 라인과 중복 방지
+        const skip=opts.hiSkipVal!=null && hi && Math.abs(hi.y-opts.hiSkipVal)/opts.hiSkipVal<0.001;
+        if(!skip) mark(hi,'최고 '+fmt(hi?hi.y:0),hiColor,false);
+      }
+      if(opts.lo) mark(lo,'최저 '+fmt(lo?lo.y:0),'#7A8FB8',true);
+    }
+  };
+}
 async function renderVix(){
   const valEl=document.getElementById('vix-val');
   if(!valEl) return;
@@ -1542,7 +1584,7 @@ async function renderVix(){
     };
     chartVix=new Chart(c2,{type:'line',
       data:{datasets:[{data:pts,borderColor:'#E5484D',backgroundColor:grad,borderWidth:1.8,fill:true,tension:0.3,pointRadius:0,pointHoverRadius:3,clip:8}]},
-      plugins:[vixGuides],
+      plugins:[vixGuides, makeHiLoMarkers(pts,{hi:true,lo:true,color:'#E5C07B',fmt:v=>v.toFixed(1)})],
       options:{responsive:true,maintainAspectRatio:false,
         interaction:{mode:'index',intersect:false},
         plugins:{legend:{display:false},tooltip:{
@@ -1757,7 +1799,7 @@ async function renderBtc(){
         {label:conf.title.split(' ')[0],data:pts,borderColor:conf.color,backgroundColor:grad,borderWidth:1.8,fill:true,tension:0.3,pointRadius:0,pointHoverRadius:3,clip:8,order:2},
         ...(maVisible?[{label:'200일',data:maPts,borderColor:'#E2C285',borderWidth:1.4,fill:false,tension:0.2,spanGaps:false,pointRadius:0,pointHoverRadius:0,clip:8,order:1}]:[])
       ]},
-      plugins:[btcGuides],
+      plugins:[btcGuides, makeHiLoMarkers(pts,{hi:true,lo:true,fmt:fmtK,hiSkipVal:ath?ath.y:null})],
       options:{responsive:true,maintainAspectRatio:false,
         interaction:{mode:'index',intersect:false},
         plugins:{legend:{display:false},tooltip:{
@@ -1854,6 +1896,7 @@ async function renderFx(){
     const fmtTick=v=>conf.dec===1?Math.round(v):v.toFixed(0);
     chartFx=new Chart(c2,{type:'line',
       data:{datasets:[{data:pts,borderColor:conf.color,backgroundColor:grad,borderWidth:1.8,fill:true,tension:0.3,pointRadius:0,pointHoverRadius:3,clip:8}]},
+      plugins:[makeHiLoMarkers(pts,{hi:true,lo:true,color:conf.color,fmt:v=>conf.unit+(conf.dec===1?v.toFixed(1):v.toFixed(2))})],
       options:{responsive:true,maintainAspectRatio:false,
         interaction:{mode:'index',intersect:false},
         plugins:{legend:{display:false},tooltip:{

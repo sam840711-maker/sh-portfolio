@@ -1819,9 +1819,11 @@ async function renderBtc(){
 /* === 환율 카드 — 달러 인덱스(DXY) / 원·달러(USD-KRW) 토글 === */
 const FX_SYMS={
   dxy:{ yahoo:'DX-Y.NYB', title:'달러 인덱스 (DXY)', unit:'', dec:2, color:'#5B8DEF',
-        foot:'DXY · 주요 6개 통화 대비 달러 가치 — 상승 시 달러 강세' },
+        guides:[{v:100, color:'rgba(201,166,107,0.55)', label:'100'}],
+        foot:'DXY · 주요 6개 통화 대비 달러 가치 — 상승 시 달러 강세 · ┄ 100(강세/약세 분기)' },
   krw:{ yahoo:'KRW=X',    title:'원/달러 (USD/KRW)', unit:'₩', dec:1, color:'#56C964',
-        foot:'USD/KRW · 원·달러 환율 — 상승 시 원화 약세(달러 강세)' }
+        guides:[{v:1300, color:'rgba(201,166,107,0.5)', label:'1,300'},{v:1400, color:'rgba(229,72,77,0.55)', label:'1,400'}],
+        foot:'USD/KRW · 원·달러 환율 — 상승 시 원화 약세 · ┄ 1,300·1,400(심리적 분기)' }
 };
 let fxSym='dxy';
 let fxRange='6mo';
@@ -1846,6 +1848,9 @@ async function renderFx(){
   const conf=FX_SYMS[fxSym];
   const now=Date.now();
   const fmtVal=v=>conf.unit+(conf.dec===1?v.toFixed(1):v.toFixed(2));
+  // 제목·푸터 동기화 (초기 로드 시에도 기준선 안내 반영)
+  const tEl=document.getElementById('fx-card-title'); if(tEl) tEl.textContent=conf.title;
+  const fEl=document.getElementById('fx-foot'); if(fEl) fEl.textContent=conf.foot;
   try{
     const qk='q_'+fxSym;
     if(!_fxCache[qk] || now-_fxCache[qk].ts>10*60*1000){
@@ -1894,9 +1899,30 @@ async function renderFx(){
     grad.addColorStop(0,'rgba('+rgb+',0.20)'); grad.addColorStop(1,'rgba('+rgb+',0)');
     const yVals=pts.map(p=>p.y), dMin=Math.min(...yVals), dMax=Math.max(...yVals), dRng=Math.max(0.01,dMax-dMin);
     const fmtTick=v=>conf.dec===1?Math.round(v):v.toFixed(0);
+    // 기준선 — DXY 100 / 원달러 1,300·1,400 (보이는 범위일 때만)
+    const fxGuides={
+      id:'fxGuides',
+      beforeDatasetsDraw(chart){
+        const lines=conf.guides||[];
+        if(!lines.length) return;
+        const ys=chart.scales.y, area=chart.chartArea, g=chart.ctx;
+        g.save();
+        g.setLineDash([4,4]); g.lineWidth=1;
+        g.font='600 9px Pretendard'; g.textBaseline='middle'; g.textAlign='left';
+        for(const ln of lines){
+          if(ln.v<ys.min || ln.v>ys.max) continue;
+          const py=ys.getPixelForValue(ln.v);
+          g.strokeStyle=ln.color;
+          g.beginPath(); g.moveTo(area.left,py); g.lineTo(area.right,py); g.stroke();
+          g.fillStyle=ln.color;
+          g.fillText(ln.label, area.right-26, py-6);
+        }
+        g.restore();
+      }
+    };
     chartFx=new Chart(c2,{type:'line',
       data:{datasets:[{data:pts,borderColor:conf.color,backgroundColor:grad,borderWidth:1.8,fill:true,tension:0.3,pointRadius:0,pointHoverRadius:3,clip:8}]},
-      plugins:[makeHiLoMarkers(pts,{hi:true,lo:true,color:conf.color,fmt:v=>conf.unit+(conf.dec===1?v.toFixed(1):v.toFixed(2))})],
+      plugins:[fxGuides, makeHiLoMarkers(pts,{hi:true,lo:true,color:conf.color,fmt:v=>conf.unit+(conf.dec===1?v.toFixed(1):v.toFixed(2))})],
       options:{responsive:true,maintainAspectRatio:false,
         interaction:{mode:'index',intersect:false},
         plugins:{legend:{display:false},tooltip:{

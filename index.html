@@ -523,7 +523,12 @@ input,select,textarea{font-family:inherit;color:inherit}
     </div>
 
     <div class="card">
-      <div class="card-title">비트코인 (BTC/USD)</div>
+      <div class="card-title" id="btc-card-title">비트코인 (BTC/USD)</div>
+      <div class="seg trend-seg" id="btc-sym-seg" style="margin-bottom:10px">
+        <button data-bsym="btc" class="active" onclick="setBtcSym('btc',this)">BTC</button>
+        <button data-bsym="mstr" onclick="setBtcSym('mstr',this)">MSTR</button>
+        <button data-bsym="mst3" onclick="setBtcSym('mst3',this)">MST3.L</button>
+      </div>
       <div style="display:flex;align-items:baseline;gap:10px;margin:2px 0 8px">
         <span class="num" id="btc-val" style="font-size:26px;font-weight:700">—</span>
         <span class="num" id="btc-chg" style="font-size:13px;font-weight:600">—</span>
@@ -540,7 +545,31 @@ input,select,textarea{font-family:inherit;color:inherit}
       </div>
       <div class="chart-wrap" style="height:150px"><canvas id="chart-btc"></canvas></div>
       <div class="chart-note" id="btc-note"></div>
-      <div style="font-size:10.5px;color:var(--text-3);margin-top:7px;text-align:center">BTC-USD · 24시간 거래 — <span style="color:#E2C285">━ 200일 이평선</span> · ┄ ATH(전고점)<span id="btc-res"></span></div>
+      <div style="font-size:10.5px;color:var(--text-3);margin-top:7px;text-align:center" id="btc-foot">BTC-USD · 24시간 거래 — <span style="color:#E2C285">━ 200일 이평선</span> · ┄ ATH(전고점)<span id="btc-res"></span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" id="fx-card-title">달러 인덱스 (DXY)</div>
+      <div class="seg trend-seg" id="fx-sym-seg" style="margin-bottom:10px">
+        <button data-fxsym="dxy" class="active" onclick="setFxSym('dxy',this)">달러 인덱스</button>
+        <button data-fxsym="krw" onclick="setFxSym('krw',this)">원/달러</button>
+      </div>
+      <div style="display:flex;align-items:baseline;gap:10px;margin:2px 0 8px">
+        <span class="num" id="fxc-val" style="font-size:26px;font-weight:700">—</span>
+        <span class="num" id="fxc-chg" style="font-size:13px;font-weight:600">—</span>
+        <span class="ses-badge ses-closed" id="fxc-ses" style="display:none"></span>
+      </div>
+      <div class="seg trend-seg" id="fx-seg" style="margin-bottom:8px">
+        <button data-fr="1mo" onclick="setFxRange('1mo',this)">1M</button>
+        <button data-fr="3mo" onclick="setFxRange('3mo',this)">3M</button>
+        <button data-fr="6mo" class="active" onclick="setFxRange('6mo',this)">6M</button>
+        <button data-fr="1y" onclick="setFxRange('1y',this)">1Y</button>
+        <button data-fr="5y" onclick="setFxRange('5y',this)">5Y</button>
+        <button data-fr="max" onclick="setFxRange('max',this)">전체</button>
+      </div>
+      <div class="chart-wrap" style="height:150px"><canvas id="chart-fx"></canvas></div>
+      <div class="chart-note" id="fx-note"></div>
+      <div style="font-size:10.5px;color:var(--text-3);margin-top:7px;text-align:center" id="fx-foot">DXY · 주요 6개 통화 대비 달러 가치 — 상승 시 달러 강세</div>
     </div>
   </div>
 
@@ -1543,15 +1572,15 @@ function medianGapDays(hist){
   gaps.sort((a,b)=>a-b);
   return gaps[Math.floor(gaps.length/2)];
 }
-async function fetchHistMerged(symbol){
+async function fetchHistMerged(symbol, adjusted){
   // 일봉을 먼저 확보(10y→5y→2y, 사이 백오프로 프록시 연속호출 실패 완화) → max(전체)는 과거 보강용
   let daily=null;
   for(const r of ['10y','5y','2y']){
-    try{ const d=await fetchYahooHistoryDaily(symbol,r); if(medianGapDays(d)<=3){ daily=d; break; } }catch(e){}
+    try{ const d=await fetchYahooHistoryDaily(symbol,r,adjusted); if(medianGapDays(d)<=3){ daily=d; break; } }catch(e){}
     await new Promise(s=>setTimeout(s,300));
   }
   let maxh=null;
-  try{ maxh=await fetchYahooHistoryDaily(symbol,'max'); }catch(e){}
+  try{ maxh=await fetchYahooHistoryDaily(symbol,'max',adjusted); }catch(e){}
   if(daily && daily.length){
     if(maxh && medianGapDays(maxh)<=3) return {all:maxh, daily:maxh, res:'daily'};      // max 자체가 일봉
     const firstD=new Date(daily[0].t).getTime();
@@ -1564,52 +1593,85 @@ async function fetchHistMerged(symbol){
   }
   throw new Error('no data');
 }
+const BTC_SYMS={
+  btc:{ yahoo:'BTC-USD', title:'비트코인 (BTC/USD)', color:'#F7931A', rgb:'247,147,26',
+        krw:true, badge24:true, adjusted:false,
+        foot:'BTC-USD · 24시간 거래 — <span style="color:#E2C285">━ 200일 이평선</span> · ┄ ATH(전고점)' },
+  mstr:{ yahoo:'MSTR', title:'MSTR (마이크로스트래티지)', color:'#4FB6C4', rgb:'79,182,196',
+        krw:false, badge24:false, adjusted:true,
+        foot:'MSTR · 나스닥 상장 — <span style="color:#E2C285">━ 200일 이평선</span> · ┄ ATH(전고점)' },
+  mst3:{ yahoo:'MST3.L', title:'MST3.L (3x 레버리지 MSTR)', color:'#E5484D', rgb:'229,72,77',
+        krw:false, badge24:false, adjusted:true,
+        foot:'MST3.L · 런던 상장 3x 레버리지 ETP — <span style="color:#E2C285">━ 200일 이평선</span> · ┄ ATH(전고점)' }
+};
+let btcSym='btc';
 let btcRange='6mo';
 let chartBtc=null;
 let _btcCache={};
+function setBtcSym(s,btn){
+  btcSym=s;
+  document.querySelectorAll('#btc-sym-seg button').forEach(b=>b.classList.toggle('active',b===btn));
+  document.getElementById('btc-card-title').textContent=BTC_SYMS[s].title;
+  // 24시간 뱃지는 BTC만 (주식은 본장/마감으로 갱신됨)
+  renderBtc();
+}
 function setBtcRange(r,btn){
   btcRange=r;
   document.querySelectorAll('#btc-seg button').forEach(b=>b.classList.toggle('active',b===btn));
   renderBtc();
 }
-window.setBtcRange=setBtcRange;
+window.setBtcSym=setBtcSym; window.setBtcRange=setBtcRange;
 async function renderBtc(){
   const valEl=document.getElementById('btc-val');
   if(!valEl) return;
+  const conf=BTC_SYMS[btcSym];
   const now=Date.now();
-  const fmtUsd0=v=>'$'+Math.round(v).toLocaleString('en-US');
+  const fmtUsd0=v=>'$'+(v>=100?Math.round(v).toLocaleString('en-US'):v.toFixed(2));
+  // 푸터 갱신
+  const footEl=document.getElementById('btc-foot');
+  if(footEl) footEl.innerHTML=conf.foot+'<span id="btc-res"></span>';
   try{
-    if(!_btcCache.quote || now-_btcCache.quote.ts>10*60*1000){
-      const q=await fetchYahoo('BTC-USD');
-      _btcCache.quote={ts:now,q};
+    const qk='quote_'+btcSym;
+    if(!_btcCache[qk] || now-_btcCache[qk].ts>10*60*1000){
+      const q=await fetchYahoo(conf.yahoo);
+      _btcCache[qk]={ts:now,q};
     }
-    const q=_btcCache.quote.q;
+    const q=_btcCache[qk].q;
     valEl.textContent=fmtUsd0(q.price);
     const chg=q.price-(q.prevClose||q.price);
     const pct=(q.prevClose>0)?chg/q.prevClose:0;
     const chgEl=document.getElementById('btc-chg');
-    chgEl.textContent=(chg>=0?'+':'-')+'$'+Math.round(Math.abs(chg)).toLocaleString('en-US')+' ('+(pct>=0?'+':'')+(pct*100).toFixed(2)+'%)';
+    chgEl.textContent=(chg>=0?'+':'-')+'$'+(Math.abs(chg)>=100?Math.round(Math.abs(chg)).toLocaleString('en-US'):Math.abs(chg).toFixed(2))+' ('+(pct>=0?'+':'')+(pct*100).toFixed(2)+'%)';
     chgEl.className='num '+(chg>=0?'up':'down');
     const ses=document.getElementById('btc-ses');
-    if(ses) ses.style.display='inline-block';
+    if(ses){
+      if(conf.badge24){ ses.style.display='inline-block'; ses.textContent='24시간'; ses.className='ses-badge ses-open'; }
+      else { ses.style.display='inline-block';
+        ses.textContent=(q.marketState==='REGULAR')?'본장':'마감';
+        ses.className='ses-badge '+((q.marketState==='REGULAR')?'ses-open':'ses-closed'); }
+    }
     const krwEl=document.getElementById('btc-krw');
-    if(krwEl && state.settings.fxRate>0) krwEl.textContent='≈ ₩'+fmtKRW(Math.round(q.price*state.settings.fxRate));
+    if(krwEl){
+      krwEl.textContent=(conf.krw && state.settings.fxRate>0) ? '≈ ₩'+fmtKRW(Math.round(q.price*state.settings.fxRate)) : '';
+    }
   }catch(e){ /* 현재값 실패 시 차트만 */ }
   try{
-    // 일봉 보장 병합 시리즈 캐시 (월봉만 받아진 경우는 5분 뒤 재시도)
-    const ttl=(_btcCache.merged&&_btcCache.merged.res==='coarse')?5*60*1000:30*60*1000;
-    if(!_btcCache.merged || now-_btcCache.merged.ts>ttl){
-      const m=await fetchHistMerged('BTC-USD');
-      _btcCache.merged={ts:now,...m};
+    // 일봉 보장 병합 시리즈 캐시 (심볼별, 월봉만 받아진 경우는 5분 뒤 재시도)
+    const mk='merged_'+btcSym;
+    const cached=_btcCache[mk];
+    const ttl=(cached&&cached.res==='coarse')?5*60*1000:30*60*1000;
+    if(!cached || now-cached.ts>ttl){
+      const m=await fetchHistMerged(conf.yahoo, conf.adjusted);
+      _btcCache[mk]={ts:now,...m};
     }
-    const full=_btcCache.merged.all;
-    const dailyArr=_btcCache.merged.daily;
+    const full=_btcCache[mk].all;
+    const dailyArr=_btcCache[mk].daily;
     const resEl=document.getElementById('btc-res');
-    if(resEl) resEl.textContent=_btcCache.merged.res==='coarse'?' · ⚠ 일봉 로드 실패(월봉 표시)':(_btcCache.merged.res==='merged'?' · 과거 구간은 월봉':'');
+    if(resEl) resEl.textContent=_btcCache[mk].res==='coarse'?' · ⚠ 일봉 로드 실패(월봉 표시)':(_btcCache[mk].res==='merged'?' · 과거 구간은 월봉':'');
     const cv=document.getElementById('chart-btc');
     if(!cv||!full||!full.length) return;
-    const allPts=full.map(p=>({x:new Date(p.t+'T00:00:00').getTime(), y:p.v}));
-    const dailyPts=dailyArr.map(p=>({x:new Date(p.t+'T00:00:00').getTime(), y:p.v}));
+    const allPts=full.filter(p=>p.v>0).map(p=>({x:new Date(p.t+'T00:00:00').getTime(), y:p.v}));
+    const dailyPts=dailyArr.filter(p=>p.v>0).map(p=>({x:new Date(p.t+'T00:00:00').getTime(), y:p.v}));
     // 200일 이동평균 — 반드시 일봉에서만 계산
     const maByX=new Map(); let run=0;
     for(let i=0;i<dailyPts.length;i++){
@@ -1657,8 +1719,8 @@ async function renderBtc(){
     if(chartBtc) chartBtc.destroy();
     const c2=cv.getContext('2d');
     const grad=c2.createLinearGradient(0,0,0,150);
-    grad.addColorStop(0,'rgba(247,147,26,0.22)'); grad.addColorStop(1,'rgba(247,147,26,0)');
-    const fmtK=v=>v>=1000?(v/1000).toFixed(v>=100000?0:1)+'k':String(Math.round(v));
+    grad.addColorStop(0,'rgba('+conf.rgb+',0.22)'); grad.addColorStop(1,'rgba('+conf.rgb+',0)');
+    const fmtK=v=>v>=1000?(v/1000).toFixed(v>=100000?0:1)+'k':(v>=10?String(Math.round(v)):v.toFixed(1));
     // 전고점 가로선 (보이는 범위 안일 때만)
     const btcGuides={
       id:'btcGuides',
@@ -1687,11 +1749,12 @@ async function renderBtc(){
     };
     // Y축 범위 — 데이터(가격+이평) 기준 수동 산출 (0부터 시작해 공간 낭비되는 것 방지)
     const yVals=[...pts.map(p=>p.y), ...maPts.filter(p=>p.y!=null).map(p=>p.y)];
-    const dMin=Math.min(...yVals), dMax=Math.max(...yVals), dRng=Math.max(1,dMax-dMin);
+    const dMin=Math.min(...yVals), dMax=Math.max(...yVals), dRng=Math.max(0.01,dMax-dMin);
     const yLo=Math.max(0, dMin-dRng*0.06), yHi=dMax+dRng*0.08;
+    const labelDec=(v)=>'$'+(v>=100?Math.round(v).toLocaleString('en-US'):v.toFixed(2));
     chartBtc=new Chart(c2,{type:'line',
       data:{datasets:[
-        {label:'BTC',data:pts,borderColor:'#F7931A',backgroundColor:grad,borderWidth:1.8,fill:true,tension:0.3,pointRadius:0,pointHoverRadius:3,clip:8,order:2},
+        {label:conf.title.split(' ')[0],data:pts,borderColor:conf.color,backgroundColor:grad,borderWidth:1.8,fill:true,tension:0.3,pointRadius:0,pointHoverRadius:3,clip:8,order:2},
         ...(maVisible?[{label:'200일',data:maPts,borderColor:'#E2C285',borderWidth:1.4,fill:false,tension:0.2,spanGaps:false,pointRadius:0,pointHoverRadius:0,clip:8,order:1}]:[])
       ]},
       plugins:[btcGuides],
@@ -1700,13 +1763,109 @@ async function renderBtc(){
         plugins:{legend:{display:false},tooltip:{
           filter:item=>item.parsed.y!=null,
           callbacks:{title:items=>items.length?new Date(items[0].parsed.x).toISOString().slice(0,10):'',
-                     label:item=>' '+(item.dataset.label||'')+' $'+Math.round(item.parsed.y).toLocaleString('en-US')}}},
+                     label:item=>' '+(item.dataset.label||'')+' '+labelDec(item.parsed.y)}}},
         scales:{
           x:{type:'linear',min:pts[0].x,max:pts[pts.length-1].x,
              ticks:{maxTicksLimit:longRange?6:5,color:'#565967',font:{size:9.5},
               callback:v=>{const d=new Date(v);return longRange ? String(d.getFullYear()) : (d.getFullYear()%100)+'.'+String(d.getMonth()+1).padStart(2,'0');}},
              grid:{display:false},border:{display:false}},
           y:{min:yLo,max:yHi,ticks:{maxTicksLimit:5,color:'#565967',font:{size:9.5},callback:fmtK},
+             grid:{color:'rgba(255,255,255,0.05)'},border:{display:false}}
+        }}});
+  }catch(e){}
+}
+/* === 환율 카드 — 달러 인덱스(DXY) / 원·달러(USD-KRW) 토글 === */
+const FX_SYMS={
+  dxy:{ yahoo:'DX-Y.NYB', title:'달러 인덱스 (DXY)', unit:'', dec:2, color:'#5B8DEF',
+        foot:'DXY · 주요 6개 통화 대비 달러 가치 — 상승 시 달러 강세' },
+  krw:{ yahoo:'KRW=X',    title:'원/달러 (USD/KRW)', unit:'₩', dec:1, color:'#56C964',
+        foot:'USD/KRW · 원·달러 환율 — 상승 시 원화 약세(달러 강세)' }
+};
+let fxSym='dxy';
+let fxRange='6mo';
+let chartFx=null;
+let _fxCache={};
+function setFxSym(s,btn){
+  fxSym=s;
+  document.querySelectorAll('#fx-sym-seg button').forEach(b=>b.classList.toggle('active',b===btn));
+  document.getElementById('fx-card-title').textContent=FX_SYMS[s].title;
+  document.getElementById('fx-foot').textContent=FX_SYMS[s].foot;
+  renderFx();
+}
+function setFxRange(r,btn){
+  fxRange=r;
+  document.querySelectorAll('#fx-seg button').forEach(b=>b.classList.toggle('active',b===btn));
+  renderFx();
+}
+window.setFxSym=setFxSym; window.setFxRange=setFxRange;
+async function renderFx(){
+  const cv=document.getElementById('chart-fx');
+  if(!cv) return;
+  const conf=FX_SYMS[fxSym];
+  const now=Date.now();
+  const fmtVal=v=>conf.unit+(conf.dec===1?v.toFixed(1):v.toFixed(2));
+  try{
+    const qk='q_'+fxSym;
+    if(!_fxCache[qk] || now-_fxCache[qk].ts>10*60*1000){
+      const q=await fetchYahoo(conf.yahoo);
+      _fxCache[qk]={ts:now,q};
+    }
+    const q=_fxCache[qk].q;
+    const v=document.getElementById('fxc-val'); if(v) v.textContent=fmtVal(q.price);
+    const chg=q.price-(q.prevClose||q.price);
+    const pct=(q.prevClose>0)?chg/q.prevClose:0;
+    const ch=document.getElementById('fxc-chg');
+    if(ch){ ch.textContent=(chg>=0?'+':'')+(conf.dec===1?chg.toFixed(1):chg.toFixed(2))+' ('+(pct>=0?'+':'')+(pct*100).toFixed(2)+'%)';
+      ch.className='num '+(chg>=0?'up':'down'); }
+    const ses=document.getElementById('fxc-ses');
+    if(ses){ ses.style.display='inline-block';
+      ses.textContent=(q.marketState==='REGULAR')?'본장':'마감';
+      ses.className='ses-badge '+((q.marketState==='REGULAR')?'ses-open':'ses-closed'); }
+  }catch(e){}
+  try{
+    const ck=fxSym+'_'+fxRange;
+    if(!_fxCache[ck] || now-_fxCache[ck].ts>30*60*1000){
+      const hist=(fxRange==='max')
+        ? (await fetchHistMerged(conf.yahoo)).all
+        : await fetchYahooHistoryDaily(conf.yahoo, fxRange);
+      _fxCache[ck]={ts:now,hist};
+    }
+    const hist=_fxCache[ck].hist;
+    if(!hist||!hist.length) return;
+    let pts=hist.filter(p=>p.v>0).map(p=>({x:new Date(p.t+'T00:00:00').getTime(), y:p.v}));
+    if(pts.length<2) return;
+    if(pts.length>900){ const step=Math.ceil(pts.length/900),t=[];
+      for(let i=0;i<pts.length;i+=step)t.push(pts[i]); if(t[t.length-1]!==pts[pts.length-1])t.push(pts[pts.length-1]); pts=t; }
+    const longRange=(fxRange==='5y'||fxRange==='max');
+    const per=(pts[pts.length-1].y/pts[0].y-1)*100;
+    const note=document.getElementById('fx-note');
+    if(note){
+      const dir = per>=0
+        ? (fxSym==='dxy'?'달러가 강해진':'원화가 약해진(달러 강세)')
+        : (fxSym==='dxy'?'달러가 약해진':'원화가 강해진(달러 약세)');
+      note.innerHTML='이 기간 <b>'+(per>=0?'+':'')+per.toFixed(1)+'%</b> — '+dir+' 흐름입니다.';
+    }
+    if(chartFx) chartFx.destroy();
+    const c2=cv.getContext('2d');
+    const grad=c2.createLinearGradient(0,0,0,150);
+    const rgb=fxSym==='dxy'?'91,141,239':'86,201,100';
+    grad.addColorStop(0,'rgba('+rgb+',0.20)'); grad.addColorStop(1,'rgba('+rgb+',0)');
+    const yVals=pts.map(p=>p.y), dMin=Math.min(...yVals), dMax=Math.max(...yVals), dRng=Math.max(0.01,dMax-dMin);
+    const fmtTick=v=>conf.dec===1?Math.round(v):v.toFixed(0);
+    chartFx=new Chart(c2,{type:'line',
+      data:{datasets:[{data:pts,borderColor:conf.color,backgroundColor:grad,borderWidth:1.8,fill:true,tension:0.3,pointRadius:0,pointHoverRadius:3,clip:8}]},
+      options:{responsive:true,maintainAspectRatio:false,
+        interaction:{mode:'index',intersect:false},
+        plugins:{legend:{display:false},tooltip:{
+          callbacks:{title:items=>items.length?new Date(items[0].parsed.x).toISOString().slice(0,10):'',
+            label:item=>' '+fmtVal(item.parsed.y)}}},
+        scales:{
+          x:{type:'linear',min:pts[0].x,max:pts[pts.length-1].x,
+             ticks:{maxTicksLimit:longRange?6:5,color:'#565967',font:{size:9.5},
+              callback:v=>{const d=new Date(v);return longRange?String(d.getFullYear()):(d.getFullYear()%100)+'.'+String(d.getMonth()+1).padStart(2,'0');}},
+             grid:{display:false},border:{display:false}},
+          y:{min:dMin-dRng*0.08,max:dMax+dRng*0.08,
+             ticks:{maxTicksLimit:5,color:'#565967',font:{size:9.5},callback:fmtTick},
              grid:{color:'rgba(255,255,255,0.05)'},border:{display:false}}
         }}});
   }catch(e){}
@@ -1879,6 +2038,7 @@ function renderDashboard(){
   renderTrendChart();
   renderVix();
   renderBtc();
+  renderFx();
   renderTopbar();
   renderRebalAlert(s);
   renderCagrAlert();

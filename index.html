@@ -3292,17 +3292,32 @@ async function saveClassTargets(){
 window.updateTwSum=updateTwSum; window.saveClassTargets=saveClassTargets;
 
 /* === 종목별 목표 비중 수정 (선택된 카테고리) === */
+function swEditorCats(){
+  // 편집 대상 자산군: '전체'면 종목이 있는 모든 자산군, 아니면 선택된 하나
+  if(rbStockCat==='all') return Object.keys(CATEGORIES).filter(k=>state.holdings.some(h=>h.cat===k));
+  return [rbStockCat];
+}
 function openStockWeightEditor(){
-  const cat=rbStockCat;
-  const hs=state.holdings.filter(h=>h.cat===cat);
-  if(!hs.length){ toast('종목이 없습니다'); return; }
-  const rows=hs.map(h=>`
-    <div class="field"><label>${esc(h.symbol.replace('.KS','').replace('.L',''))} · ${esc(h.name)}</label>
-      <input id="sw-${h.id}" type="number" step="0.1" value="${((h.targetWt||0)*100).toFixed(1)}" oninput="updateSwSum()"></div>`).join('');
-  openModal(`<h3>${CATEGORIES[cat].label} 종목 목표 비중</h3>
-    <div class="modal-sub">카테고리 내 비중 · 합계 100% 권장</div>
-    ${rows}
-    <div id="sw-sum" style="text-align:center;font-size:12px;padding:8px;color:var(--text-2)"></div>
+  const cats=swEditorCats();
+  const total=state.holdings.filter(h=>cats.includes(h.cat));
+  if(!total.length){ toast('종목이 없습니다'); return; }
+  const sections=cats.map(cat=>{
+    const hs=state.holdings.filter(h=>h.cat===cat);
+    if(!hs.length) return '';
+    const rows=hs.map(h=>`
+      <div class="field"><label>${esc(h.symbol.replace('.KS','').replace('.L',''))} · ${esc(h.name)}</label>
+        <input id="sw-${h.id}" data-swcat="${cat}" type="number" step="0.1" value="${((h.targetWt||0)*100).toFixed(1)}" oninput="updateSwSum()"></div>`).join('');
+    const head = (rbStockCat==='all')
+      ? `<div style="display:flex;align-items:center;gap:7px;margin:14px 0 6px"><span style="width:9px;height:9px;border-radius:2px;background:${CATEGORIES[cat].color}"></span><b style="font-size:13px">${CATEGORIES[cat].label}</b><span id="sw-sum-${cat}" style="margin-left:auto;font-size:11px;color:var(--text-2)"></span></div>`
+      : '';
+    return head+rows;
+  }).join('');
+  const title = (rbStockCat==='all') ? '전체 종목 목표 비중' : CATEGORIES[rbStockCat].label+' 종목 목표 비중';
+  const sub = (rbStockCat==='all') ? '자산군별로 각각 합계 100% 권장' : '카테고리 내 비중 · 합계 100% 권장';
+  openModal(`<h3>${title}</h3>
+    <div class="modal-sub">${sub}</div>
+    ${sections}
+    ${rbStockCat==='all'?'':'<div id="sw-sum" style="text-align:center;font-size:12px;padding:8px;color:var(--text-2)"></div>'}
     <div class="btn-row">
       <button class="btn btn-secondary" onclick="closeModal()">취소</button>
       <button class="btn btn-primary" onclick="saveStockWeights()">저장</button>
@@ -3310,17 +3325,22 @@ function openStockWeightEditor(){
   updateSwSum();
 }
 function updateSwSum(){
-  const hs=state.holdings.filter(h=>h.cat===rbStockCat);
-  let sum=0;
-  for (const h of hs){ const el=document.getElementById('sw-'+h.id); if(el) sum+=parseFloat(el.value)||0; }
-  const sumEl=document.getElementById('sw-sum');
-  if(sumEl){
+  const cats=swEditorCats();
+  for(const cat of cats){
+    const hs=state.holdings.filter(h=>h.cat===cat);
+    let sum=0;
+    for(const h of hs){ const el=document.getElementById('sw-'+h.id); if(el) sum+=parseFloat(el.value)||0; }
     const ok=Math.abs(sum-100)<0.05;
-    sumEl.innerHTML=`합계 <b class="${ok?'':'up'}">${sum.toFixed(1)}%</b> ${ok?'✓':'— 100%로 맞춰주세요'}`;
+    // 전체 모드: 자산군별 헤더 합계 / 단일 모드: 하단 합계
+    const perEl=document.getElementById('sw-sum-'+cat);
+    if(perEl) perEl.innerHTML=`합계 <b class="${ok?'':'up'}">${sum.toFixed(1)}%</b> ${ok?'✓':''}`;
+    const sumEl=(rbStockCat!=='all')?document.getElementById('sw-sum'):null;
+    if(sumEl) sumEl.innerHTML=`합계 <b class="${ok?'':'up'}">${sum.toFixed(1)}%</b> ${ok?'✓':'— 100%로 맞춰주세요'}`;
   }
 }
 async function saveStockWeights(){
-  const hs=state.holdings.filter(h=>h.cat===rbStockCat);
+  const cats=swEditorCats();
+  const hs=state.holdings.filter(h=>cats.includes(h.cat));
   for (const h of hs){
     const el=document.getElementById('sw-'+h.id); if(!el) continue;
     const v=parseFloat(el.value);

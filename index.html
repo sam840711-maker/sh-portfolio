@@ -490,11 +490,11 @@ input,select,textarea{font-family:inherit;color:inherit}
     <div class="card">
       <div class="card-title">자산 추이 <span class="action" id="trend-add">기록 관리</span></div>
       <div class="seg trend-seg" id="trend-seg" style="margin-top:6px;margin-bottom:6px">
-        <button data-rk="5y" onclick="setTrendRange('5y',this)">5Y</button>
         <button data-rk="1m" onclick="setTrendRange('1m',this)">1M</button>
         <button data-rk="3m" onclick="setTrendRange('3m',this)">3M</button>
         <button data-rk="6m" class="active" onclick="setTrendRange('6m',this)">6M</button>
         <button data-rk="1y" onclick="setTrendRange('1y',this)">1Y</button>
+        <button data-rk="5y" onclick="setTrendRange('5y',this)">5Y</button>
         <button data-rk="all" onclick="setTrendRange('all',this)">전체</button>
       </div>
       <div class="chips" id="trend-view-chips" style="margin:2px 0 8px"></div>

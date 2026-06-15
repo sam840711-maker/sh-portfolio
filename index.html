@@ -371,6 +371,10 @@ input,select,textarea{font-family:inherit;color:inherit}
 .itax-calc{font-size:10px;color:var(--gold);min-height:12px;font-variant-numeric:tabular-nums}
 .chart-note{font-size:11.5px;color:var(--text-2);margin-top:9px;text-align:center;line-height:1.45;padding:0 6px}
 .chart-note b{color:var(--text-1);font-weight:600}
+.q-ext-row{display:flex;align-items:center;gap:6px;margin-top:3px;font-size:11.5px}
+.q-ext-lbl{color:var(--text-3);font-size:10px;background:var(--surface);border:1px solid var(--hairline);border-radius:4px;padding:0 5px}
+.q-ext-price{color:var(--text-2);font-weight:600;font-variant-numeric:tabular-nums}
+.q-ext-pct{font-size:11px;font-weight:600}
 .itax-sum{display:flex;justify-content:space-between;align-items:baseline;padding:11px 14px;background:var(--surface);border:1px solid var(--hairline);border-radius:11px;margin-bottom:14px;font-size:13px;font-weight:600}
 .itax-sum b{font-size:17px;font-weight:700;color:var(--gold)}
 .toast.show{opacity:1}
@@ -4198,30 +4202,55 @@ window.qeRecalc=qeRecalc;
    ================================================================ */
 function quoteRowHTML(h){
   const usd=isUSDcat(h.cat);
-  const price=usd?(h.curUSD||0):(h.curKRW||0);
-  const priceStr=usd?fmtUSD(price):'₩'+Math.round(price).toLocaleString();
   const ini=h.symbol.replace(/\..*/,'').slice(0,2).toUpperCase();
   const col=CATEGORIES[h.cat].color;
-  const ses=marketSession(marketOf(h));
-  let chgHtml='<div class="h-pct" style="color:var(--text-3)">시세 없음</div>';
-  if(h._mkt && h._mkt.dayChangePct!=null){
-    const dc=h._mkt.dayChangePct, cls=dc>=0?'up':'down';
-    let absStr='';
-    if(h._mkt.prevClose){
-      const abs=price-h._mkt.prevClose;
-      absStr=usd?`${abs>=0?'+':''}${abs.toFixed(2)}`:`${abs>=0?'+':''}${Math.round(abs).toLocaleString()}`;
-    }
-    chgHtml=`<div class="h-pct ${cls}">${fmtPctSigned(dc)}${absStr?`<span class="q-abs">${absStr}</span>`:''}</div>`;
+  const m=h._mkt||{};
+  const hasSplit = usd && m.regPrice!=null;   // 새 분리 필드가 있는 USD 종목
+  const fmtP=v=>usd?fmtUSD(v):'₩'+Math.round(v).toLocaleString();
+  const fmtAbs=(v)=>usd?`${v>=0?'+':''}${v.toFixed(2)}`:`${v>=0?'+':''}${Math.round(v).toLocaleString()}`;
+
+  // 장 상태 뱃지 — 실제 quote marketState 기반 (시간 기반 아님)
+  let badge='';
+  if(hasSplit){
+    if(m.extType==='PRE') badge=`<span class="ses-badge ses-ext">프리장</span>`;
+    else if(m.extType==='POST') badge=`<span class="ses-badge ses-ext">애프터장</span>`;
+    else if(m.marketState==='REGULAR') badge=`<span class="ses-badge ses-open">정규장</span>`;
+    else badge=`<span class="ses-badge ses-closed">마감</span>`;
   }
+  const warn=lastFailed.has(h.symbol)?' <span class="h-warn" title="최근 갱신 실패 — 이전 시세">⚠</span>':'';
+
+  // 메인 줄 = 정규장 (분리 필드 있으면), 없으면 기존 단일 시세
+  let mainPrice, mainPct, mainPrev;
+  if(hasSplit){ mainPrice=m.regPrice; mainPct=m.regChangePct||0; mainPrev=m.regPrevClose; }
+  else { mainPrice=usd?(h.curUSD||0):(h.curKRW||0); mainPct=(m.dayChangePct!=null)?m.dayChangePct:null; mainPrev=m.prevClose; }
+
+  let mainChg='<div class="h-pct" style="color:var(--text-3)">시세 없음</div>';
+  if(mainPct!=null){
+    const cls=mainPct>=0?'up':'down';
+    const absStr=(mainPrev!=null)?`<span class="q-abs">${fmtAbs(mainPrice-mainPrev)}</span>`:'';
+    mainChg=`<div class="h-pct ${cls}">${fmtPctSigned(mainPct)}${absStr}</div>`;
+  }
+
+  // 연장장(프리/애프터) 줄 — 분리 필드 있고 해당 상태일 때만
+  let extRow='';
+  if(hasSplit && m.extType && m.extPrice!=null){
+    const lbl=m.extType==='PRE'?'프리':'애프터';
+    const ec=m.extChangePct||0, cls=ec>=0?'up':'down';
+    extRow=`<div class="q-ext-row"><span class="q-ext-lbl">${lbl}</span>
+      <span class="q-ext-price">${fmtP(m.extPrice)}</span>
+      <span class="q-ext-pct num ${cls}">${fmtPctSigned(ec)}</span></div>`;
+  }
+
   return `<div class="holding" data-id="${h.id}">
     <div class="h-icon" style="background:${col}22;color:${col}">${ini}</div>
     <div class="h-info">
-      <div class="h-ticker">${esc(h.symbol.replace('.KS','').replace('.L',''))}${lastFailed.has(h.symbol)?' <span class="h-warn" title="최근 갱신 실패 — 이전 시세">⚠</span>':''}${ses.label?`<span class="ses-badge ${ses.cls}">${ses.label}</span>`:''}</div>
+      <div class="h-ticker">${esc(h.symbol.replace('.KS','').replace('.L',''))}${warn}${badge}</div>
       <div class="h-name">${esc(h.name)}</div>
+      ${extRow}
     </div>
     <div class="h-val">
-      <div class="h-amount">${priceStr}</div>
-      ${chgHtml}
+      <div class="h-amount">${fmtP(mainPrice)}</div>
+      ${mainChg}
     </div></div>`;
 }
 function renderQuotes(){

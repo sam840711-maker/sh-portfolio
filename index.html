@@ -490,7 +490,7 @@ input,select,textarea{font-family:inherit;color:inherit}
     <div class="card">
       <div class="card-title">자산 추이 <span class="action" id="trend-add">기록 관리</span></div>
       <div class="seg trend-seg" id="trend-seg" style="margin-top:6px;margin-bottom:6px">
-        <button data-rk="2w" onclick="setTrendRange('2w',this)">2W</button>
+        <button data-rk="5y" onclick="setTrendRange('5y',this)">5Y</button>
         <button data-rk="1m" onclick="setTrendRange('1m',this)">1M</button>
         <button data-rk="3m" onclick="setTrendRange('3m',this)">3M</button>
         <button data-rk="6m" class="active" onclick="setTrendRange('6m',this)">6M</button>
@@ -2446,7 +2446,7 @@ function renderTrendChart(){
 
   // 기간 필터 — 마지막 기록 기준 N일/N개월 이내
   if(trendRange!=='all' && hist.length){
-    const days={'2w':14,'1m':30,'3m':90,'6m':180,'1y':365}[trendRange]||0;
+    const days={'1m':30,'3m':90,'6m':180,'1y':365,'5y':1825}[trendRange]||0;
     if(days){
       const lastMs=new Date(hist[hist.length-1].d+'T00:00:00').getTime();
       const cutoff=lastMs-days*86400000;
@@ -2479,7 +2479,7 @@ function renderTrendChart(){
   if (trendRange === 'all'){
     xMin = assetPts.length ? assetPts[0].x : lastDataMs;
   } else {
-    const days = {'2w':14,'1m':30,'3m':90,'6m':180,'1y':365}[trendRange] || 0;
+    const days = {'1m':30,'3m':90,'6m':180,'1y':365,'5y':1825}[trendRange] || 0;
     xMin = lastDataMs - days * 86400000;
     // 보유 데이터가 선택 기간보다 짧으면 첫 데이터 지점에 맞춤 (왼쪽 잘림 방지)
     if (assetPts.length && assetPts[0].x > xMin) xMin = assetPts[0].x;
@@ -2700,7 +2700,7 @@ function renderTrendChart(){
     }});
 
   const recorded=hist.length;
-  const rangeLbl={'2w':'최근 2주','1m':'최근 1개월','3m':'최근 3개월','6m':'최근 6개월','1y':'최근 1년','all':'전체 기간'}[trendRange]||'';
+  const rangeLbl={'1m':'최근 1개월','3m':'최근 3개월','6m':'최근 6개월','1y':'최근 1년','5y':'최근 5년','all':'전체 기간'}[trendRange]||'';
   const dsTxt = beforeDS!==afterDS ? ` · 점 ${beforeDS}→${afterDS}개로 축약(${beforeDS>2500?'월 평균':'주 평균'})` : '';
   const estTxt = estCount>0 ? ` · 추정 ${estCount}점 (점선)` : '';
   const zoomTxt = trendRange==='all' ? ' · 핀치 확대 · 좌우 드래그' : '';

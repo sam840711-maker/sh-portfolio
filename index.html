@@ -5050,6 +5050,13 @@ async function fetchYahooChart(symbol){
     hi52:m.fiftyTwoWeekHigh, lo52:m.fiftyTwoWeekLow,
     name:m.longName||m.shortName||'',
     marketState:ms,
+    // 정규장 / 연장장(프리·애프터) 분리 — quote API 폴백 시에도 야후식 표시 지원
+    regPrice:m.regularMarketPrice,
+    regPrevClose:(officialPrev!=null)?officialPrev:(prevClose!=null?prevClose:m.regularMarketPrice),
+    regChangePct:(()=>{ const rp=(officialPrev!=null)?officialPrev:prevClose; return (rp>0)?(m.regularMarketPrice-rp)/rp:0; })(),
+    extType: useExt ? (ms==='PRE'?'PRE':'POST') : null,
+    extPrice: useExt ? price : null,
+    extChangePct: useExt ? ((m.regularMarketPrice>0)?(price-m.regularMarketPrice)/m.regularMarketPrice:0) : null,
   };
 }
 /* 장 상태 라벨 */

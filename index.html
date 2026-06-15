@@ -535,6 +535,7 @@ input,select,textarea{font-family:inherit;color:inherit}
         <span class="ses-badge ses-open" id="btc-ses" style="display:none">24시간</span>
         <span class="num" id="btc-krw" style="font-size:11px;color:var(--text-3);margin-left:auto"></span>
       </div>
+      <div class="num" id="btc-ext" style="font-size:11.5px;font-weight:600;margin:-4px 0 8px;display:none"></div>
       <div class="seg trend-seg" id="btc-seg" style="margin-bottom:8px">
         <button data-br="1mo" onclick="setBtcRange('1mo',this)">1M</button>
         <button data-br="3mo" onclick="setBtcRange('3mo',this)">3M</button>
@@ -1679,12 +1680,15 @@ async function renderBtc(){
       _btcCache[qk]={ts:now,q};
     }
     const q=_btcCache[qk].q;
-    valEl.textContent=fmtUsd0(q.price);
-    const chg=q.price-(q.prevClose||q.price);
-    const pct=(q.prevClose>0)?chg/q.prevClose:0;
+    // 메인 = 정규장 (야후식), 프리/애프터는 아래 별도 줄
+    const mainPrice=(q.regPrice!=null)?q.regPrice:q.price;
+    const mainPct=(q.regChangePct!=null)?q.regChangePct:((q.prevClose>0)?(q.price-q.prevClose)/q.prevClose:0);
+    valEl.textContent=fmtUsd0(mainPrice);
     const chgEl=document.getElementById('btc-chg');
-    chgEl.textContent=(chg>=0?'+':'-')+'$'+(Math.abs(chg)>=100?Math.round(Math.abs(chg)).toLocaleString('en-US'):Math.abs(chg).toFixed(2))+' ('+(pct>=0?'+':'')+(pct*100).toFixed(2)+'%)';
-    chgEl.className='num '+(chg>=0?'up':'down');
+    const mPrev=(q.regPrevClose!=null)?q.regPrevClose:(q.prevClose||mainPrice);
+    const mAbs=mainPrice-mPrev;
+    chgEl.textContent=(mAbs>=0?'+':'-')+'$'+(Math.abs(mAbs)>=100?Math.round(Math.abs(mAbs)).toLocaleString('en-US'):Math.abs(mAbs).toFixed(2))+' ('+(mainPct>=0?'+':'')+(mainPct*100).toFixed(2)+'%)';
+    chgEl.className='num '+(mainPct>=0?'up':'down');
     const ses=document.getElementById('btc-ses');
     if(ses){
       if(conf.badge24){ ses.style.display='inline-block'; ses.textContent='24시간'; ses.className='ses-badge ses-open'; }
@@ -1692,9 +1696,19 @@ async function renderBtc(){
         ses.textContent=(q.marketState==='REGULAR')?'본장':'마감';
         ses.className='ses-badge '+((q.marketState==='REGULAR')?'ses-open':'ses-closed'); }
     }
+    // 프리장/애프터장 줄 (해당 상태일 때만)
+    const extEl=document.getElementById('btc-ext');
+    if(extEl){
+      if(q.extType && q.extPrice!=null){
+        const lbl=q.extType==='PRE'?'프리장':'애프터장';
+        const ec=q.extChangePct||0;
+        extEl.style.display='block';
+        extEl.innerHTML=`<span style="color:var(--text-3);font-weight:500">${lbl}</span> $${q.extPrice.toFixed(2)} <span class="${ec>=0?'up':'down'}">(${ec>=0?'+':''}${(ec*100).toFixed(2)}%)</span>`;
+      } else extEl.style.display='none';
+    }
     const krwEl=document.getElementById('btc-krw');
     if(krwEl){
-      krwEl.textContent=(conf.krw && state.settings.fxRate>0) ? '≈ ₩'+fmtKRW(Math.round(q.price*state.settings.fxRate)) : '';
+      krwEl.textContent=(conf.krw && state.settings.fxRate>0) ? '≈ ₩'+fmtKRW(Math.round(mainPrice*state.settings.fxRate)) : '';
     }
   }catch(e){ /* 현재값 실패 시 차트만 */ }
   try{
@@ -4644,6 +4658,33 @@ function openHoldingDetail(id){
     </div>`;
   }
   const usdInvVal = usd ? Number((h.qty*h.avgUSD).toFixed(2)) : 0;
+  // 정규장 / 프리·애프터 분리 표시 (야후식) — USD 종목이고 시세가 있을 때
+  let sessionBox='';
+  if (usd && h._mkt && h._mkt.regPrice!=null){
+    const m=h._mkt;
+    const pc=(x)=>(x>=0?'up':'down'), sg=(x)=>(x>=0?'+':'');
+    const extLbl = m.extType==='PRE'?'프리장':(m.extType==='POST'?'애프터장':null);
+    const regClosed = m.marketState!=='REGULAR';
+    const rows=[];
+    rows.push(`<div style="display:flex;align-items:baseline;gap:8px">
+      <span style="font-size:11px;color:var(--text-3);width:52px">정규장</span>
+      <span class="num" style="font-size:16px;font-weight:700">$${m.regPrice.toFixed(2)}</span>
+      <span class="num ${pc(m.regChangePct)}" style="font-size:12px;font-weight:600">${sg(m.regChangePct)}${(m.regChangePct*100).toFixed(2)}%</span>
+      ${regClosed?'<span style="font-size:10px;color:var(--text-3);margin-left:auto">마감</span>':'<span style="font-size:10px;color:#56C964;margin-left:auto">거래중</span>'}
+    </div>`);
+    if (extLbl && m.extPrice!=null){
+      rows.push(`<div style="display:flex;align-items:baseline;gap:8px;margin-top:6px">
+        <span style="font-size:11px;color:var(--text-3);width:52px">${extLbl}</span>
+        <span class="num" style="font-size:16px;font-weight:700">$${m.extPrice.toFixed(2)}</span>
+        <span class="num ${pc(m.extChangePct)}" style="font-size:12px;font-weight:600">${sg(m.extChangePct)}${(m.extChangePct*100).toFixed(2)}%</span>
+        <span style="font-size:10px;color:var(--gold);margin-left:auto">진행중</span>
+      </div>`);
+    }
+    sessionBox=`<div style="background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:13px 14px;margin-bottom:14px">
+      <div class="dl" style="font-size:10px;color:var(--text-2);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:9px">실시간 시세 (${relTime(m.ts)})</div>
+      ${rows.join('')}
+    </div>`;
+  }
   const usdFields = usd?`
     <div class="field"><label>달러 매입금액 (총 $) — 입력 시 평균단가 자동 계산</label>
       <input id="d-usd" type="number" step="0.01" value="${usdInvVal}" oninput="syncPurchase('d','usd')"></div>
@@ -4666,6 +4707,7 @@ function openHoldingDetail(id){
       <div class="detail-cell"><div class="dl">오늘 변동</div><div class="dv ${(h._mkt&&h._mkt.dayChangePct>=0)?'up':'down'}">${dayInfo}</div></div>
     </div>
     ${fxBox}
+    ${sessionBox}
     <div style="background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:13px 14px;margin-bottom:14px">
       <div class="dl" style="font-size:10px;color:var(--text-2);letter-spacing:0.08em;text-transform:uppercase">리밸런싱 제안</div>
       <div style="font-size:16px;font-weight:700;margin-top:3px" class="${rbCls}">${rbText}</div>
@@ -4910,6 +4952,18 @@ async function fetchYahooQuote(symbol){
     hi52:r.fiftyTwoWeekHigh, lo52:r.fiftyTwoWeekLow,
     name:r.longName||r.shortName||'',
     marketState:ms,
+    // 정규장 / 연장장(프리·애프터) 분리 값 — 종목 상세·카드에서 야후식 표시용
+    regPrice:r.regularMarketPrice,
+    regPrevClose:(r.regularMarketPreviousClose!=null)?r.regularMarketPreviousClose:r.regularMarketPrice,
+    regChangePct:(r.regularMarketChangePercent!=null)?r.regularMarketChangePercent/100
+      :((r.regularMarketPreviousClose>0)?(r.regularMarketPrice-r.regularMarketPreviousClose)/r.regularMarketPreviousClose:0),
+    extType:(ms==='PRE'?'PRE':(ms==='POST'?'POST':null)),
+    extPrice:(ms==='PRE')?r.preMarketPrice:((ms==='POST')?r.postMarketPrice:null),
+    extChangePct:(ms==='PRE')
+      ? ((r.preMarketChangePercent!=null)?r.preMarketChangePercent/100:((r.regularMarketPrice>0)?(r.preMarketPrice-r.regularMarketPrice)/r.regularMarketPrice:0))
+      : ((ms==='POST')
+        ? ((r.postMarketChangePercent!=null)?r.postMarketChangePercent/100:((r.regularMarketPrice>0)?(r.postMarketPrice-r.regularMarketPrice)/r.regularMarketPrice:0))
+        : null),
   };
 }
 async function fetchYahooChart(symbol){
@@ -5043,7 +5097,7 @@ async function refreshAllPrices(quiet){
         if (wantKRW && q.currency==='KRW'){ h.curKRW=q.price; }
         else if (!wantKRW && q.currency==='USD'){ h.curUSD=q.price; }
         else { lastFailed.add(h.symbol); fail++; continue; }
-        h._mkt={dayChangePct:q.dayChangePct,prevClose:q.prevClose,hi52:q.hi52,lo52:q.lo52,marketState:q.marketState,ts:Date.now()};
+        h._mkt={dayChangePct:q.dayChangePct,prevClose:q.prevClose,hi52:q.hi52,lo52:q.lo52,marketState:q.marketState,regPrice:q.regPrice,regPrevClose:q.regPrevClose,regChangePct:q.regChangePct,extType:q.extType,extPrice:q.extPrice,extChangePct:q.extChangePct,ts:Date.now()};
         ok++;
       } catch(e){ lastFailed.add(h.symbol); fail++; }
     }
@@ -5096,7 +5150,7 @@ async function refreshOne(id){
       if (wantKRW&&q.currency==='KRW') h.curKRW=q.price;
       else if (!wantKRW&&q.currency==='USD') h.curUSD=q.price;
       else throw new Error('통화 불일치: '+q.currency);
-      h._mkt={dayChangePct:q.dayChangePct,prevClose:q.prevClose,hi52:q.hi52,lo52:q.lo52,marketState:q.marketState,ts:Date.now()};
+      h._mkt={dayChangePct:q.dayChangePct,prevClose:q.prevClose,hi52:q.hi52,lo52:q.lo52,marketState:q.marketState,regPrice:q.regPrice,regPrevClose:q.regPrevClose,regChangePct:q.regChangePct,extType:q.extType,extPrice:q.extPrice,extChangePct:q.extChangePct,ts:Date.now()};
     }
     await saveState();
     const inp=document.getElementById('d-cur');

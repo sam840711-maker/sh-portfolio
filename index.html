@@ -2347,9 +2347,10 @@ function openStrategyEditor(){
   const st=state.settings.strategy||JSON.parse(JSON.stringify(STRATEGY_DEFAULT));
   const ms=st.milestones.slice().sort((a,b)=>a-b);
   const navInputs=[0,1,2,3].map(i=>`<div class="field" style="flex:1;min-width:0"><label>${i+1}차</label><input id="strat-m${i}" type="number" step="0.1" value="${((ms[i]||0)/1e8).toFixed(1)}"></div>`).join('');
+  const inSt="background:var(--surface);color:var(--text);border:1px solid var(--hairline);border-radius:8px;padding:10px 12px;font-size:14px;min-width:0";
   const bkRows=(st.basket||[]).map((b,i)=>`<div style="display:flex;gap:8px;margin-bottom:8px">
-     <input id="strat-bn${i}" value="${esc(b.name)}" style="flex:2;min-width:0" placeholder="ETF 이름">
-     <input id="strat-bw${i}" type="number" step="1" value="${(b.weight*100).toFixed(0)}" style="flex:1;min-width:0" placeholder="%">
+     <input id="strat-bn${i}" value="${esc(b.name)}" style="flex:2;${inSt}" placeholder="ETF 이름">
+     <input id="strat-bw${i}" type="number" step="1" value="${(b.weight*100).toFixed(0)}" style="flex:1;${inSt}" placeholder="%">
    </div>`).join('');
   openModal(`
     <h3 style="font-size:18px;font-weight:700;margin-bottom:10px">레버리지 청산 전략</h3>

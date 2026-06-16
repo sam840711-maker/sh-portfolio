@@ -47,6 +47,12 @@ input,select,textarea{font-family:inherit;color:inherit}
 @keyframes spin{to{transform:rotate(360deg)}}
 
 .view{flex:1;overflow-y:auto;overflow-x:hidden;padding:0 20px 100px;-webkit-overflow-scrolling:touch}
+.ptr-ind{position:absolute;left:0;right:0;height:0;overflow:hidden;display:flex;align-items:center;justify-content:center;gap:7px;color:var(--text-2);font-size:12px;font-weight:500;pointer-events:none;z-index:40}
+.ptr-ind.ptr-anim{transition:height .2s ease}
+.ptr-arrow{transition:transform .2s ease;font-size:13px}
+.ptr-ind.ptr-ready .ptr-arrow{transform:rotate(180deg);color:var(--gold)}
+.ptr-spin{width:15px;height:15px;border:2px solid var(--hairline);border-top-color:var(--gold);border-radius:50%;animation:ptrspin .7s linear infinite}
+@keyframes ptrspin{to{transform:rotate(360deg)}}
 .view::-webkit-scrollbar{display:none}
 .view.hidden{display:none}
 
@@ -5290,6 +5296,58 @@ window.refreshOne=refreshOne;
 
 document.getElementById('refresh-btn').onclick=()=>refreshAllPrices(false);
 document.getElementById('freshness').onclick=()=>refreshAllPrices(false);
+
+/* ===== 당겨서 새로고침 (pull-to-refresh) ===== */
+(function initPullToRefresh(){
+  const phone=document.querySelector('.phone');
+  if(!phone) return;
+  const ptr=document.createElement('div');
+  ptr.className='ptr-ind';
+  ptr.innerHTML='<span class="ptr-arrow">↓</span><span class="ptr-txt">당겨서 새로고침</span>';
+  phone.appendChild(ptr);
+  const tb=phone.querySelector('.topbar');
+  ptr.style.top=((tb?tb.offsetHeight:48))+'px';
+  const TH=68;            // 발동 임계 (당긴 거리)
+  let startY=0, pulling=false, dist=0, ready=false;
+  const scroller=()=>document.querySelector('.view:not(.hidden)');
+  phone.addEventListener('touchstart',e=>{
+    if(typeof isFetching!=='undefined' && isFetching){ pulling=false; return; }
+    const sc=scroller();
+    if(!sc || sc.scrollTop>0){ pulling=false; return; }
+    if(e.target.closest && e.target.closest('canvas')){ pulling=false; return; }  // 차트 팬 방해 방지
+    startY=e.touches[0].clientY; pulling=true; dist=0; ready=false;
+    ptr.classList.remove('ptr-anim');
+  },{passive:true});
+  phone.addEventListener('touchmove',e=>{
+    if(!pulling) return;
+    const sc=scroller();
+    if(sc && sc.scrollTop>0){ pulling=false; ptr.style.height='0'; return; }
+    dist=e.touches[0].clientY-startY;
+    if(dist<=0){ ptr.style.height='0'; ptr.classList.remove('ptr-ready'); return; }
+    const pull=Math.min(64, dist*0.5);   // 저항감
+    ptr.style.height=pull+'px';
+    ready=dist>=TH;
+    ptr.classList.toggle('ptr-ready',ready);
+    const txt=ptr.querySelector('.ptr-txt'); if(txt) txt.textContent=ready?'놓으면 갱신':'당겨서 새로고침';
+    if(dist>4 && e.cancelable) e.preventDefault();   // 위쪽 바운스 방지
+  },{passive:false});
+  function release(){
+    if(!pulling) return; pulling=false;
+    ptr.classList.add('ptr-anim');
+    if(ready && !(typeof isFetching!=='undefined' && isFetching)){
+      ptr.innerHTML='<span class="ptr-spin"></span><span class="ptr-txt">갱신 중…</span>';
+      ptr.style.height='42px';
+      Promise.resolve(refreshAllPrices(false)).catch(()=>{}).finally(()=>{
+        ptr.style.height='0';
+        setTimeout(()=>{ ptr.classList.remove('ptr-ready'); ptr.innerHTML='<span class="ptr-arrow">↓</span><span class="ptr-txt">당겨서 새로고침</span>'; },250);
+      });
+    } else {
+      ptr.style.height='0'; ptr.classList.remove('ptr-ready');
+    }
+  }
+  phone.addEventListener('touchend',release);
+  phone.addEventListener('touchcancel',release);
+})();
 
 /* ===== 자동 갱신 (N분 폴링) ===== */
 let autoTimer=null;

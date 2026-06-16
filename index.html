@@ -935,13 +935,15 @@ const SEED = {
 /* === 레버리지 청산(전환) 전략 기본값 === */
 const STRATEGY_DEFAULT = {
   enabled:true,
+  ver:2,                         // 바스켓 스키마/기본값 버전
   stepFrac:0.25,                 // 단계별 ¼씩 해제
   backstop:null,                 // 트레일링 강제 디리스크 미사용
   milestones:[700000000,900000000,1200000000,1600000000],  // 1~4차 NAV 트리거(원)
-  basket:[                        // 국내 상장 미국 ETF 정착 바스켓
-    {name:'TIGER 미국S&P500', weight:0.55},
-    {name:'TIGER 미국나스닥100', weight:0.25},
-    {name:'TIGER 미국배당다우존스', weight:0.20},
+  basket:[                        // 정착 바스켓: 미국 ETF 70% + 실물 BTC 30%
+    {name:'TIGER 미국S&P500', weight:0.40, cat:'global_etf'},
+    {name:'TIGER 미국나스닥100', weight:0.20, cat:'global_etf'},
+    {name:'TIGER 미국배당다우존스', weight:0.10, cat:'global_etf'},
+    {name:'비트코인(실물)', weight:0.30, cat:'crypto', symbol:'BTC'},
   ],
 };
 function eokFmt(n){ return (n==null||isNaN(n))?'—':(n/1e8).toFixed(1)+'억'; }
@@ -970,6 +972,13 @@ function normalizeState(){
     if(sd.stepFrac==null) sd.stepFrac=0.25;
     if(sd.enabled==null) sd.enabled=true;
     if(sd.backstop===undefined) sd.backstop=null;
+    // 구버전 기본 바스켓 → 최신 기본값(미국ETF 70% + 실물 BTC 30%)으로 갱신 (사용자 편집본은 ver로 보존)
+    if(!sd.ver || sd.ver < STRATEGY_DEFAULT.ver){
+      sd.basket = JSON.parse(JSON.stringify(STRATEGY_DEFAULT.basket));
+      sd.ver = STRATEGY_DEFAULT.ver;
+    }
+    // 분류 정보 백필
+    sd.basket.forEach(b=>{ if(!b.cat) b.cat=(/비트코인|BTC/i.test(b.name||'')?'crypto':'global_etf'); if(b.cat==='crypto'&&!b.symbol) b.symbol='BTC'; });
   }
   if (!state.prices) state.prices = { proxyMode:'public', proxyUrl:'', lastFetch:null, autoMin:0 };
   if (!state.history) state.history = [];
@@ -2269,7 +2278,7 @@ function computeStrategyPlan(s){
   const actualLev = lev.current||0;
   const sellAmt = Math.max(0, actualLev-recLevValue);
   let next=null, toNext=0; for(const m of ms){ if(total<m){ next=m; toNext=m-total; break; } }
-  const basket=(st.basket||[]).map(b=>({name:b.name,weight:b.weight,amount:sellAmt*(b.weight||0)}));
+  const basket=(st.basket||[]).map(b=>({name:b.name,weight:b.weight,cat:b.cat||'global_etf',symbol:b.symbol||'',amount:sellAmt*(b.weight||0)}));
   const sleeveRatio = actualLev>0 ? (actualLev-(lev.invested||0))/actualLev : 0;   // 음수 = 평가손
   const realized = sellAmt*sleeveRatio;
   const ded=state.settings.overseasDeduction||0;
@@ -2364,12 +2373,16 @@ async function saveStrategy(){
   const bk=(st.basket||[]).map((b,i)=>({
     name:(document.getElementById('strat-bn'+i).value||'').trim()||b.name,
     weight:(parseFloat(document.getElementById('strat-bw'+i).value||'0')||0)/100,
+    cat:b.cat||(/비트코인|BTC/i.test(b.name||'')?'crypto':'global_etf'),
+    symbol:b.symbol||'',
   }));
+  bk.forEach(b=>{ if(b.cat==='crypto'&&!b.symbol) b.symbol='BTC'; });
   const wsum=bk.reduce((a,b)=>a+b.weight,0);
   if(Math.abs(wsum-1)>0.01){ warn.textContent='바스켓 비중 합이 100%가 되어야 해 (현재 '+(wsum*100).toFixed(0)+'%).'; return; }
   st.enabled=document.getElementById('strat-enabled').checked;
   st.milestones=ms.sort((a,b)=>a-b);
   st.basket=bk;
+  st.ver=STRATEGY_DEFAULT.ver;
   await saveState(); closeModal(); toast('전략 저장됨'); renderSettings();
   if(currentView==='dashboard') renderDashboard();
 }
@@ -2379,7 +2392,7 @@ let destFlow=null;
 function startDestEntry(){
   const p=computeStrategyPlan(portfolioStats());
   if(!p.enabled || !(p.sellAmt>1000000)){ toast('지금은 청산 트리거 미도달'); return; }
-  const items=(p.basket||[]).filter(b=>b.amount>0).map(b=>({name:b.name,amount:b.amount}));
+  const items=(p.basket||[]).filter(b=>b.amount>0).map(b=>({name:b.name,amount:b.amount,cat:b.cat||'global_etf',symbol:b.symbol||''}));
   if(!items.length){ toast('바스켓이 비어있어'); return; }
   destFlow={items, idx:0};
   openDestEntry();
@@ -2388,9 +2401,9 @@ function openDestEntry(){
   if(!destFlow){ return; }
   const it=destFlow.items[destFlow.idx];
   const n=destFlow.items.length, last=destFlow.idx>=n-1;
-  fabCat='global_etf'; fabSym='';
-  openModal(`<h3>정착 ETF 입력 (${destFlow.idx+1}/${n})</h3>
-    <div class="modal-sub">${esc(it.name)} · 목표 매수액 <b>₩${fmtKRW(it.amount)}</b> — 체결 후 실제 수량·단가 입력 (티커는 조회)</div>
+  fabCat=it.cat||'global_etf'; fabSym=it.symbol||'';
+  openModal(`<h3>정착 자산 입력 (${destFlow.idx+1}/${n})</h3>
+    <div class="modal-sub">${esc(it.name)} · 목표 매수액 <b>₩${fmtKRW(it.amount)}</b> — 체결 후 실제 수량·단가 입력${it.cat==='crypto'?' (BTC 자동 분류·업비트 시세)':' (티커는 조회)'}</div>
     <div id="m-dynamic"></div>
     <div class="btn-row">
       <button class="btn btn-secondary" onclick="cancelDestFlow()">중단</button>
@@ -2398,6 +2411,7 @@ function openDestEntry(){
     </div>`);
   renderFabFields();
   const nm=document.getElementById('m-name'); if(nm) nm.value=it.name;
+  const sy=document.getElementById('m-symbol'); if(sy&&it.symbol) sy.value=it.symbol;
 }
 function cancelDestFlow(){ destFlow=null; closeModal(); }
 window.startDestEntry=startDestEntry; window.cancelDestFlow=cancelDestFlow;

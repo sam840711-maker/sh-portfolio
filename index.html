@@ -4676,6 +4676,7 @@ function openHoldingDetail(id){
   const h=state.holdings.find(x=>x.id===id);
   if(!h) return;
   const fx=state.settings.fxRate, usd=isUSDcat(h.cat);
+  const catOpts=Object.keys(CATEGORIES).map(k=>`<option value="${k}" ${k===h.cat?'selected':''}>${CATEGORIES[k].label}</option>`).join('');
   const v=holdingValue(h,fx), pnl=v.current-v.invested, pct=v.invested>0?pnl/v.invested:0;
   const cur=usd?h.curUSD:h.curKRW, avg=usd?h.avgUSD:h.avgKRW;
   const unit=usd?'$':'₩';
@@ -4774,6 +4775,9 @@ function openHoldingDetail(id){
       <div style="font-size:16px;font-weight:700;margin-top:3px" class="${rbCls}">${rbText}</div>
       <div style="font-size:11px;color:var(--text-3);margin-top:2px">${rbSub}</div>
     </div>
+    <div class="field"><label>자산군</label>
+      <select id="d-cat">${catOpts}</select>
+      <small>변경 시 통화(USD/원)가 바뀌면 단가를 다시 확인하세요</small></div>
     <div class="field"><label>보유수량</label><input id="d-qty" type="number" step="0.00000001" value="${h.qty}" oninput="syncPurchase('d','qty')"></div>
     <div class="field"><label>목표 비중 (${CATEGORIES[h.cat].label} 내 %)</label>
       <input id="d-tw" type="number" step="0.1" value="${((h.targetWt||0)*100).toFixed(1)}">
@@ -4798,13 +4802,23 @@ async function saveHoldingDetail(id){
   const cur=parseFloat(document.getElementById('d-cur').value);
   const tw=parseFloat(document.getElementById('d-tw').value);
   if(qty<0||avg<0||cur<0||isNaN(qty)||isNaN(avg)||isNaN(cur)){ toast('값을 확인하세요'); return; }
+  // 자산군 변경 적용
+  const catEl=document.getElementById('d-cat');
+  const newCat=catEl?catEl.value:h.cat;
+  if(newCat && CATEGORIES[newCat]) h.cat=newCat;
   h.qty=qty;
   if(!isNaN(tw)&&tw>=0) h.targetWt=tw/100;
+  // 통화별 단가 저장 — 변경된 자산군 기준으로 정리 (반대 통화 필드는 제거해 잔류 방지)
+  const fxEl=document.getElementById('d-fx');
   if (isUSDcat(h.cat)){
     h.avgUSD=avg; h.curUSD=cur;
-    const afx=parseFloat(document.getElementById('d-fx').value);
-    if(afx>0) h.avgFx=afx;
-  } else { h.avgKRW=avg; h.curKRW=cur; }
+    const afx=fxEl?parseFloat(fxEl.value):NaN;
+    h.avgFx=(afx>0)?afx:(h.avgFx||state.settings.fxRate);
+    delete h.avgKRW; delete h.curKRW;
+  } else {
+    h.avgKRW=avg; h.curKRW=cur;
+    delete h.avgUSD; delete h.curUSD; delete h.avgFx;
+  }
   await saveState(); closeModal(); toast('저장됨'); switchView(currentView);
 }
 async function deleteHolding(id){

@@ -4974,23 +4974,37 @@ function _naverNum(v){
 async function fetchNaverKR(code){
   const c=String(code).replace(/\D/g,'').padStart(6,'0');
   if(c.length!==6) throw new Error('bad KR code');
-  const url=`https://polling.finance.naver.com/api/realtime/domestic/stock/${c}?t=${Date.now()}`;
-  const data=await proxyFetchJson(url);
-  // datas[0] 안에 실시간 값 (응답 래퍼가 여러 형태일 수 있어 폭넓게 탐색)
+  // 여러 네이버 엔드포인트를 순차 시도 (형식 변동·경로 차단 대비)
+  const endpoints=[
+    `https://m.stock.naver.com/api/stock/${c}/basic`,
+    `https://m.stock.naver.com/api/stock/${c}/integration`,
+    `https://polling.finance.naver.com/api/realtime/domestic/stock/${c}?t=${Date.now()}`
+  ];
+  let lastErr;
+  for(const url of endpoints){
+    try{
+      const data=await proxyFetchJson(url);
+      const q=_parseNaver(data);
+      if(q && q.price>0) return q;
+    }catch(e){ lastErr=e; }
+  }
+  throw lastErr||new Error('naver fail');
+}
+function _parseNaver(data){
+  // 다양한 래퍼 형태에서 시세 객체 추출
   const d=(data&&data.datas&&data.datas[0])
         || (data&&data.result&&data.result.areas&&data.result.areas[0]&&data.result.areas[0].datas&&data.result.areas[0].datas[0])
         || (data&&data.result&&data.result[0])
+        || (data&&data.stockItemTotalInfos)   // integration 일부 형태
         || data;
-  if(!d) throw new Error('naver no data');
-  const price=_naverNum(d.closePrice ?? d.nv ?? d.now ?? d.currentPrice ?? d.tradePrice);
-  if(price==null||price<=0) throw new Error('naver no price');
+  if(!d) return null;
+  const price=_naverNum(d.closePrice ?? d.nv ?? d.now ?? d.currentPrice ?? d.tradePrice ?? d.dealPrice);
+  if(price==null||price<=0) return null;
   let prev=_naverNum(d.previousClose ?? d.pcv ?? d.prevClose ?? d.basePrice);
-  // 전일종가가 없으면 등락액으로 역산
   const chgVal=_naverNum(d.compareToPreviousClosePrice ?? d.cv ?? d.change ?? d.changeValue);
   if(prev==null && chgVal!=null) prev=price-chgVal;
   let pct=_naverNum(d.fluctuationsRatio ?? d.cr ?? d.changeRate ?? d.rate);
   if(pct!=null) pct=pct/100; else pct=(prev>0)?(price-prev)/prev:0;
-  // 장 상태 — 네이버 marketStatus(OPEN/CLOSE 등). 없으면 시간 기반으로 보정은 호출측에서.
   const rawMs=String(d.marketStatus ?? d.ms ?? d.marketState ?? '').toUpperCase();
   const ms = rawMs.includes('OPEN')?'REGULAR':(rawMs?'CLOSED':null);
   return {
@@ -4999,7 +5013,7 @@ async function fetchNaverKR(code){
     dayChangePct:pct,
     hi52:_naverNum(d.highPriceOf52Weeks ?? d.high52 ?? null),
     lo52:_naverNum(d.lowPriceOf52Weeks ?? d.low52 ?? null),
-    name:(d.stockName ?? d.nm ?? d.itemname ?? ''),
+    name:(d.stockName ?? d.nm ?? d.itemname ?? d.stockNameEng ?? ''),
     marketState:ms,
     _src:'naver'
   };
@@ -5192,6 +5206,7 @@ async function refreshAllPrices(quiet){
   isFetching=true; setRefreshSpin(true);
   if(!quiet) toast('시세 갱신 중...');
   let ok=0,fail=0; lastFailed=new Set();
+  let krNaver=0, krYahoo=0;   // 국장 시세 출처 집계 (진단용)
 
   // FX — 주식·코인 시세와 동시에 진행
   const fxPromise=fetchFx().then(v=>{ if(v>0) state.settings.fxRate=v; }).catch(()=>{});
@@ -5208,6 +5223,7 @@ async function refreshAllPrices(quiet){
         if (wantKRW && q.currency==='KRW'){ h.curKRW=q.price; }
         else if (!wantKRW && q.currency==='USD'){ h.curUSD=q.price; }
         else { lastFailed.add(h.symbol); fail++; continue; }
+        if(marketOf(h)==='kr'){ if(q._src==='naver') krNaver++; else krYahoo++; }
         h._mkt={dayChangePct:q.dayChangePct,prevClose:q.prevClose,hi52:q.hi52,lo52:q.lo52,marketState:q.marketState,regPrice:q.regPrice,regPrevClose:q.regPrevClose,regChangePct:q.regChangePct,extType:q.extType,extPrice:q.extPrice,extChangePct:q.extChangePct,ts:Date.now()};
         ok++;
       } catch(e){ lastFailed.add(h.symbol); fail++; }
@@ -5241,7 +5257,8 @@ async function refreshAllPrices(quiet){
   if(quiet){
     if(fail>0) toast(`자동 갱신 · ${fail}종 실패`);
   } else {
-    toast(fail===0?`${ok}종 시세 갱신 완료`:`${ok}종 갱신 · ${fail}종 실패 (수동 확인)`);
+    const krInfo = (krNaver+krYahoo>0) ? ` · 국장 네이버 ${krNaver}/야후 ${krYahoo}` : '';
+    toast((fail===0?`${ok}종 시세 갱신 완료`:`${ok}종 갱신 · ${fail}종 실패 (수동 확인)`)+krInfo);
   }
 }
 

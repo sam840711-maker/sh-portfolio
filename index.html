@@ -1385,8 +1385,9 @@ function marketOf(h){
   const s=(h.symbol||'').toUpperCase();
   if(s.endsWith('.KS')||s.endsWith('.KQ')) return 'kr';
   if(s.endsWith('.L')) return 'london';
+  if(/^\d{6}$/.test(s)) return 'kr';   // 접미사 없는 6자리 숫자 = 국장 코드(코스피·코스닥)
   if(isUSDcat(h.cat)) return 'us';
-  return h.cat==='bond' ? 'kr' : 'us';   // 접미사 없는 글로벌 ETF는 미국 상장으로 간주
+  return h.cat==='bond' ? 'kr' : 'us';   // 그 외 접미사 없는 글로벌 ETF는 미국 상장으로 간주
 }
 /* 해당 시장의 현재 세션 → {label, cls} */
 function marketSession(mkt){
@@ -4526,9 +4527,9 @@ function renderFabFields(){
       <div class="field"><label>자산 구분</label><select id="m-cat" onchange="renderFabFields()">
         ${Object.keys(CATEGORIES).map(k=>`<option value="${k}" ${fabCat===k?'selected':''}>${CATEGORIES[k].label}</option>`).join('')}</select></div>
       <div class="field"><label>티커</label><div class="field-row">
-        <input id="m-symbol" value="${fabSym}" placeholder="예: AAPL / 005930.KS / BTC">
+        <input id="m-symbol" value="${fabSym}" placeholder="예: AAPL / 005930 / BTC">
         <button class="btn btn-secondary btn-sm" onclick="lookupTicker()">조회</button></div>
-        <small>미국: AAPL · 한국: 005930.KS · 런던: XXX.L · 코인: BTC</small></div>
+        <small>미국: AAPL · 한국: 005930 (6자리) · 런던: XXX.L · 코인: BTC</small></div>
       <div class="field"><label>종목명</label><input id="m-name" placeholder="조회 시 자동 입력"></div>
       <div class="field"><label>보유수량</label><input id="m-qty" type="number" step="0.00000001" placeholder="0" oninput="syncPurchase('m','qty')"></div>
       <div class="field"><label>평균 매입단가 ${isUSDcat(fabCat)?'($)':'(₩)'}</label><input id="m-avg" type="number" step="0.00000001" placeholder="0" oninput="syncPurchase('m','avg')"></div>
@@ -4616,7 +4617,10 @@ async function fetchFxToField(){
 async function submitFab(){
   {
     const cat=document.getElementById('m-cat').value;
-    const sym=(document.getElementById('m-symbol').value||'').trim().toUpperCase();
+    let sym=(document.getElementById('m-symbol').value||'').trim().toUpperCase();
+    // 국장 코드 정규화 — 6자리 숫자(±.KS/.KQ)면 접미사 떼고 6자리로 저장 (네이버 실시간 시세용)
+    const krm=sym.match(/^(\d{6})(\.(KS|KQ))?$/);
+    if(krm) sym=krm[1];
     const name=(document.getElementById('m-name').value||'').trim()||sym;
     const qty=parseFloat(document.getElementById('m-qty').value)||0;
     const avg=parseFloat(document.getElementById('m-avg').value)||0;
@@ -4995,19 +4999,27 @@ async function fetchNaverKR(code){
   };
 }
 
-/* 국장은 네이버 우선 → 실패 시 야후 폴백. 그 외(미국·런던 등)는 야후. */
+/* 국장은 네이버 우선 → 실패 시 야후 폴백. 그 외(미국·런던 등)는 야후.
+   국장 코드는 6자리(접미사 유무 무관). 야후 폴백은 .KS→.KQ 순으로 시도. */
 async function fetchQuoteFor(h){
   const isKR = marketOf(h)==='kr';
-  const code = (h.symbol||'').replace(/\D/g,'');
+  const raw=(h.symbol||'');
+  const code = raw.replace(/\D/g,'');
   if(isKR && code.length>=6){
+    // 1순위: 네이버 실시간
     try {
       const q=await fetchNaverKR(code);
       if(q && q.price>0){
-        // 네이버가 장상태를 안 주면 야후식 시간기반 판정으로 채움
         if(!q.marketState){ const s=marketSession('kr'); q.marketState=(s.label==='장중')?'REGULAR':'CLOSED'; }
         return q;
       }
     } catch(e){ /* 네이버 실패 → 야후 폴백 */ }
+    // 2순위: 야후 — 접미사 있으면 그대로, 없으면 .KS→.KQ 시도
+    const cands = /\.(KS|KQ)$/i.test(raw) ? [raw] : [code+'.KS', code+'.KQ'];
+    for(const sym of cands){
+      try{ const q=await fetchYahoo(sym); if(q && q.price>0) return q; }catch(e){}
+    }
+    throw new Error('KR 시세 실패');
   }
   return await fetchYahoo(h.symbol);
 }

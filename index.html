@@ -2219,6 +2219,8 @@ function renderCagrAlert(){
   const reserve=state.settings.reserveCash||0;
   if(gap>0 && pct>=0.10){
     // 초과 (골드) — 목표보다 10%p 이상 초과 시에만 현금화 권장
+    const sp=computeStrategyPlan(portfolioStats());
+    const stratActive = sp && sp.enabled && sp.step>=1 && sp.sellAmt>1000000;
     el.style.borderColor='var(--gold)';
     el.style.background='var(--gold-soft)';
     el.innerHTML=`<div style="display:flex;align-items:center;gap:11px">
@@ -2226,6 +2228,7 @@ function renderCagrAlert(){
       <div style="flex:1">
         <div style="font-weight:700;font-size:13px">CAGR 목표 초과 달성</div>
         <div style="font-size:11.5px;color:var(--text-2);margin-top:2px">현재 시점 목표보다 +${(pct*100).toFixed(1)}% 초과 — 초과분 ₩${fmtKRW(gap)}</div>
+        ${stratActive?`<div style="font-size:11px;color:var(--orange);margin-top:4px">⚠ 레버리지 청산 전략 활성 중 — 중복 디리스크 방지 위해 현금화는 보류 권장</div>`:''}
       </div>
       <span style="color:var(--gold);font-size:12px;font-weight:600;white-space:nowrap">현금화 ▸</span>
     </div>`;

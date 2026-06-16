@@ -1720,7 +1720,7 @@ async function renderBtc(){
     const krwEl=document.getElementById('btc-krw');
     if(krwEl){
       if(conf.krw && state.settings.fxRate>0){
-        const eok=v=>'₩'+(v/1e8).toFixed(2)+'억';
+        const eok=v=>'₩'+fmtKRW(Math.round(v));
         const conv=Math.round(mainPrice*state.settings.fxRate);
         let line='≈ '+eok(conv)+' <span style="color:var(--text-3)">(달러×환율)</span>';
         // 업비트 실거래가(BTC) — 1분 캐시, 김치 프리미엄 병기

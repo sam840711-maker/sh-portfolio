@@ -384,6 +384,11 @@ input,select,textarea{font-family:inherit;color:inherit}
 .itax-sum{display:flex;justify-content:space-between;align-items:baseline;padding:11px 14px;background:var(--surface);border:1px solid var(--hairline);border-radius:11px;margin-bottom:14px;font-size:13px;font-weight:600}
 .itax-sum b{font-size:17px;font-weight:700;color:var(--gold)}
 .toast.show{opacity:1}
+/* 좌우 스와이프 화면 전환 애니메이션 */
+@keyframes swipeInL{from{transform:translateX(20px);opacity:.4}to{transform:translateX(0);opacity:1}}
+@keyframes swipeInR{from{transform:translateX(-20px);opacity:.4}to{transform:translateX(0);opacity:1}}
+.view.swipe-l{animation:swipeInL .2s ease-out}
+.view.swipe-r{animation:swipeInR .2s ease-out}
 </style>
 </head>
 <body>
@@ -5379,6 +5384,61 @@ document.getElementById('freshness').onclick=()=>refreshAllPrices(false);
   }
   phone.addEventListener('touchend',release);
   phone.addEventListener('touchcancel',release);
+})();
+
+/* ===== 좌우 스와이프로 화면 전환 ===== */
+(function initSwipeNav(){
+  const phone=document.querySelector('.phone');
+  if(!phone) return;
+  const ORDER=['dashboard','holdings','allocation','transactions','quickentry'];
+  let sx=0, sy=0, st=0, tracking=false;
+  // 가로 스크롤 가능한 영역(테이블 등) 위에서 시작하면 양보
+  function hScrollable(node){
+    while(node && node!==phone && node.nodeType===1){
+      if(node.scrollWidth>node.clientWidth+4){
+        const ov=getComputedStyle(node).overflowX;
+        if(ov==='auto'||ov==='scroll') return true;
+      }
+      node=node.parentElement;
+    }
+    return false;
+  }
+  phone.addEventListener('touchstart',e=>{
+    tracking=false;
+    if(e.touches.length!==1) return;
+    const bg=document.getElementById('modal-bg');
+    if(bg && bg.classList.contains('show')) return;            // 모달 열림 → 무시
+    if(ORDER.indexOf(currentView)<0) return;                   // 페이징 대상 화면만
+    const t=e.target;
+    if(t.closest && (t.closest('canvas') || t.closest('input,textarea,select') || t.closest('.no-swipe'))) return; // 차트 팬·입력 보호
+    if(hScrollable(t)) return;
+    const tp=e.touches[0];
+    sx=tp.clientX; sy=tp.clientY; st=Date.now(); tracking=true;
+  },{passive:true});
+  phone.addEventListener('touchmove',e=>{
+    if(!tracking) return;
+    const tp=e.touches[0];
+    const dx=tp.clientX-sx, dy=tp.clientY-sy;
+    if(Math.abs(dy)>Math.abs(dx) && Math.abs(dy)>14) tracking=false;   // 세로 제스처(스크롤·당겨새로고침)에 양보
+  },{passive:true});
+  phone.addEventListener('touchend',e=>{
+    if(!tracking) return; tracking=false;
+    const tp=e.changedTouches&&e.changedTouches[0]; if(!tp) return;
+    const dx=tp.clientX-sx, dy=tp.clientY-sy, dt=Date.now()-st;
+    if(!(Math.abs(dx)>=60 && Math.abs(dx)>Math.abs(dy)*1.6 && dt<=600)) return;   // 빠른 가로 플릭만
+    const i=ORDER.indexOf(currentView); if(i<0) return;
+    const ni=dx<0 ? i+1 : i-1;                 // 왼쪽으로 밀면 다음, 오른쪽으로 밀면 이전
+    if(ni<0 || ni>=ORDER.length) return;       // 양 끝에서는 정지
+    const dir=dx<0 ? 'l' : 'r';
+    switchView(ORDER[ni]);
+    const cur=document.getElementById('view-'+currentView);   // switchView가 취소될 수 있어 실제 화면 기준
+    if(cur && currentView===ORDER[ni]){
+      cur.classList.remove('swipe-l','swipe-r'); void cur.offsetWidth;
+      cur.classList.add('swipe-'+dir);
+      cur.addEventListener('animationend',()=>cur.classList.remove('swipe-'+dir),{once:true});
+    }
+  },{passive:true});
+  phone.addEventListener('touchcancel',()=>{tracking=false;});
 })();
 
 /* ===== 자동 갱신 (N분 폴링) ===== */

@@ -568,7 +568,7 @@ input,select,textarea{font-family:inherit;color:inherit}
       </div>
       <div class="chart-wrap" style="height:150px"><canvas id="chart-btc"></canvas></div>
       <div class="chart-note" id="btc-note"></div>
-      <div style="font-size:10.5px;color:var(--text-3);margin-top:7px;text-align:center" id="btc-foot">BTC-USD · 24시간 거래 — <span style="color:#E2C285">━ 200일 이평선</span> · ┄ ATH(전고점)<span id="btc-res"></span></div>
+      <div style="font-size:10.5px;color:var(--text-3);margin-top:7px;text-align:center" id="btc-foot">BTC-USD · 24시간 거래 — <span style="color:#E2C285">━ 200일 이평선</span> · ┄ ATH(전고점)</div>
     </div>
 
     <div class="card">
@@ -4986,7 +4986,7 @@ function openHoldingDetail(id){
     <div class="field"><label>총 매입금액 (₩) — 입력 시 평균단가 자동 계산</label>
       <input id="d-tot" type="number" step="1" value="${krwTotVal}" oninput="syncPurchase('d','tot')">
       <small>수량과 총 매입금액을 넣으면 평균단가가 자동 계산됩니다</small></div>`:'';
-  openModal(`<h3>${h.symbol.replace('.KS','').replace('.L','')}</h3>
+  openModal(`<h3>${esc(h.symbol.replace('.KS','').replace('.L',''))}</h3>
     <div class="modal-sub">${esc(h.name)} · ${CATEGORIES[h.cat].label}</div>
     <div class="detail-grid">
       <div class="detail-cell"><div class="dl">평가액</div><div class="dv">${fmtKRW(v.current)}</div></div>
@@ -5194,24 +5194,47 @@ window.submitTrendPoint=submitTrendPoint; window.deleteTrendPoint=deleteTrendPoi
    PRICE FETCH LAYER  —  Yahoo Finance + Upbit + FX
    (시트의 YAHOO()·UPBIT() 앱스크립트와 동일 소스)
    ================================================================ */
-const PUBLIC_PROXIES=['https://api.allorigins.win/raw?url=','https://api.codetabs.com/v1/proxy/?quest='];
-
+const PUBLIC_PROXIES=[
+  'https://api.allorigins.win/raw?url=',
+  'https://corsproxy.io/?url=',
+  'https://api.codetabs.com/v1/proxy/?quest=',
+];
+let _lastGoodProxy=null;
 function getProxies(){
+  let list;
   if (state.prices.proxyMode==='custom' && state.prices.proxyUrl){
     let u=state.prices.proxyUrl.trim();
     if(!/[?&](url|quest)=$/.test(u)) u+=(u.includes('?')?'&':'?')+'url=';
-    return [u];
+    list=[u, ...PUBLIC_PROXIES];            // 커스텀 우선 + 공개 프록시 폴백(단일 장애점 제거)
+  } else {
+    list=PUBLIC_PROXIES.slice();
   }
-  return PUBLIC_PROXIES;
+  // 직전 성공 프록시를 맨 앞으로 — 지연 최소화
+  if(_lastGoodProxy && list.includes(_lastGoodProxy)){
+    list=[_lastGoodProxy, ...list.filter(p=>p!==_lastGoodProxy)];
+  }
+  return list;
+}
+async function fetchWithTimeout(url, ms){
+  const ctrl=new AbortController();
+  const t=setTimeout(()=>ctrl.abort(), ms);
+  try{ return await fetch(url,{signal:ctrl.signal}); }
+  finally{ clearTimeout(t); }
 }
 async function proxyFetchJson(targetUrl){
   let lastErr;
-  for (const base of getProxies()){
-    try {
-      const res=await fetch(base+encodeURIComponent(targetUrl));
-      if(!res.ok) throw new Error('HTTP '+res.status);
-      return JSON.parse(await res.text());
-    } catch(e){ lastErr=e; }
+  const proxies=getProxies();
+  for(let round=0; round<2; round++){          // 최대 2라운드 재시도
+    for(const base of proxies){
+      try{
+        const res=await fetchWithTimeout(base+encodeURIComponent(targetUrl), 8000);  // 8초 타임아웃 — 느린 프록시에 멈추지 않음
+        if(!res.ok) throw new Error('HTTP '+res.status);
+        const json=JSON.parse(await res.text());
+        _lastGoodProxy=base;                    // 성공 기억
+        return json;
+      } catch(e){ lastErr=e; }
+    }
+    if(round===0) await new Promise(r=>setTimeout(r,400));   // backoff 후 1회 재시도
   }
   throw lastErr||new Error('proxy failed');
 }
@@ -5926,6 +5949,8 @@ window.doReset=doReset;
    ================================================================ */
 (async function(){
   await loadState();
+  // 저장소 영속성 요청 — 브라우저 저장소 압박 시 데이터 보존(설치형 PWA에서 효과)
+  try{ if(navigator.storage&&navigator.storage.persist){ navigator.storage.persisted().then(p=>{ if(!p) navigator.storage.persist().catch(()=>{}); }); } }catch(_){}
   await saveState();        // 앱 실행 시 이번 달 자산 스냅샷 기록
   renderTopbar();
   renderDashboard();

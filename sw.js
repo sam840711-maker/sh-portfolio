@@ -1,7 +1,7 @@
 /* SH Portfolio — 서비스 워커
    index.html은 항상 네트워크 최신본을 받도록 no-store로 가져오고,
    오프라인일 때만 캐시 폴백. 그 외 정적 파일은 네트워크 우선 + 캐시. */
-const CACHE = 'sh-portfolio-v6';
+const CACHE = 'sh-portfolio-v7';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-192-maskable.png', './icon-512-maskable.png'];
 
 self.addEventListener('install', e => {

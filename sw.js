@@ -1,8 +1,11 @@
 /* SH Portfolio — 서비스 워커
-   index.html은 항상 네트워크 최신본을 받도록 no-store로 가져오고,
-   오프라인일 때만 캐시 폴백. 그 외 정적 파일은 네트워크 우선 + 캐시. */
-const CACHE = 'sh-portfolio-v7';
+   - 문서(index.html): 네트워크 우선 + 2초 타임아웃 → 캐시 폴백 (느린 망에서도 즉시 오픈, 빠른 망이면 최신본)
+   - 외부 CDN/폰트(버전 고정 URL): 캐시 우선 → 최초 1회만 네트워크 (콜드 스타트 가속)
+   - sw.js: 항상 네트워크 (SW 갱신 보장)
+   - 시세 프록시 등 그 외 교차출처: 미개입 */
+const CACHE = 'sh-portfolio-v8';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-192-maskable.png', './icon-512-maskable.png'];
+const CDN_HOSTS = ['cdnjs.cloudflare.com', 'cdn.jsdelivr.net'];
 
 self.addEventListener('install', e => {
   e.waitUntil(
@@ -18,41 +21,64 @@ self.addEventListener('activate', e => {
   );
 });
 
+function putCache(req, resp) {
+  if (resp && (resp.status === 200 || resp.type === 'opaque')) {
+    const copy = resp.clone();
+    caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+  }
+}
+
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-  if (e.request.method !== 'GET' || url.origin !== location.origin) return;
+  if (e.request.method !== 'GET') return;
 
-  // HTML 문서/네비게이션/sw.js → 브라우저 HTTP 캐시 무시하고 항상 네트워크 최신본
-  const isHTMLish = e.request.mode === 'navigate'
-                 || url.pathname === '/' || url.pathname.endsWith('/')
-                 || url.pathname.endsWith('.html')
-                 || url.pathname.endsWith('sw.js');
-
-  if (isHTMLish) {
-    e.respondWith(
-      fetch(e.request, { cache: 'no-store' })
-        .then(resp => {
-          if (resp && resp.status === 200) {
-            const copy = resp.clone();
-            caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
-          }
-          return resp;
-        })
-        .catch(() => caches.match(e.request).then(c => c || caches.match('./index.html')))
-    );
+  // 교차출처
+  if (url.origin !== location.origin) {
+    if (CDN_HOSTS.includes(url.hostname)) {
+      e.respondWith(
+        caches.match(e.request).then(cached => {
+          if (cached) return cached;
+          return fetch(e.request).then(resp => { putCache(e.request, resp); return resp; });
+        }).catch(() => fetch(e.request))
+      );
+    }
     return;
   }
 
-  // 그 외 (매니페스트·아이콘 등) → 기존 네트워크 우선 + 캐시
+  // sw.js: 항상 네트워크
+  if (url.pathname.endsWith('sw.js')) {
+    e.respondWith(fetch(e.request, { cache: 'no-store' }).catch(() => caches.match(e.request)));
+    return;
+  }
+
+  // HTML 문서: 네트워크 우선 + 2초 타임아웃 → 캐시
+  const isHTMLish = e.request.mode === 'navigate'
+                 || url.pathname === '/' || url.pathname.endsWith('/')
+                 || url.pathname.endsWith('.html');
+
+  if (isHTMLish) {
+    e.respondWith((async () => {
+      const cached = await caches.match(e.request);
+      const netP = fetch(e.request, { cache: 'no-store' })
+        .then(resp => { putCache(e.request, resp); return resp; })
+        .catch(() => null);
+      if (!cached) {
+        const r = await netP;
+        return r || caches.match('./index.html');
+      }
+      const winner = await Promise.race([netP, new Promise(res => setTimeout(() => res('TIMEOUT'), 2000))]);
+      return (winner && winner !== 'TIMEOUT') ? winner : cached;
+    })());
+    return;
+  }
+
+  // 그 외 동일 출처 정적: 캐시 우선 + 백그라운드 갱신
   e.respondWith(
-    fetch(e.request)
-      .then(resp => {
-        if (resp && resp.status === 200) {
-          const copy = resp.clone();
-          caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
-        }
-        return resp;
-      })
-      .catch(() => caches.match(e.request).then(c => c || caches.match('./index.html')))
+    caches.match(e.request).then(cached => {
+      const netP = fetch(e.request)
+        .then(resp => { putCache(e.request, resp); return resp; })
+        .catch(() => cached);
+      return cached || netP;
+    })
   );
 });

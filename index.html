@@ -16,6 +16,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
 :root{
   --bg:#06070A; --frame:#0B0D12; --surface:#141821; --surface-2:#1B2030;
@@ -737,6 +738,19 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div class="card-title">데이터 관리</div>
       <button class="btn btn-primary" style="width:100%;margin-bottom:8px" id="backup-btn">☁ 구글 드라이브에 백업</button>
       <div id="backup-meta" style="font-size:11px;text-align:center;margin-bottom:14px"></div>
+
+      <div style="border-top:1px solid var(--line);margin:2px 0 12px;padding-top:12px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:6px">구글 드라이브 자동 동기화</div>
+        <div id="gd-status" style="font-size:11px;margin-bottom:8px;color:var(--text-3)">미연결</div>
+        <button class="btn btn-secondary" style="width:100%;margin-bottom:8px" id="gd-connect">구글 계정 연결</button>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <button class="btn btn-secondary" style="flex:1" id="gd-backup">드라이브 백업</button>
+          <button class="btn btn-secondary" style="flex:1" id="gd-restore">드라이브 복원</button>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
+          <input type="checkbox" id="gd-auto"> 자동 백업 (하루 1회, 앱 실행 시)
+        </label>
+      </div>
       <button class="btn btn-secondary" style="width:100%;margin-bottom:10px" id="export-btn">데이터 내보내기 (JSON)</button>
       <button class="btn btn-secondary" style="width:100%;margin-bottom:10px" id="import-btn">데이터 가져오기 (JSON)</button>
       <input type="file" id="import-file" accept="application/json,.json" style="display:none">
@@ -981,6 +995,7 @@ function normalizeState(){
     sd.basket.forEach(b=>{ if(!b.cat) b.cat=(/비트코인|BTC/i.test(b.name||'')?'crypto':'global_etf'); if(b.cat==='crypto'&&!b.symbol) b.symbol='BTC'; });
   }
   if (!state.prices) state.prices = { proxyMode:'public', proxyUrl:'', lastFetch:null, autoMin:0 };
+  if (!state.settings.cloud) state.settings.cloud = { auto:false, last:null };
   if (!state.history) state.history = [];
   // 자산 추이 — 월(ym) 기록을 일(d, YYYY-MM-DD) 키로 마이그레이션
   state.history.forEach(h=>{
@@ -1085,6 +1100,7 @@ async function saveState(){
     if (state && state.holdings){ recordSnapshot(); maybeUpdatePick(); }
     await window.storage.set(STORE_KEY, JSON.stringify(state));
     rotateLocalSnap();   // 하루 1회 순환 스냅샷 (실수 복구용, 3슬롯)
+    try{ maybeAutoBackup(); }catch(_){}   // 구글 드라이브 자동 백업(조건 충족 시, 비동기)
   } catch(e){
     try{ toast('⚠ 저장에 실패했습니다 — 데이터 백업을 권장합니다'); }catch(_){}
   }
@@ -5945,6 +5961,136 @@ async function doReset(){
 window.doReset=doReset;
 
 /* ================================================================
+   구글 드라이브 동기화 (appDataFolder · OAuth GIS) — Pilot Logbook 방식 이식
+   ================================================================ */
+const GOOGLE_CLIENT_ID = '836300793486-tm7ai7ehdllc2031mjev3e248af8mgt1.apps.googleusercontent.com';
+const GDRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+let _tokenClient=null, _accessToken=null, _tokenExp=0, _cloudBusy=false, _autoTried=false;
+
+function gisReady(){ return !!(window.google && google.accounts && google.accounts.oauth2); }
+function gdriveLinked(){ try{ return localStorage.getItem('sh_gdrive_linked')==='1'; }catch(_){ return false; } }
+
+function getTokenClient(){
+  if(_tokenClient) return _tokenClient;
+  if(!gisReady()) return null;
+  _tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID, scope: GDRIVE_SCOPE, callback: ()=>{}
+  });
+  return _tokenClient;
+}
+function ensureToken(interactive){
+  return new Promise((resolve,reject)=>{
+    if(_accessToken && Date.now() < _tokenExp-60000) return resolve(_accessToken);
+    const tc=getTokenClient();
+    if(!tc) return reject(new Error('구글 로그인 모듈 로딩 중'));
+    tc.callback=(resp)=>{
+      if(resp && resp.access_token){
+        _accessToken=resp.access_token;
+        _tokenExp=Date.now()+((resp.expires_in||3600)*1000);
+        try{ localStorage.setItem('sh_gdrive_linked','1'); }catch(_){}
+        resolve(_accessToken);
+      } else reject(new Error((resp&&resp.error)||'토큰 발급 실패'));
+    };
+    try{ tc.requestAccessToken({ prompt: interactive?'consent':'' }); }
+    catch(e){ reject(e); }
+  });
+}
+
+// Drive REST 헬퍼 (appDataFolder)
+async function driveList(tok){
+  const r=await fetch('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&fields=files(id,name,modifiedTime,size)&orderBy=modifiedTime desc&pageSize=100',{ headers:{Authorization:'Bearer '+tok} });
+  if(!r.ok) throw new Error('목록 '+r.status); const j=await r.json(); return j.files||[];
+}
+async function driveUpload(tok,name,text){
+  const meta={ name, parents:['appDataFolder'] };
+  const b='shp'+Math.random().toString(16).slice(2);
+  const body='--'+b+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+JSON.stringify(meta)+
+             '\r\n--'+b+'\r\nContent-Type: application/json\r\n\r\n'+text+'\r\n--'+b+'--';
+  const r=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,modifiedTime',{
+    method:'POST', headers:{Authorization:'Bearer '+tok,'Content-Type':'multipart/related; boundary='+b}, body });
+  if(!r.ok) throw new Error('업로드 '+r.status); return r.json();
+}
+async function driveDownload(tok,id){
+  const r=await fetch('https://www.googleapis.com/drive/v3/files/'+id+'?alt=media',{ headers:{Authorization:'Bearer '+tok} });
+  if(!r.ok) throw new Error('다운로드 '+r.status); return r.text();
+}
+async function driveDelete(tok,id){
+  try{ await fetch('https://www.googleapis.com/drive/v3/files/'+id,{ method:'DELETE', headers:{Authorization:'Bearer '+tok} }); }catch(_){}
+}
+async function sha256hex(str){
+  const buf=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+async function saveStateRaw(){ try{ await window.storage.set(STORE_KEY, JSON.stringify(state)); }catch(_){} }
+
+async function backupToGDrive(silent){
+  try{
+    const tok=await ensureToken(!silent);
+    const sj=JSON.stringify(state);
+    const sha=await sha256hex(sj);
+    const payload=JSON.stringify({ app:'SH Portfolio', v:3, ts:Date.now(), sha, state });
+    const name='SH_Portfolio_'+new Date().toISOString().replace(/[:.]/g,'-')+'.json';
+    await driveUpload(tok,name,payload);
+    try{ const files=await driveList(tok); for(const f of files.slice(30)) await driveDelete(tok,f.id); }catch(_){}  // 최근 30개 보관
+    state.settings.cloud=state.settings.cloud||{}; state.settings.cloud.last=Date.now();
+    state.settings.lastBackup=Date.now();
+    await saveStateRaw();
+    if(!silent) toast('✓ 구글 드라이브에 백업됨');
+    renderCloudUI();
+  }catch(e){ if(!silent) toast('백업 실패: '+(e.message||e)); }
+}
+async function restoreFromGDrive(){
+  try{
+    const tok=await ensureToken(true);
+    const files=await driveList(tok);
+    if(!files.length){ toast('드라이브에 백업이 없어요'); return; }
+    const latest=files[0];
+    const when=new Date(latest.modifiedTime).toLocaleString('ko-KR');
+    if(!confirm('가장 최근 백업으로 복원할까요?\n\n'+latest.name+'\n('+when+')\n\n현재 데이터는 덮어써집니다.')) return;
+    const text=await driveDownload(tok,latest.id);
+    const obj=JSON.parse(text);
+    const restored=obj.state||obj;
+    if(obj.sha){
+      const chk=await sha256hex(JSON.stringify(restored));
+      if(chk!==obj.sha && !confirm('체크섬이 일치하지 않습니다. 그래도 복원할까요?')) return;
+    }
+    state=restored; normalizeState(); await saveStateRaw();
+    toast('✓ 드라이브에서 복원됨'); renderTopbar(); renderDashboard(); renderCloudUI();
+  }catch(e){ toast('복원 실패: '+(e.message||e)); }
+}
+function maybeAutoBackup(){
+  if(_cloudBusy || _autoTried) return;
+  const c=state.settings&&state.settings.cloud;
+  if(!c||!c.auto||!gdriveLinked()||!navigator.onLine) return;
+  if(Date.now()-(c.last||0) < 86400000) return;   // 하루 1회
+  _autoTried=true; _cloudBusy=true;
+  backupToGDrive(true).finally(()=>{ _cloudBusy=false; });
+}
+async function gdriveConnect(){
+  if(!gisReady()){ toast('구글 로그인 모듈 로딩 중 — 잠시 후 다시'); return; }
+  try{ await ensureToken(true); toast('✓ 구글 계정 연결됨'); renderCloudUI(); }
+  catch(e){ toast('연결 실패: '+(e.message||e)); }
+}
+function gdriveDisconnect(){
+  try{ if(_accessToken && gisReady()) google.accounts.oauth2.revoke(_accessToken,()=>{}); }catch(_){}
+  _accessToken=null; _tokenExp=0;
+  try{ localStorage.removeItem('sh_gdrive_linked'); }catch(_){}
+  toast('구글 연결 해제됨'); renderCloudUI();
+}
+function renderCloudUI(){
+  const linked=gdriveLinked();
+  const cbtn=document.getElementById('gd-connect'); if(cbtn) cbtn.textContent=linked?'구글 계정 연결 해제':'구글 계정 연결';
+  const st=document.getElementById('gd-status');
+  const c=(state&&state.settings&&state.settings.cloud)||{};
+  if(st){
+    if(linked){ st.textContent='연결됨 · 마지막 드라이브 백업: '+(c.last?new Date(c.last).toLocaleString('ko-KR'):'없음'); st.style.color='var(--up)'; }
+    else { st.textContent='미연결 — 연결하면 드라이브에 백업/복원'; st.style.color='var(--text-3)'; }
+  }
+  const au=document.getElementById('gd-auto'); if(au) au.checked=!!c.auto;
+  ['gd-backup','gd-restore'].forEach(id=>{ const b=document.getElementById(id); if(b){ b.disabled=!linked; b.style.opacity=linked?'1':'0.5'; }});
+}
+
+/* ================================================================
    BOOT
    ================================================================ */
 (async function(){
@@ -5956,6 +6102,16 @@ window.doReset=doReset;
   renderDashboard();
   applyAutoRefresh();       // 자동 갱신 주기 적용
   freshenIfStale(60);       // 실행 시 시세가 60초 이상 묵었으면 즉시 갱신
+  // 구글 드라이브 동기화 — 버튼 이벤트 + 무인 재연결
+  (function(){
+    const byId=id=>document.getElementById(id);
+    const cbtn=byId('gd-connect'); if(cbtn) cbtn.onclick=()=>{ gdriveLinked()?gdriveDisconnect():gdriveConnect(); };
+    const bk=byId('gd-backup'); if(bk) bk.onclick=()=>backupToGDrive(false);
+    const rs=byId('gd-restore'); if(rs) rs.onclick=()=>restoreFromGDrive();
+    const au=byId('gd-auto'); if(au) au.onchange=()=>{ state.settings.cloud=state.settings.cloud||{}; state.settings.cloud.auto=au.checked; saveStateRaw(); toast(au.checked?'자동 백업 켜짐 (하루 1회)':'자동 백업 꺼짐'); };
+    renderCloudUI();
+  })();
+  if(gdriveLinked()){ setTimeout(()=>{ ensureToken(false).then(()=>{ renderCloudUI(); maybeAutoBackup(); }).catch(()=>{}); }, 1600); }
   // 백업 리마인더 — 마지막 백업 후 7일 이상이면 안내
   const lb=state.settings&&state.settings.lastBackup;
   const days=lb?Math.floor((Date.now()-lb)/86400000):999;

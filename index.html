@@ -6066,8 +6066,10 @@ function maybeAutoBackup(){
   if(_cloudBusy || _autoTried) return;
   const c=state.settings&&state.settings.cloud;
   if(!c||!c.auto||!gdriveLinked()||!navigator.onLine) return;
-  if(Date.now()-(c.last||0) < 86400000) return;   // 하루 1회
+  const since=Math.max(c.last||0, c.lastTry||0);
+  if(Date.now()-since < 86400000) return;   // 하루 1회 (실패해도 24h 재시도 안 함 → 매 실행 깜빡임 방지)
   _autoTried=true; _cloudBusy=true;
+  c.lastTry=Date.now(); saveStateRaw();
   backupToGDrive(true).finally(()=>{ _cloudBusy=false; });
 }
 async function gdriveConnect(){
@@ -6117,7 +6119,6 @@ function renderCloudUI(){
   })();
   const _vtxt='SH Portfolio '+APP_VER+' · build '+APP_BUILD;
   ['app-ver','app-ver-main'].forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent=_vtxt; });
-  if(gdriveLinked()){ setTimeout(()=>{ ensureToken(false).then(()=>{ renderCloudUI(); maybeAutoBackup(); }).catch(()=>{}); }, 1600); }
   // 백업 리마인더 — 마지막 백업 후 7일 이상이면 안내
   const lb=state.settings&&state.settings.lastBackup;
   const days=lb?Math.floor((Date.now()-lb)/86400000):999;

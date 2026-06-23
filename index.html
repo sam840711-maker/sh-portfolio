@@ -758,6 +758,7 @@ input,select,textarea{font-family:inherit;color:inherit}
       <button class="btn btn-danger" style="width:100%" id="reset-btn">초기 데이터로 되돌리기</button>
       <div class="sync-meta" id="last-fetch-meta" style="font-size:11px;color:var(--text-3);margin-top:12px;text-align:center"></div>
     </div>
+    <div id="app-ver" style="text-align:center;font-size:11px;color:var(--text-3);padding:6px 0 26px;letter-spacing:0.02em"></div>
   </div>
 
   <button class="fab" id="fab" title="새 종목 추가" aria-label="새 종목 추가">＋</button>
@@ -882,6 +883,8 @@ const CATEGORIES = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
+const APP_VER = 'v1.0';
+const APP_BUILD = '2026-06-23';
 
 const SEED = {
   settings: {
@@ -6111,6 +6114,7 @@ function renderCloudUI(){
     const au=byId('gd-auto'); if(au) au.onchange=()=>{ state.settings.cloud=state.settings.cloud||{}; state.settings.cloud.auto=au.checked; saveStateRaw(); toast(au.checked?'자동 백업 켜짐 (하루 1회)':'자동 백업 꺼짐'); };
     renderCloudUI();
   })();
+  const _av=document.getElementById('app-ver'); if(_av) _av.textContent='SH Portfolio '+APP_VER+' · build '+APP_BUILD;
   if(gdriveLinked()){ setTimeout(()=>{ ensureToken(false).then(()=>{ renderCloudUI(); maybeAutoBackup(); }).catch(()=>{}); }, 1600); }
   // 백업 리마인더 — 마지막 백업 후 7일 이상이면 안내
   const lb=state.settings&&state.settings.lastBackup;

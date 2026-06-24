@@ -884,7 +884,7 @@ const CATEGORIES = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v1.2.1';
+const APP_VER = 'v1.2.2';
 const APP_BUILD = '2026-06-24';
 
 const SEED = {
@@ -5550,7 +5550,7 @@ async function refreshAllPrices(quiet){
       } catch(e){ lastFailed.add(h.symbol); fail++; }
     }
   }
-  const stockPromise=Promise.all(Array.from({length:8},()=>worker()));
+  const stockPromise=Promise.all(Array.from({length:12},()=>worker()));
 
   // 코인 — Upbit 일괄
   const cryptos=state.holdings.filter(h=>h.cat==='crypto');

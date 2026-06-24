@@ -6083,6 +6083,19 @@ function gdriveDisconnect(){
   try{ localStorage.removeItem('sh_gdrive_linked'); }catch(_){}
   toast('구글 연결 해제됨'); renderCloudUI();
 }
+function showRestoreBanner(){
+  const host=document.getElementById('view-dashboard'); if(!host || document.getElementById('restore-banner')) return;
+  const b=document.createElement('div');
+  b.id='restore-banner'; b.className='card';
+  b.style.cssText='border:1px solid var(--gold);background:var(--gold-soft);margin-bottom:12px';
+  b.innerHTML='<div style="font-weight:700;font-size:13px;margin-bottom:4px">☁ 드라이브 백업에서 복구</div>'+
+    '<div style="font-size:11.5px;color:var(--text-2);margin-bottom:10px">새로 설치된 기기예요. 구글 드라이브에 백업해둔 데이터가 있으면 한 번에 복구할 수 있어요.</div>'+
+    '<div style="display:flex;gap:8px"><button class="btn btn-primary" id="rb-go" style="flex:1">구글에서 복구</button>'+
+    '<button class="btn btn-secondary" id="rb-skip" style="flex:1">새로 시작</button></div>';
+  host.insertBefore(b, host.firstChild);
+  const go=document.getElementById('rb-go'); if(go) go.onclick=()=>{ b.remove(); restoreFromGDrive(); };
+  const sk=document.getElementById('rb-skip'); if(sk) sk.onclick=()=>{ b.remove(); };
+}
 function renderCloudUI(){
   const linked=gdriveLinked();
   const cbtn=document.getElementById('gd-connect'); if(cbtn) cbtn.textContent=linked?'구글 계정 연결 해제':'구글 계정 연결';
@@ -6119,6 +6132,13 @@ function renderCloudUI(){
   })();
   const _vtxt='SH Portfolio '+APP_VER+' · build '+APP_BUILD;
   ['app-ver','app-ver-main'].forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent=_vtxt; });
+  // 신규 설치 첫 실행 — 드라이브 복구 배너 (버튼 탭 → 팝업 차단 회피)
+  try{
+    if(!localStorage.getItem('sh_seen')){
+      localStorage.setItem('sh_seen','1');
+      showRestoreBanner();
+    }
+  }catch(_){}
   // 백업 리마인더 — 마지막 백업 후 7일 이상이면 안내
   const lb=state.settings&&state.settings.lastBackup;
   const days=lb?Math.floor((Date.now()-lb)/86400000):999;

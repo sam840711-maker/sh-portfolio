@@ -968,6 +968,7 @@ function eokFmt(n){ return (n==null||isNaN(n))?'—':(n/1e8).toFixed(1)+'억'; }
 
 let state = null;
 let isFetching = false;
+let _liveTimer = null;
 let lastFailed = new Set();
 
 async function loadState(){
@@ -5515,8 +5516,18 @@ async function refreshAllPrices(quiet){
   let ok=0,fail=0; lastFailed=new Set();
   let krNaver=0, krYahoo=0;   // 국장 시세 출처 집계 (진단용)
 
+  // 들어오는 대로 화면에 반영 (600ms 스로틀) — 한꺼번에 안 기다리고 순차 갱신
+  function scheduleLiveRender(){
+    if(_liveTimer) return;
+    _liveTimer=setTimeout(()=>{
+      _liveTimer=null;
+      const editing = currentView==='quickentry' && qeUnlocked && Object.values(qeUnlocked).some(Boolean);
+      if(!editing && isFetching) switchView(currentView);
+    }, 600);
+  }
+
   // FX — 주식·코인 시세와 동시에 진행
-  const fxPromise=fetchFx().then(v=>{ if(v>0) state.settings.fxRate=v; }).catch(()=>{});
+  const fxPromise=fetchFx().then(v=>{ if(v>0){ state.settings.fxRate=v; scheduleLiveRender(); } }).catch(()=>{});
 
   // 주식·ETF — Yahoo, 동시 8개
   const stocks=state.holdings.filter(h=>h.cat!=='crypto');
@@ -5532,7 +5543,7 @@ async function refreshAllPrices(quiet){
         else { lastFailed.add(h.symbol); fail++; continue; }
         if(marketOf(h)==='kr'){ if(q._src==='naver') krNaver++; else krYahoo++; }
         h._mkt={dayChangePct:q.dayChangePct,prevClose:q.prevClose,hi52:q.hi52,lo52:q.lo52,marketState:q.marketState,regPrice:q.regPrice,regPrevClose:q.regPrevClose,regChangePct:q.regChangePct,extType:q.extType,extPrice:q.extPrice,extChangePct:q.extChangePct,ts:Date.now()};
-        ok++;
+        ok++; scheduleLiveRender();   // 종목 하나 들어올 때마다 순차 반영
       } catch(e){ lastFailed.add(h.symbol); fail++; }
     }
   }
@@ -5549,12 +5560,14 @@ async function refreshAllPrices(quiet){
         if(p){ h.curKRW=p.price; h._mkt={dayChangePct:p.dayChangePct,prevClose:p.prevClose,ts:Date.now()}; ok++; }
         else { lastFailed.add(h.symbol); fail++; }
       }
+      scheduleLiveRender();   // 코인 일괄 들어오면 즉시 반영
     } catch(e){ cryptos.forEach(h=>{lastFailed.add(h.symbol);fail++;}); }
   })();
 
   // FX·주식·코인 동시 완료 대기
   await Promise.all([fxPromise, stockPromise, cryptoPromise]);
 
+  if(_liveTimer){ clearTimeout(_liveTimer); _liveTimer=null; }   // 스로틀 정리 후 최종 렌더
   state.prices.lastFetch=Date.now();
   isFetching=false; setRefreshSpin(false);
   await saveState();

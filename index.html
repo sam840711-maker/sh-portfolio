@@ -884,7 +884,7 @@ const CATEGORIES = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v1.2';
+const APP_VER = 'v1.2.1';
 const APP_BUILD = '2026-06-24';
 
 const SEED = {
@@ -5243,13 +5243,16 @@ async function fetchWithTimeout(url, ms){
   try{ return await fetch(url,{signal:ctrl.signal}); }
   finally{ clearTimeout(t); }
 }
+function withTimeout(p, ms){
+  return Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')), ms))]);
+}
 async function proxyFetchJson(targetUrl){
   let lastErr;
   const proxies=getProxies();
   // 단일 스윕(프록시 폴백 자체가 재시도 역할) · 4.5초 타임아웃 — 실패 꼬리 지연 최소화
   for(const base of proxies){
     try{
-      const res=await fetchWithTimeout(base+encodeURIComponent(targetUrl), 4500);
+      const res=await fetchWithTimeout(base+encodeURIComponent(targetUrl), 3500);
       if(!res.ok) throw new Error('HTTP '+res.status);
       const json=JSON.parse(await res.text());
       _lastGoodProxy=base;                    // 성공 기억
@@ -5527,7 +5530,7 @@ async function refreshAllPrices(quiet){
   }
 
   // FX — 주식·코인 시세와 동시에 진행
-  const fxPromise=fetchFx().then(v=>{ if(v>0){ state.settings.fxRate=v; scheduleLiveRender(); } }).catch(()=>{});
+  const fxPromise=withTimeout(fetchFx(),8000).then(v=>{ if(v>0){ state.settings.fxRate=v; scheduleLiveRender(); } }).catch(()=>{});
 
   // 주식·ETF — Yahoo, 동시 8개
   const stocks=state.holdings.filter(h=>h.cat!=='crypto');
@@ -5536,7 +5539,7 @@ async function refreshAllPrices(quiet){
     while(idx<stocks.length){
       const h=stocks[idx++];
       try {
-        const q=await fetchQuoteFor(h);
+        const q=await withTimeout(fetchQuoteFor(h), 7000);   // 종목당 7초 상한 — 한 종목이 전체를 못 멈추게
         const wantKRW=!isUSDcat(h.cat);
         if (wantKRW && q.currency==='KRW'){ h.curKRW=q.price; }
         else if (!wantKRW && q.currency==='USD'){ h.curUSD=q.price; }
@@ -5554,7 +5557,7 @@ async function refreshAllPrices(quiet){
   const cryptoPromise=(async()=>{
     if (!cryptos.length) return;
     try {
-      const r=await fetchUpbit(cryptos.map(h=>h.symbol));
+      const r=await withTimeout(fetchUpbit(cryptos.map(h=>h.symbol)),8000);
       for (const h of cryptos){
         const p=r[h.symbol.toUpperCase()];
         if(p){ h.curKRW=p.price; h._mkt={dayChangePct:p.dayChangePct,prevClose:p.prevClose,ts:Date.now()}; ok++; }

@@ -5970,6 +5970,7 @@ window.doReset=doReset;
 const GOOGLE_CLIENT_ID = '836300793486-tm7ai7ehdllc2031mjev3e248af8mgt1.apps.googleusercontent.com';
 const GDRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 let _tokenClient=null, _accessToken=null, _tokenExp=0, _cloudBusy=false, _autoTried=false;
+let _restoreFiles=[], _restoreTok=null;
 
 function gisReady(){ return !!(window.google && google.accounts && google.accounts.oauth2); }
 function gdriveLinked(){ try{ return localStorage.getItem('sh_gdrive_linked')==='1'; }catch(_){ return false; } }
@@ -6048,10 +6049,29 @@ async function restoreFromGDrive(){
     const tok=await ensureToken(true);
     const files=await driveList(tok);
     if(!files.length){ toast('드라이브에 백업이 없어요'); return; }
-    const latest=files[0];
-    const when=new Date(latest.modifiedTime).toLocaleString('ko-KR');
-    if(!confirm('가장 최근 백업으로 복원할까요?\n\n'+latest.name+'\n('+when+')\n\n현재 데이터는 덮어써집니다.')) return;
-    const text=await driveDownload(tok,latest.id);
+    _restoreTok=tok; _restoreFiles=files;
+    const rows=files.map((f,i)=>{
+      const d=new Date(f.modifiedTime);
+      const when=d.toLocaleString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+      const kb=f.size?Math.round(f.size/1024)+'KB':'';
+      const badge=i===0?'<span style="color:var(--gold);font-size:10px;margin-left:6px">최신</span>':'';
+      return '<button class="btn btn-secondary rb-row" data-i="'+i+'" style="width:100%;text-align:left;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:8px">'+
+             '<span style="font-size:12.5px">'+esc(when)+badge+'</span><span style="color:var(--text-3);font-size:10px">'+kb+'</span></button>';
+    }).join('');
+    openModal('<div style="font-weight:700;font-size:15px;margin-bottom:4px">복원 시점 선택</div>'+
+      '<div style="font-size:11.5px;color:var(--text-3);margin-bottom:12px">드라이브 백업 '+files.length+'개 · 선택하면 현재 데이터를 덮어씁니다</div>'+
+      '<div style="max-height:50vh;overflow:auto">'+rows+'</div>'+
+      '<button class="btn btn-secondary" id="rb-cancel" style="width:100%;margin-top:10px">취소</button>');
+    document.querySelectorAll('.rb-row').forEach(el=>{ el.onclick=()=>doRestorePick(parseInt(el.dataset.i,10)); });
+    const c=document.getElementById('rb-cancel'); if(c) c.onclick=closeModal;
+  }catch(e){ toast('복원 실패: '+(e.message||e)); }
+}
+async function doRestorePick(i){
+  try{
+    const f=_restoreFiles[i]; if(!f) return;
+    const when=new Date(f.modifiedTime).toLocaleString('ko-KR');
+    if(!confirm('이 시점으로 복원할까요?\n\n'+when+'\n\n현재 데이터는 덮어써집니다.')) return;
+    const text=await driveDownload(_restoreTok, f.id);
     const obj=JSON.parse(text);
     const restored=obj.state||obj;
     if(obj.sha){
@@ -6059,7 +6079,7 @@ async function restoreFromGDrive(){
       if(chk!==obj.sha && !confirm('체크섬이 일치하지 않습니다. 그래도 복원할까요?')) return;
     }
     state=restored; normalizeState(); await saveStateRaw();
-    toast('✓ 드라이브에서 복원됨'); renderTopbar(); renderDashboard(); renderCloudUI();
+    closeModal(); toast('✓ 복원됨 ('+when+')'); renderTopbar(); renderDashboard(); renderCloudUI();
   }catch(e){ toast('복원 실패: '+(e.message||e)); }
 }
 function maybeAutoBackup(){

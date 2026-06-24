@@ -884,7 +884,7 @@ const CATEGORIES = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v1.3.0';
+const APP_VER = 'v1.3.1';
 const APP_BUILD = '2026-06-25';
 
 const SEED = {
@@ -5611,23 +5611,28 @@ async function refreshAllPrices(quiet){
       }catch(_){}
     }
     if(fStocks.length){
-      let j=0;
-      async function rworker(){
-        while(j<fStocks.length){
-          const h=fStocks[j++];
-          try{
-            const q=await withTimeout(fetchQuoteFor(h), 7000);
-            const wantKRW=!isUSDcat(h.cat);
-            if(wantKRW && q.currency==='KRW'){ h.curKRW=q.price; }
-            else if(!wantKRW && q.currency==='USD'){ h.curUSD=q.price; }
-            else continue;
-            if(marketOf(h)==='kr'){ if(q._src==='naver') krNaver++; else krYahoo++; }
-            h._mkt={dayChangePct:q.dayChangePct,prevClose:q.prevClose,hi52:q.hi52,lo52:q.lo52,marketState:q.marketState,regPrice:q.regPrice,regPrevClose:q.regPrevClose,regChangePct:q.regChangePct,extType:q.extType,extPrice:q.extPrice,extChangePct:q.extChangePct,ts:Date.now()};
-            ok++; fail--; lastFailed.delete(h.symbol); scheduleLiveRender();
-          }catch(_){}
+      for(let pass=0; pass<2 && lastFailed.size; pass++){
+        if(pass>0) await new Promise(r=>setTimeout(r,700));   // 잠깐 쉬고 한 번 더 (콜드 프록시 회복)
+        const list=state.holdings.filter(h=>h.cat!=='crypto'&&lastFailed.has(h.symbol));
+        if(!list.length) break;
+        let j=0;
+        async function rworker(){
+          while(j<list.length){
+            const h=list[j++];
+            try{
+              const q=await withTimeout(fetchQuoteFor(h), 7000);
+              const wantKRW=!isUSDcat(h.cat);
+              if(wantKRW && q.currency==='KRW'){ h.curKRW=q.price; }
+              else if(!wantKRW && q.currency==='USD'){ h.curUSD=q.price; }
+              else continue;
+              if(marketOf(h)==='kr'){ if(q._src==='naver') krNaver++; else krYahoo++; }
+              h._mkt={dayChangePct:q.dayChangePct,prevClose:q.prevClose,hi52:q.hi52,lo52:q.lo52,marketState:q.marketState,regPrice:q.regPrice,regPrevClose:q.regPrevClose,regChangePct:q.regChangePct,extType:q.extType,extPrice:q.extPrice,extChangePct:q.extChangePct,ts:Date.now()};
+              ok++; fail--; lastFailed.delete(h.symbol); scheduleLiveRender();
+            }catch(_){}
+          }
         }
+        await Promise.all(Array.from({length:3},()=>rworker()));
       }
-      await Promise.all(Array.from({length:4},()=>rworker()));
     }
   }
 
@@ -5639,7 +5644,9 @@ async function refreshAllPrices(quiet){
   const editingQE = currentView==='quickentry' && qeUnlocked && Object.values(qeUnlocked).some(Boolean);
   if(!editingQE) switchView(currentView);
   if(quiet){
-    if(fail>0) toast(`자동 갱신 · ${fail}종 실패`);
+    // 자동 갱신: 소수 실패는 직전 시세 유지로 무해 → 대량 실패(장애)일 때만 알림
+    const attempted=stocks.length+cryptos.length;
+    if(fail>0 && fail>=Math.max(6, Math.ceil(attempted*0.4))) toast(`자동 갱신 · ${fail}종 실패`);
   } else {
     const krInfo = (krNaver+krYahoo>0) ? ` · 국장 네이버 ${krNaver}/야후 ${krYahoo}` : '';
     toast((fail===0?`${ok}종 시세 갱신 완료`:`${ok}종 갱신 · ${fail}종 실패 (수동 확인)`)+krInfo);

@@ -343,6 +343,10 @@ input,select,textarea{font-family:inherit;color:inherit}
 .mini-tbl tbody tr:last-child td{border-bottom:none}
 .cagr-alert{cursor:pointer;border:1px solid var(--gold);background:var(--gold-soft)}
 .cagr-alert .ca-dot{width:9px;height:9px;border-radius:50%;background:var(--gold);flex-shrink:0}
+.risk-alert{cursor:pointer;border:1px solid var(--orange);background:var(--orange-soft)}
+.risk-alert .rk-dot{width:9px;height:9px;border-radius:50%;background:var(--orange);flex-shrink:0}
+.risk-alert.crit{border-color:#E5484D;background:rgba(229,72,77,0.12)}
+.risk-alert.crit .rk-dot{background:#E5484D}
 .h-move{display:flex;flex-direction:column;gap:3px;margin-left:10px;flex-shrink:0}
 .h-move button{width:27px;height:20px;border:1px solid var(--hairline);border-radius:6px;background:var(--frame);color:var(--text-2);font-size:8px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0}
 .h-move button:active{background:var(--surface-2);color:var(--gold)}
@@ -424,6 +428,7 @@ input,select,textarea{font-family:inherit;color:inherit}
 
   <!-- DASHBOARD -->
   <div class="view" id="view-dashboard">
+    <div class="card risk-alert" id="risk-alert" style="display:none"></div>
     <div class="card rebal-alert" id="rebal-alert" style="display:none"></div>
     <div class="card cagr-alert" id="cagr-alert" style="display:none"></div>
     <div class="card strategy-alert" id="strategy-alert" style="display:none"></div>
@@ -736,6 +741,11 @@ input,select,textarea{font-family:inherit;color:inherit}
     </div>
 
     <div class="card">
+      <div class="card-title">하방 보호 규칙 <span class="action" id="edit-risk">수정</span></div>
+      <div class="info-text" id="risk-summary" style="margin-bottom:4px"></div>
+    </div>
+
+    <div class="card">
       <div class="card-title">데이터 관리</div>
       <button class="btn btn-primary" style="width:100%;margin-bottom:8px" id="backup-btn">☁ 구글 드라이브에 백업</button>
       <div id="backup-meta" style="font-size:11px;text-align:center;margin-bottom:14px"></div>
@@ -884,8 +894,8 @@ const CATEGORIES = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v1.3.3';
-const APP_BUILD = '2026-06-25';
+const APP_VER = 'v1.4.2';
+const APP_BUILD = '2026-06-26';
 
 const SEED = {
   settings: {
@@ -1007,6 +1017,20 @@ function normalizeState(){
     sd.basket.forEach(b=>{ if(!b.cat) b.cat=(/비트코인|BTC/i.test(b.name||'')?'crypto':'global_etf'); if(b.cat==='crypto'&&!b.symbol) b.symbol='BTC'; });
   }
   if (!state.prices) state.prices = { proxyMode:'public', proxyUrl:'', lastFetch:null, autoMin:0 };
+  // 하방 보호 규칙 — 기본값 주입/보정
+  if (!state.settings.risk) {
+    const pr=(state.settings.principal||400000000);
+    state.settings.risk = { floorMode:'abs', floorAbs:Math.round(pr*0.8), floorPeakPct:0.25, muExcess:0.10, levMult:2.5, trendOn:true, trend:{} };
+  } else {
+    const rk=state.settings.risk;
+    if(rk.floorMode==null) rk.floorMode='abs';
+    if(rk.floorAbs==null) rk.floorAbs=Math.round((state.settings.principal||400000000)*0.8);
+    if(rk.floorPeakPct==null) rk.floorPeakPct=0.25;
+    if(rk.muExcess==null) rk.muExcess=0.10;
+    if(rk.levMult==null) rk.levMult=2.5;
+    if(rk.trendOn==null) rk.trendOn=true;
+    if(!rk.trend) rk.trend={};
+  }
   if (!state.settings.cloud) state.settings.cloud = { auto:false, last:null };
   if (!state.history) state.history = [];
   // 자산 추이 — 월(ym) 기록을 일(d, YYYY-MM-DD) 키로 마이그레이션
@@ -2233,6 +2257,7 @@ function renderDashboard(){
   renderRebalAlert(s);
   renderCagrAlert();
   renderStrategyAlert(s);
+  renderRiskAlert(s);
 }
 /* 리밸런싱 시점 알림 — 자산군 비중이 목표에서 임계치 이상 벌어지면 표시 */
 const REBAL_THRESHOLD=0.05;  // 5%p
@@ -2294,6 +2319,110 @@ function ytdOverseasRealized(){
   const arr=(state.realizedPnl&&state.realizedPnl[y])||[];
   let s=0; for(const e of arr){ if(e&&(e.market==='overseas'||e.market==='oversea')) s+=(e.amount||0); }
   return s;
+}
+/* ================================================================
+   하방 보호 엔진 — ① 변동성/켈리 상한 ② 추세필터(200일선) ③ 백스톱(전략) ④ 절대 플로어
+   계산·알림 전용(자동매매 아님)
+   ================================================================ */
+function peakNavAll(){
+  let pk=0;
+  for(const h of (state.history||[])){ if((h.total||0)>pk) pk=h.total; }
+  try{ const s=portfolioStats(); if(s.totalWithCash>pk) pk=s.totalWithCash; }catch(_){}
+  return pk;
+}
+function realizedVolAnnual(){
+  const h=(state.history||[]).filter(x=>x.d && x.total>0).slice().sort((a,b)=>a.d.localeCompare(b.d));
+  if(h.length<8) return null;
+  const rets=[], gaps=[];
+  for(let i=1;i<h.length;i++){
+    const r=Math.log(h[i].total/h[i-1].total);
+    const dt=(new Date(h[i].d)-new Date(h[i-1].d))/86400000;
+    if(isFinite(r) && dt>0){ rets.push(r); gaps.push(dt); }
+  }
+  if(rets.length<6) return null;
+  const mean=rets.reduce((a,b)=>a+b,0)/rets.length;
+  const varr=rets.reduce((a,b)=>a+(b-mean)*(b-mean),0)/(rets.length-1);
+  const avgGap=gaps.reduce((a,b)=>a+b,0)/gaps.length;     // 스냅샷 평균 간격(일)
+  const perYear=365/Math.max(1,avgGap);                    // 연간 환산 계수
+  const v=Math.sqrt(varr)*Math.sqrt(perYear);
+  return (isFinite(v)&&v>0)?v:null;
+}
+function kellyCap(s){
+  const volNav=realizedVolAnnual();
+  if(!volNav) return {vol:null, volUnlev:null, full:null, recMax:null};
+  const eff = s ? effectiveLeverage(s) : 1;
+  const volUnlev = eff>0 ? volNav/eff : volNav;          // 관측 NAV 변동성을 1배 자산 기준으로 환원
+  const mu=(state.settings.risk&&state.settings.risk.muExcess)||0.10;
+  const full=mu/(volUnlev*volUnlev);                     // 풀켈리 노출배수(1배 자산 기준)
+  return {vol:volNav, volUnlev, full, recMax:0.5*full};  // ½켈리 권장 상한
+}
+function effectiveLeverage(s){
+  const nav=s.totalWithCash; if(nav<=0) return 0;
+  const K=(state.settings.risk&&state.settings.risk.levMult)||2.5;
+  const lev=(s.totals.leverage&&s.totals.leverage.current)||0;
+  const other=['us_stock','global_etf','crypto','bond'].reduce((a,k)=>a+((s.totals[k]&&s.totals[k].current)||0),0);
+  const grossExp=other + lev*K;        // 레버리지 슬리브는 내재배수 K만큼 노출 확대
+  return grossExp/nav;
+}
+async function fetchTrend200(force){
+  const risk=state.settings.risk; if(!risk||!risk.trendOn) return;
+  const t=risk.trend||(risk.trend={});
+  if(!force && t.ts && (Date.now()-t.ts) < 6*3600*1000) return;   // 6시간 1회면 충분
+  const idxs=['^GSPC','^NDX'];
+  for(const sym of idxs){
+    try{
+      const ser=await withTimeout(fetchYahooHistoryDaily(sym,'1y',false),8000);
+      const closes=(ser||[]).map(x=>x.v).filter(v=>v>0);
+      if(closes.length>=200){
+        const last=closes[closes.length-1];
+        const sma=closes.slice(-200).reduce((a,b)=>a+b,0)/200;
+        t[sym]={last,sma,below:last<sma,gap:(last/sma-1),ts:Date.now()};
+      }
+    }catch(_){}
+  }
+  t.ts=Date.now();
+}
+function computeRiskStatus(s){
+  const risk=state.settings.risk||{};
+  const nav=s.totalWithCash;
+  // ④ 절대 플로어
+  const floor = risk.floorMode==='peakpct' ? peakNavAll()*(1-(risk.floorPeakPct||0.25)) : (risk.floorAbs||0);
+  const floorBreach = floor>0 && nav<=floor;
+  const floorNear   = floor>0 && !floorBreach && nav<=floor*1.08;   // 플로어 8% 이내 접근
+  // ② 추세필터
+  const t=risk.trend||{}; const below=[];
+  if(t['^GSPC']&&t['^GSPC'].below) below.push('S&P500');
+  if(t['^NDX'] &&t['^NDX'].below ) below.push('나스닥100');
+  const trendBreak=below.length>0;
+  // ① 변동성/켈리
+  const eff=effectiveLeverage(s); const kc=kellyCap(s);
+  const overLev = kc.recMax!=null && eff > kc.recMax+0.05;
+  // 심각도: 플로어붕괴 > 추세이탈 > 과레버리지 > 플로어근접
+  let level=null;
+  if(floorBreach) level='floor';
+  else if(trendBreak) level='trend';
+  else if(overLev) level='lev';
+  else if(floorNear) level='near';
+  // ① 권장 축소액 — 실효 레버리지를 ½켈리 상한까지 낮추려면 슬리브를 얼마 팔아 1배로 옮길지
+  const K=(risk.levMult)||2.5;
+  const levVal=(s.totals.leverage&&s.totals.leverage.current)||0;
+  let reduceLev=0, levCapped=false;
+  if(kc.recMax!=null && eff>kc.recMax && K>1){
+    const raw=(eff-kc.recMax)*nav/(K-1);     // 1배 재배치 기준 매도 노셔널
+    reduceLev=Math.max(0, Math.min(levVal, raw));
+    levCapped = raw > levVal+1;               // 슬리브 전량으로도 상한 미달
+  }
+  const reduceLev3=Math.round(reduceLev/3);
+  // 재진입(방어 해제) 조건 — 층별
+  const reentry = {
+    floor: `NAV가 하한의 +15%(₩${fmtKRW(floor*1.15)}) 이상 회복 시 방어 해제`,
+    trend: '핵심 지수가 200일선 위로 마감(추세 회복) 시 재진입',
+    lev:   '실현변동성 하락으로 ½켈리 상한이 현재 실효 레버리지를 다시 상회할 때 재개',
+    near:  `NAV가 하한의 +15%(₩${fmtKRW(floor*1.15)}) 이상으로 멀어지면 정상 모드`
+  };
+  return {nav,floor,floorBreach,floorNear,trendBreak,below,kc,eff,overLev,level,
+          reduceLev,reduceLev3,levCapped,reentry,levVal,K,
+          trendTs:(t.ts||null)};
 }
 function computeStrategyPlan(s){
   const st=state.settings.strategy;
@@ -2358,6 +2487,94 @@ function renderStrategyAlert(s){
   el.style.display='block';
   el.onclick=()=>openStrategyPlan();
 }
+function renderRiskAlert(s){
+  const el=document.getElementById('risk-alert'); if(!el) return;
+  const r=computeRiskStatus(s);
+  if(!r.level){ el.style.display='none'; el.onclick=null; return; }
+  let title, action, crit=false;
+  if(r.level==='floor'){ crit=true;
+    title='⚠ 하방 플로어 붕괴';
+    action=`레버리지 <b style="color:var(--text)">전량 해제</b> · 추가 손실 차단 최우선 (현재 ₩${fmtKRW(r.nav)} ≤ 하한 ₩${fmtKRW(r.floor)})`;
+  } else if(r.level==='trend'){ crit=true;
+    title='⚠ 추세 이탈 — '+r.below.join('·')+' 200일선 하회';
+    action='레버리지 <b style="color:var(--text)">0으로</b> + 1배 자산 일부 현금화 · 분할 실행';
+  } else if(r.level==='lev'){
+    title='레버리지 과다 — 변동성 대비 베팅 초과';
+    action = r.reduceLev>1000000
+      ? `슬리브 <b style="color:var(--text)">₩${fmtKRW(r.reduceLev)}</b>${r.levCapped?'(전량)':''} 축소 · 3회 분할 ₩${fmtKRW(r.reduceLev3)}씩`
+      : `사이즈 축소 (실효 ${r.eff.toFixed(2)}배 > 권장 ${r.kc.recMax.toFixed(2)}배)`;
+  } else { // near
+    title='하방 플로어 근접';
+    action=`신규 매수·추가 레버리지 <b style="color:var(--text)">중단</b> (하한까지 ${fmtPct((r.nav/r.floor-1))} 여유)`;
+  }
+  el.className='card risk-alert'+(crit?' crit':'');
+  el.innerHTML=`<div style="display:flex;align-items:flex-start;gap:11px">
+    <span class="rk-dot" style="margin-top:4px"></span>
+    <div style="flex:1">
+      <div style="font-weight:700;font-size:13px">${esc(title)}</div>
+      <div style="font-size:11.5px;color:var(--text-2);margin-top:3px"><span style="color:${crit?'#E5484D':'var(--orange)'};font-weight:700">조치:</span> ${action}</div>
+      <div style="font-size:10.5px;color:var(--text-3);margin-top:2px"><b>재진입:</b> ${r.reentry[r.level]}</div>
+    </div>
+    <span style="color:${crit?'#E5484D':'var(--orange)'};font-size:12px;font-weight:600;white-space:nowrap">상세 ▸</span>
+  </div>`;
+  el.style.display='block';
+  el.onclick=()=>openRiskPlan();
+}
+function openRiskPlan(){
+  const s=portfolioStats(); const r=computeRiskStatus(s); const risk=state.settings.risk||{};
+  const yn=(bad,goodTxt,badTxt)=>`<span style="color:${bad?'#E5484D':'var(--up)'};font-weight:700">${bad?badTxt:goodTxt}</span>`;
+  // ① 변동성/켈리
+  const volTxt = r.kc.vol!=null ? fmtPct(r.kc.vol,0) : '데이터 부족';
+  const capTxt = r.kc.recMax!=null ? r.kc.recMax.toFixed(2)+'배' : '—';
+  const row1 = r.kc.recMax==null
+    ? `히스토리 부족 — 스냅샷이 쌓이면 자동 계산`
+    : `실효 레버리지 <b>${r.eff.toFixed(2)}배</b> vs 권장 ≤ <b>${capTxt}</b> · ${yn(r.overLev,'적정','초과')}<br><span style="color:var(--text-3)">실현변동성 ${volTxt} · 기대초과수익 ${fmtPct(risk.muExcess||0.10,0)} · ½켈리 기준</span>`;
+  // ② 추세
+  const t=risk.trend||{};
+  function trendLine(sym,label){
+    const d=t[sym]; if(!d) return `${label}: <span style="color:var(--text-3)">데이터 대기</span>`;
+    return `${label}: ${yn(d.below,'200일선 위','200일선 하회')} <span style="color:var(--text-3)">(${fmtPctSigned(d.gap,1)})</span>`;
+  }
+  // ④ 플로어
+  const floorTxt = risk.floorMode==='peakpct' ? `전고점 −${((risk.floorPeakPct||0.25)*100).toFixed(0)}%` : `절대 ₩${fmtKRW(risk.floorAbs||0)}`;
+  const dist = r.floor>0 ? (r.nav/r.floor-1) : null;
+  const row4 = `하한 ${floorTxt} = <b>₩${fmtKRW(r.floor)}</b> · 현재 ${yn(r.floorBreach,'여유','붕괴')} ${dist!=null?`<span style="color:var(--text-3)">(${fmtPctSigned(dist,1)})</span>`:''}`;
+  // ③ 백스톱(전략)
+  const sp=computeStrategyPlan(s);
+  const row3 = (state.settings.strategy&&state.settings.strategy.backstop!=null)
+    ? `고점 −${((state.settings.strategy.backstop)*100).toFixed(0)}% · ${yn(sp.backstopHit,'정상','발동')}`
+    : `<span style="color:var(--text-3)">미사용</span>`;
+  // 현재 활성 경고의 권장 조치 + 재진입 조건
+  let actionBlock='';
+  if(r.level){
+    const lblMap={floor:'플로어 붕괴',trend:'추세 이탈',lev:'레버리지 과다',near:'플로어 근접'};
+    let act='';
+    if(r.level==='lev') act = r.reduceLev>1000000 ? `레버리지 슬리브 <b>₩${fmtKRW(r.reduceLev)}</b>${r.levCapped?'(전량)':''} 축소 → 3회 분할 <b>₩${fmtKRW(r.reduceLev3)}</b>씩` : '레버리지 슬리브 소폭 축소';
+    else if(r.level==='trend') act='레버리지 0 + 1배 자산 일부 현금화 (분할)';
+    else if(r.level==='floor') act='레버리지 전량 해제 · 추가 손실 차단 최우선';
+    else if(r.level==='near') act='신규 매수·추가 레버리지 중단 (방어 모드)';
+    const crit = (r.level==='floor'||r.level==='trend');
+    actionBlock=`<div style="margin-top:14px;padding:12px;border-radius:10px;border:1px solid ${crit?'#E5484D':'var(--orange)'};background:${crit?'rgba(229,72,77,0.10)':'var(--orange-soft)'}">
+      <div style="font-weight:800;font-size:13px;color:${crit?'#E5484D':'var(--orange)'}">● 현재 조치 — ${lblMap[r.level]}</div>
+      <div class="info-text" style="margin-top:6px"><b style="color:var(--text)">지금:</b> ${act}</div>
+      <div class="info-text" style="margin-top:4px"><b style="color:var(--text)">재진입:</b> ${r.reentry[r.level]}</div>
+      <div class="info-text" style="margin-top:6px;font-size:10.5px;color:var(--text-3)">※ 분할 실행 권장 · 자동매매 아님</div>
+    </div>`;
+  } else {
+    actionBlock=`<div class="info-text" style="margin-top:14px;color:var(--up)">● 활성 경고 없음 — 4중 방어 정상</div>`;
+  }
+  const html=`<div style="font-weight:800;font-size:16px;margin-bottom:4px">하방 보호 상태</div>
+    <div class="info-text" style="margin-bottom:14px">현재 NAV <b style="color:var(--text)">₩${fmtKRW(r.nav)}</b> · 4중 방어 점검</div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div><div style="font-weight:700;font-size:12.5px;margin-bottom:3px">① 포지션 사이징 (변동성·½켈리)</div><div class="info-text">${row1}</div></div>
+      <div><div style="font-weight:700;font-size:12.5px;margin-bottom:3px">② 추세 필터 (200일선)</div><div class="info-text">${trendLine('^GSPC','S&P500')}<br>${trendLine('^NDX','나스닥100')}</div></div>
+      <div><div style="font-weight:700;font-size:12.5px;margin-bottom:3px">③ 백스톱 (고점 낙폭)</div><div class="info-text">${row3}</div></div>
+      <div><div style="font-weight:700;font-size:12.5px;margin-bottom:3px">④ 절대 플로어</div><div class="info-text">${row4}</div></div>
+    </div>
+    ${actionBlock}
+    <div class="info-text" style="margin-top:14px;font-size:10.5px;color:var(--text-3)">※ 계산·알림 전용(자동매매 아님). 변동성·추세는 추정이며 체결·세무는 직접 확인. 설정 → 하방 보호에서 수정.</div>`;
+  openModal(html);
+}
 function openStrategyPlan(){
   const s=portfolioStats(); const p=computeStrategyPlan(s); const st=state.settings.strategy;
   if(!p.enabled){ openModal('<div class="info-text">전략이 꺼져 있습니다. 설정에서 켤 수 있어요.</div><button class="btn btn-secondary" style="width:100%;margin-top:12px" onclick="closeModal()">닫기</button>'); return; }
@@ -2387,6 +2604,52 @@ function openStrategyPlan(){
     <button class="btn btn-secondary" style="width:100%;margin-top:14px" onclick="closeModal()">닫기</button>`);
 }
 
+function openRiskEditor(){
+  const rk=state.settings.risk||{};
+  const inSt="background:var(--surface);color:var(--text);border:1px solid var(--hairline);border-radius:8px;padding:10px 12px;font-size:14px;min-width:0;width:100%";
+  const isAbs = rk.floorMode!=='peakpct';
+  openModal(`
+    <h3 style="font-size:18px;font-weight:700;margin-bottom:4px">하방 보호 규칙</h3>
+    <div class="info-text" style="margin-bottom:14px">손실을 사전에 제한하는 4중 방어 설정 (계산·알림 전용)</div>
+
+    <div class="info-text" style="margin-bottom:6px;font-weight:700">① 포지션 사이징 (변동성·½켈리)</div>
+    <div class="info-text" style="margin-bottom:6px">기대 초과수익(연) — 켈리 상한 계산용. 낮게 잡을수록 보수적</div>
+    <div class="field" style="margin-bottom:8px"><label>기대 초과수익 %</label><input id="rk-mu" type="number" step="1" value="${((rk.muExcess||0.10)*100).toFixed(0)}" style="${inSt}"></div>
+    <div class="field" style="margin-bottom:14px"><label>레버리지 슬리브 내재배수 (2x/3x 혼합 추정)</label><input id="rk-k" type="number" step="0.1" value="${(rk.levMult||2.5).toFixed(1)}" style="${inSt}"></div>
+
+    <div class="info-text" style="margin-bottom:6px;font-weight:700">② 추세 필터 (200일선)</div>
+    <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:13px">
+      <input type="checkbox" id="rk-trend" ${rk.trendOn?'checked':''}> S&P500·나스닥100 200일선 이탈 시 경고
+    </label>
+
+    <div class="info-text" style="margin-bottom:6px;font-weight:700">④ 절대 플로어 (불가침 하한)</div>
+    <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px">
+      <input type="radio" name="rk-fm" id="rk-fm-abs" ${isAbs?'checked':''}> 절대 금액
+    </label>
+    <div class="field" style="margin-bottom:10px"><label>하한 금액 (원)</label><input id="rk-floorabs" type="number" step="1000000" value="${rk.floorAbs||0}" style="${inSt}"></div>
+    <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px">
+      <input type="radio" name="rk-fm" id="rk-fm-peak" ${!isAbs?'checked':''}> 전고점 대비 −%
+    </label>
+    <div class="field" style="margin-bottom:16px"><label>전고점 −% (낙폭)</label><input id="rk-floorpct" type="number" step="1" value="${((rk.floorPeakPct||0.25)*100).toFixed(0)}" style="${inSt}"></div>
+
+    <button class="btn btn-primary" style="width:100%" onclick="saveRisk()">저장</button>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="closeModal()">취소</button>
+  `);
+}
+function saveRisk(){
+  const rk=state.settings.risk||(state.settings.risk={});
+  const mu=parseFloat(document.getElementById('rk-mu').value||'10')||10; rk.muExcess=Math.max(0.01,mu/100);
+  const k=parseFloat(document.getElementById('rk-k').value||'2.5')||2.5; rk.levMult=Math.max(1,k);
+  rk.trendOn=document.getElementById('rk-trend').checked;
+  rk.floorMode=document.getElementById('rk-fm-peak').checked?'peakpct':'abs';
+  rk.floorAbs=Math.max(0, Math.round(parseFloat(document.getElementById('rk-floorabs').value||'0')||0));
+  const fp=parseFloat(document.getElementById('rk-floorpct').value||'25')||25; rk.floorPeakPct=Math.min(0.9,Math.max(0,fp/100));
+  saveState();
+  closeModal();
+  try{ if(currentView==='dashboard') renderDashboard(); if(currentView==='settings') renderSettings(); }catch(_){}
+  if(rk.trendOn) fetchTrend200(true).then(()=>{ try{ if(currentView==='dashboard') renderRiskAlert(portfolioStats()); }catch(_){} }).catch(()=>{});
+  toast('하방 보호 규칙 저장됨');
+}
 function openStrategyEditor(){
   const st=state.settings.strategy||JSON.parse(JSON.stringify(STRATEGY_DEFAULT));
   const ms=st.milestones.slice().sort((a,b)=>a-b);
@@ -5558,6 +5821,8 @@ async function refreshAllPrices(quiet){
   // FX — 주식·코인 시세와 동시에 진행
   try {
   const fxPromise=withTimeout(fetchFx(),8000).then(v=>{ if(v>0){ state.settings.fxRate=v; scheduleLiveRender(); } }).catch(()=>{});
+  // 추세 필터(200일선) — 6시간 1회, 비차단. 도착하면 하방 보호 카드만 갱신
+  fetchTrend200(false).then(()=>{ try{ if(currentView==='dashboard') renderRiskAlert(portfolioStats()); }catch(_){} }).catch(()=>{});
 
   // 주식·ETF — Yahoo, 동시 8개
   const stocks=state.holdings.filter(h=>h.cat!=='crypto');
@@ -5850,6 +6115,22 @@ function renderSettings(){
   }
   const esb=document.getElementById('edit-strategy');
   if(esb) esb.onclick=openStrategyEditor;
+  // 하방 보호 규칙 요약
+  const rs=document.getElementById('risk-summary');
+  if(rs){
+    const rk=state.settings.risk||{};
+    const floorTxt = rk.floorMode==='peakpct' ? `전고점 −${((rk.floorPeakPct||0.25)*100).toFixed(0)}%` : `₩${fmtKRW(rk.floorAbs||0)}`;
+    let st='';
+    try{ const r=computeRiskStatus(portfolioStats());
+      const vol=r.kc.vol!=null?fmtPct(r.kc.vol,0):'—';
+      const cap=r.kc.recMax!=null?r.kc.recMax.toFixed(2)+'배':'—';
+      st=`① 사이징: 실효 ${r.eff.toFixed(2)}배 / 권장 ≤${cap} <span style="color:var(--text-3)">(변동성 ${vol})</span><br>`
+        +`② 추세 200일선 ${rk.trendOn?'사용':'끔'} · ③ 백스톱 ${state.settings.strategy&&state.settings.strategy.backstop!=null?('−'+(state.settings.strategy.backstop*100).toFixed(0)+'%'):'미사용'} · ④ 플로어 <b style="color:var(--text)">${floorTxt}</b>`;
+    }catch(e){ st=`② 추세 ${rk.trendOn?'사용':'끔'} · ④ 플로어 <b>${floorTxt}</b>`; }
+    rs.innerHTML=st;
+  }
+  const erb=document.getElementById('edit-risk');
+  if(erb) erb.onclick=openRiskEditor;
   // 로컬 순환 스냅샷 목록
   listLocalSnaps().then(snaps=>{
     const el=document.getElementById('snap-list'); if(!el) return;

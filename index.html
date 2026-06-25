@@ -347,6 +347,10 @@ input,select,textarea{font-family:inherit;color:inherit}
 .risk-alert .rk-dot{width:9px;height:9px;border-radius:50%;background:var(--orange);flex-shrink:0}
 .risk-alert.crit{border-color:#E5484D;background:rgba(229,72,77,0.12)}
 .risk-alert.crit .rk-dot{background:#E5484D}
+.park-alert{cursor:pointer;border:1px solid #5A7A9A;background:rgba(90,122,154,0.12)}
+.park-alert.due{border-color:var(--gold);background:var(--gold-soft)}
+.park-alert .pk-dot{width:9px;height:9px;border-radius:50%;background:#8AA0BD;flex-shrink:0}
+.park-alert.due .pk-dot{background:var(--gold)}
 .h-move{display:flex;flex-direction:column;gap:3px;margin-left:10px;flex-shrink:0}
 .h-move button{width:27px;height:20px;border:1px solid var(--hairline);border-radius:6px;background:var(--frame);color:var(--text-2);font-size:8px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0}
 .h-move button:active{background:var(--surface-2);color:var(--gold)}
@@ -431,6 +435,7 @@ input,select,textarea{font-family:inherit;color:inherit}
     <div class="card risk-alert" id="risk-alert" style="display:none"></div>
     <div class="card rebal-alert" id="rebal-alert" style="display:none"></div>
     <div class="card cagr-alert" id="cagr-alert" style="display:none"></div>
+    <div class="card park-alert" id="park-alert" style="display:none"></div>
     <div class="card strategy-alert" id="strategy-alert" style="display:none"></div>
     <div id="market-banner" class="mkt-banner" style="display:none"></div>
     <div class="freshness" id="freshness">
@@ -746,6 +751,16 @@ input,select,textarea{font-family:inherit;color:inherit}
     </div>
 
     <div class="card">
+      <div class="card-title">규칙 미니 백테스트</div>
+      <div class="info-text" id="backtest-summary" style="margin-bottom:4px"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">세금 인지 리밸런싱</div>
+      <div class="info-text" id="taxaware-summary" style="margin-bottom:4px"></div>
+    </div>
+
+    <div class="card">
       <div class="card-title">데이터 관리</div>
       <button class="btn btn-primary" style="width:100%;margin-bottom:8px" id="backup-btn">☁ 구글 드라이브에 백업</button>
       <div id="backup-meta" style="font-size:11px;text-align:center;margin-bottom:14px"></div>
@@ -894,7 +909,7 @@ const CATEGORIES = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v1.4.2';
+const APP_VER = 'v1.7.1';
 const APP_BUILD = '2026-06-26';
 
 const SEED = {
@@ -1020,7 +1035,7 @@ function normalizeState(){
   // 하방 보호 규칙 — 기본값 주입/보정
   if (!state.settings.risk) {
     const pr=(state.settings.principal||400000000);
-    state.settings.risk = { floorMode:'abs', floorAbs:Math.round(pr*0.8), floorPeakPct:0.25, muExcess:0.10, levMult:2.5, trendOn:true, trend:{} };
+    state.settings.risk = { floorMode:'abs', floorAbs:Math.round(pr*0.8), floorPeakPct:0.25, muExcess:0.10, levMult:2.5, trendOn:true, rebalBand:0.05, overshootPct:0.15, cashoutFrac:0.50, trend:{} };
   } else {
     const rk=state.settings.risk;
     if(rk.floorMode==null) rk.floorMode='abs';
@@ -1029,8 +1044,14 @@ function normalizeState(){
     if(rk.muExcess==null) rk.muExcess=0.10;
     if(rk.levMult==null) rk.levMult=2.5;
     if(rk.trendOn==null) rk.trendOn=true;
+    if(rk.rebalBand==null) rk.rebalBand=0.05;
+    if(rk.overshootPct==null) rk.overshootPct=0.15;
+    if(rk.cashoutFrac==null) rk.cashoutFrac=0.50;
     if(!rk.trend) rk.trend={};
   }
+  if(!Array.isArray(state.riskLog)) state.riskLog=[];   // 하방 신호 전환 로그(영속)
+  if(!state.riskState) state.riskState={};               // 직전 신호 상태(전환 감지용)
+  if(!Array.isArray(state.parkPool)) state.parkPool=[];  // 오버슛 현금 버퍼 — 파킹 로트(파킹시 NAV 기록)
   if (!state.settings.cloud) state.settings.cloud = { auto:false, last:null };
   if (!state.history) state.history = [];
   // 자산 추이 — 월(ym) 기록을 일(d, YYYY-MM-DD) 키로 마이그레이션
@@ -1187,16 +1208,21 @@ function maybeUpdatePick(){
 }
 
 /* 현재 월의 자산 스냅샷을 기록(upsert) — 월별 추이 차트용 */
+function cumDepositsAsOf(ts){
+  let s=0; for(const f of depositFlows()){ if(f.date.getTime()<=ts) s+=(f.amount||0); } return s;
+}
 function recordSnapshot(){
   if (!state.history) state.history = [];
   const s = portfolioStats();
-  const d = new Date().toISOString().slice(0,10);   // YYYY-MM-DD (일단위)
+  const now = Date.now();
+  const d = new Date(now+9*3600*1000).toISOString().slice(0,10);   // KST 기준 YYYY-MM-DD
   const byClass={};
   for(const k in s.totals) byClass[k]=Math.round(s.totals[k].current);   // 자산군별 평가액 (보유 시세)
+  const cumDep = cumDepositsAsOf(now);   // 누적 외부납입 — 변동성 계산 시 입금 점프 제거용
   const found = state.history.find(h => h.d === d);
   // 같은 날은 마지막으로 본 평가액으로 갱신 (종가에 가장 가까움)
-  if (found){ found.total = s.totalWithCash; found.byClass=byClass; found.ts = Date.now(); }
-  else { state.history.push({ d, total: s.totalWithCash, byClass, ts: Date.now() }); }
+  if (found){ found.total = s.totalWithCash; found.byClass=byClass; found.cumDep=cumDep; found.ts = now; }
+  else { state.history.push({ d, total: s.totalWithCash, byClass, cumDep, ts: now }); }
   state.history.sort((a,b)=>(a.d||'').localeCompare(b.d||''));
 }
 // 전일 대비 변동 — 오늘 이전의 가장 최근 기록(전 영업일)과 현재 총자산 비교
@@ -2258,6 +2284,7 @@ function renderDashboard(){
   renderCagrAlert();
   renderStrategyAlert(s);
   renderRiskAlert(s);
+  renderParkAlert(s);
 }
 /* 리밸런싱 시점 알림 — 자산군 비중이 목표에서 임계치 이상 벌어지면 표시 */
 const REBAL_THRESHOLD=0.05;  // 5%p
@@ -2270,8 +2297,12 @@ function renderCagrAlert(){
   if(expected<=0){ el.style.display='none'; return; }
   const pct=gap/expected;
   const reserve=state.settings.reserveCash||0;
-  if(gap>0 && pct>=0.10){
-    // 초과 (골드) — 목표보다 10%p 이상 초과 시에만 현금화 권장
+  const rk=state.settings.risk||{};
+  const overshootPct=(rk.overshootPct!=null)?rk.overshootPct:0.10;
+  const cashoutFrac=(rk.cashoutFrac!=null)?rk.cashoutFrac:1;
+  if(gap>0 && pct>=overshootPct){
+    // 초과 (골드) — 목표보다 임계% 이상 초과 시 현금화 권장 (초과분의 일정%만 분할 현금화)
+    const cashoutAmt=Math.round(gap*cashoutFrac);
     const sp=computeStrategyPlan(portfolioStats());
     const stratActive = sp && sp.enabled && sp.step>=1 && sp.sellAmt>1000000;
     el.style.borderColor='var(--gold)';
@@ -2280,7 +2311,8 @@ function renderCagrAlert(){
       <span class="ca-dot" style="background:var(--gold)"></span>
       <div style="flex:1">
         <div style="font-weight:700;font-size:13px">CAGR 목표 초과 달성</div>
-        <div style="font-size:11.5px;color:var(--text-2);margin-top:2px">현재 시점 목표보다 +${(pct*100).toFixed(1)}% 초과 — 초과분 ₩${fmtKRW(gap)}</div>
+        <div style="font-size:11.5px;color:var(--text-2);margin-top:2px">목표보다 +${(pct*100).toFixed(1)}% 초과(임계 ${(overshootPct*100).toFixed(0)}%) · 초과분 ₩${fmtKRW(gap)} 중 <b style="color:var(--text)">권장 현금화 ₩${fmtKRW(cashoutAmt)}</b>(${(cashoutFrac*100).toFixed(0)}%)</div>
+        <div style="font-size:10.5px;color:var(--text-3);margin-top:3px">→ 현금화 후 '오버슛 현금 버퍼'에 파킹 기록하면 하락 시 자동 재투입 래더</div>
         ${stratActive?`<div style="font-size:11px;color:var(--orange);margin-top:4px">⚠ 레버리지 청산 전략 활성 중 — 중복 디리스크 방지 위해 현금화는 보류 권장</div>`:''}
       </div>
       <span style="color:var(--gold);font-size:12px;font-weight:600;white-space:nowrap">현금화 ▸</span>
@@ -2335,9 +2367,13 @@ function realizedVolAnnual(){
   if(h.length<8) return null;
   const rets=[], gaps=[];
   for(let i=1;i<h.length;i++){
-    const r=Math.log(h[i].total/h[i-1].total);
-    const dt=(new Date(h[i].d)-new Date(h[i-1].d))/86400000;
-    if(isFinite(r) && dt>0){ rets.push(r); gaps.push(dt); }
+    const flow=(h[i].cumDep!=null && h[i-1].cumDep!=null) ? (h[i].cumDep - h[i-1].cumDep) : 0;
+    const adjEnd = h[i].total - flow;     // 외부납입 제거 → 순수 투자수익만
+    if(adjEnd>0 && h[i-1].total>0){
+      const r=Math.log(adjEnd/h[i-1].total);
+      const dt=(new Date(h[i].d)-new Date(h[i-1].d))/86400000;
+      if(isFinite(r) && dt>0){ rets.push(r); gaps.push(dt); }
+    }
   }
   if(rets.length<6) return null;
   const mean=rets.reduce((a,b)=>a+b,0)/rets.length;
@@ -2376,7 +2412,10 @@ async function fetchTrend200(force){
       if(closes.length>=200){
         const last=closes[closes.length-1];
         const sma=closes.slice(-200).reduce((a,b)=>a+b,0)/200;
-        t[sym]={last,sma,below:last<sma,gap:(last/sma-1),ts:Date.now()};
+        const first=closes[0];
+        const mom=first>0?(last/first-1):0;          // ~12개월 절대모멘텀
+        const below200=last<sma, momNeg=mom<0;
+        t[sym]={last,sma,below200,momNeg,below:(below200&&momNeg),gap:(last/sma-1),mom,ts:Date.now()};
       }
     }catch(_){}
   }
@@ -2424,6 +2463,158 @@ function computeRiskStatus(s){
           reduceLev,reduceLev3,levCapped,reentry,levVal,K,
           trendTs:(t.ts||null)};
 }
+/* 신호 전환(켜짐/꺼짐)을 감지해 영속 로그에 기록 — 재진입 판단·이력 추적용 */
+function logRiskTransitions(r){
+  if(!Array.isArray(state.riskLog)) state.riskLog=[];
+  if(!state.riskState) state.riskState={};
+  const prev=state.riskState;
+  const cur={ floor:!!r.floorBreach, trend:!!r.trendBreak, lev:!!r.overLev, near:!!r.floorNear };
+  const labels={floor:'플로어 붕괴',trend:'추세 이탈(듀얼)',lev:'레버리지 과다',near:'플로어 근접'};
+  let changed=false, hadPrev=Object.keys(prev).length>0;
+  for(const k of ['floor','trend','lev','near']){
+    if(hadPrev && prev[k]!==undefined && prev[k]!==cur[k]){
+      state.riskLog.push({ t:Date.now(), type:k, on:cur[k],
+        msg:`${labels[k]} ${cur[k]?'발생':'해제'}`, nav:Math.round(r.nav||0) });
+      changed=true;
+    }
+  }
+  if(changed || !hadPrev){
+    if(state.riskLog.length>60) state.riskLog=state.riskLog.slice(-60);   // 최근 60건 유지
+    state.riskState=cur;
+    if(changed){ try{ saveStateRaw(); }catch(_){ try{ saveState(); }catch(e){} } }
+  }
+}
+/* 미니 백테스트 — 현금흐름 보정 히스토리에 트레일링 스톱(백스톱%)을 적용해 MDD·최종배수 비교.
+   스냅샷 기반 근사치(앱 사용일만 기록) — 규칙 효과의 방향성 참고용. */
+function backtestRules(){
+  const h=(state.history||[]).filter(x=>x.d && x.total>0).slice().sort((a,b)=>a.d.localeCompare(b.d));
+  if(h.length<10) return null;
+  const band=(state.settings.strategy&&state.settings.strategy.backstop!=null)?state.settings.strategy.backstop:0.20;
+  const ret=[];
+  for(let i=1;i<h.length;i++){
+    const flow=(h[i].cumDep!=null&&h[i-1].cumDep!=null)?(h[i].cumDep-h[i-1].cumDep):0;
+    const adjEnd=h[i].total-flow;
+    ret.push(h[i-1].total>0 ? (adjEnd/h[i-1].total-1) : 0);
+  }
+  function curve(applyRule){
+    let eq=1, peak=1, mdd=0, inMkt=true, refPeak=1;
+    for(const r of ret){
+      if(!applyRule || inMkt) eq*=(1+r);      // 규칙 적용 시 현금 구간은 변동 없음(0%)
+      if(eq>peak) peak=eq;
+      const dd=eq/peak-1; if(dd<mdd) mdd=dd;
+      if(applyRule){
+        if(inMkt && (eq/peak-1)<=-band){ inMkt=false; refPeak=peak; }   // 스톱 발동→현금
+        else if(!inMkt && eq>=refPeak*(1-band/2)){ inMkt=true; }        // 회복→재진입
+      }
+    }
+    return {end:eq, mdd};
+  }
+  const a=curve(false), b=curve(true);
+  return {actualMDD:a.mdd, ruledMDD:b.mdd, actualEnd:a.end, ruledEnd:b.end, n:h.length, band};
+}
+/* ================================================================
+   오버슛 현금 버퍼 — 목표 초과 시 현금화(파킹) → 파킹 시점 NAV 대비 하락 래더로 분할 재투입(B안)
+   ================================================================ */
+const PARK_RUNGS=[0.08,0.15,0.25,0.35];   // 파킹가 대비 하락 → 누적 25/50/75/100% 재투입
+function parkPoolBalance(){ return (state.parkPool||[]).reduce((a,l)=>a+Math.max(0,(l.amount||0)-(l.deployed||0)),0); }
+function parkAdd(amount){
+  if(!(amount>0)) return;
+  const s=portfolioStats();
+  if(!Array.isArray(state.parkPool)) state.parkPool=[];
+  state.parkPool.push({id:'pk'+Date.now(), ts:Date.now(), amount:Math.round(amount), navAtPark:Math.round(s.totalWithCash||0), deployed:0});
+  saveState();
+}
+function parkRedeployPlan(){
+  const pool=(state.parkPool||[]).filter(l=>(l.amount-(l.deployed||0))>1);
+  const s=portfolioStats(); const nav=s.totalWithCash||0;
+  let due=0; const lots=[]; let nextTrig=null;
+  for(const l of pool){
+    const rem=l.amount-(l.deployed||0);
+    const dd = l.navAtPark>0 ? (1-nav/l.navAtPark) : 0;     // 파킹 시점 대비 하락률(양수=쌈)
+    let hit=0; for(const r of PARK_RUNGS){ if(dd>=r) hit++; }
+    const target=l.amount*(hit/PARK_RUNGS.length);
+    const d=Math.max(0, Math.min(rem, target-(l.deployed||0)));
+    if(d>1) due+=d;
+    const nextR=PARK_RUNGS.find(r=>dd<r);
+    if(nextR!=null){
+      const trigNav=l.navAtPark*(1-nextR), amt=Math.min(rem, l.amount*0.25);
+      if(!nextTrig || trigNav>nextTrig.trigNav) nextTrig={trigNav, amt, rung:nextR};
+    }
+    lots.push({l,dd,hit,rem});
+  }
+  return {nav, due:Math.round(due), lots, nextTrig, balance:parkPoolBalance()};
+}
+function parkDeployExecute(){
+  const p=parkRedeployPlan();
+  if(p.due<=1){ toast('재투입할 도달 구간이 없습니다'); return; }
+  if(!confirm(`파킹 풀에서 ₩${fmtKRW(p.due)}를 재투입(매수)으로 표시합니다.\n실제 매수는 직접 체결하세요. 계속할까요?`)) return;
+  for(const it of p.lots){
+    const l=it.l, rem=l.amount-(l.deployed||0);
+    let hit=0; for(const r of PARK_RUNGS){ if(it.dd>=r) hit++; }
+    const target=l.amount*(hit/PARK_RUNGS.length);
+    const d=Math.max(0, Math.min(rem, target-(l.deployed||0)));
+    l.deployed=(l.deployed||0)+d;
+  }
+  state.parkPool=(state.parkPool||[]).filter(l=>(l.amount-(l.deployed||0))>1);
+  saveState();
+  closeModal(); try{ renderDashboard(); }catch(_){}
+  toast(`파킹 풀 ₩${fmtKRW(p.due)} 재투입 표시 완료`);
+}
+function parkAddPrompt(){
+  let def=0; try{ const g=computeCagrGap(); const rk=state.settings.risk||{}; const frac=(rk.cashoutFrac!=null)?rk.cashoutFrac:1; if(g&&g.gap>0) def=Math.round(g.gap*frac); }catch(_){}
+  const v=prompt('파킹할 현금 금액(원) — 오버슛 초과분을 현금화한 금액', def?String(def):'');
+  if(v==null) return; const amt=Math.round(parseFloat(v)||0);
+  if(amt>0){ parkAdd(amt); closeModal(); try{ renderDashboard(); }catch(_){}; toast(`₩${fmtKRW(amt)} 파킹 기록 (기준 NAV 저장)`); }
+}
+function openParkPlan(){
+  const p=parkRedeployPlan();
+  const t=(state.settings.risk&&state.settings.risk.trend)||{};
+  const downtrend=(t['^GSPC']&&t['^GSPC'].below200)||(t['^NDX']&&t['^NDX'].below200);
+  const lotRows=(p.lots||[]).map(it=>{
+    const l=it.l, rem=l.amount-(l.deployed||0);
+    const d=new Date(l.ts); const ds=`${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`;
+    return `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:4px 0;border-bottom:1px solid var(--hairline)">
+      <span>${ds} · 잔여 ₩${fmtKRW(rem)}</span>
+      <span style="color:var(--text-3)">기준 ₩${fmtKRW(l.navAtPark)} · ${it.dd>=0?'−':'+'}${(Math.abs(it.dd)*100).toFixed(1)}% · ${it.hit}/4단</span></div>`;
+  }).join('') || '<div class="info-text">파킹 로트가 없습니다.</div>';
+  const html=`<div style="font-weight:800;font-size:16px;margin-bottom:4px">오버슛 현금 버퍼</div>
+    <div class="info-text" style="margin-bottom:12px">대기 ₩${fmtKRW(p.balance)} · 현재 NAV ₩${fmtKRW(p.nav)}</div>
+    ${p.due>1?`<div style="padding:11px;border-radius:10px;border:1px solid var(--gold);background:var(--gold-soft);margin-bottom:12px">
+      <div style="font-weight:800;font-size:13px;color:var(--gold)">● 재투입 도달 — ₩${fmtKRW(p.due)}</div>
+      <div class="info-text" style="margin-top:4px">파킹가 대비 하락 래더 도달분. 분할 매수 권장.${downtrend?' <span style="color:var(--orange)">추세 하락 중 — 폭 축소/보류 고려</span>':''}</div>
+      <button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="parkDeployExecute()">재투입 ₩${fmtKRW(p.due)} 표시</button>
+    </div>`:(p.nextTrig?`<div class="info-text" style="margin-bottom:12px">다음 재투입: NAV <b style="color:var(--text)">₩${fmtKRW(p.nextTrig.trigNav)}</b>(파킹가 −${(p.nextTrig.rung*100).toFixed(0)}%)까지 하락 시 <b>₩${fmtKRW(p.nextTrig.amt)}</b></div>`:'')}
+    <div style="font-weight:700;font-size:12.5px;margin:6px 0 4px">파킹 로트</div>
+    ${lotRows}
+    <div class="info-text" style="margin-top:10px;font-size:11px;color:var(--text-2)">래더: 파킹가 대비 −8 / −15 / −25 / −35% 도달 시 각 25%씩 재투입(B안). 추세 하락 중엔 분할 축소 권장.</div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:12px" onclick="parkAddPrompt()">+ 파킹 기록 (현금화분 추가)</button>
+    <div class="info-text" style="margin-top:10px;font-size:10.5px;color:var(--text-3)">※ 계산·기록 전용(자동매매 아님). 실제 매매·세금은 직접 확인.</div>`;
+  openModal(html);
+}
+function renderParkAlert(s){
+  const el=document.getElementById('park-alert'); if(!el) return;
+  const p=parkRedeployPlan();
+  if(p.balance<=1){ el.style.display='none'; el.onclick=null; return; }
+  const t=(state.settings.risk&&state.settings.risk.trend)||{};
+  const downtrend=(t['^GSPC']&&t['^GSPC'].below200)||(t['^NDX']&&t['^NDX'].below200);
+  let body, due=p.due>1;
+  if(due){ body=`<b style="color:var(--text)">재투입 ₩${fmtKRW(p.due)}</b> 도달 (파킹가 대비 하락 래더)${downtrend?' <span style="color:var(--orange)">· 추세↓ 분할 축소</span>':''}`; }
+  else if(p.nextTrig){ body=`대기 ₩${fmtKRW(p.balance)} · 다음 NAV ₩${fmtKRW(p.nextTrig.trigNav)}(−${(p.nextTrig.rung*100).toFixed(0)}%) 시 ₩${fmtKRW(p.nextTrig.amt)} 재투입`; }
+  else { body=`대기 ₩${fmtKRW(p.balance)} · 래더 소진`; }
+  el.className='card park-alert'+(due?' due':'');
+  el.innerHTML=`<div style="display:flex;align-items:center;gap:11px">
+    <span class="pk-dot"></span>
+    <div style="flex:1">
+      <div style="font-weight:700;font-size:13px">오버슛 현금 버퍼</div>
+      <div style="font-size:11.5px;color:var(--text-2);margin-top:2px">${body}</div>
+    </div>
+    <span style="color:${due?'var(--gold)':'#8AA0BD'};font-size:12px;font-weight:600;white-space:nowrap">${due?'재투입 ▸':'상세 ▸'}</span>
+  </div>`;
+  el.style.display='block';
+  el.onclick=()=>openParkPlan();
+}
+window.parkDeployExecute=parkDeployExecute;
+window.parkAddPrompt=parkAddPrompt;
 function computeStrategyPlan(s){
   const st=state.settings.strategy;
   if(!st||!st.enabled) return {enabled:false};
@@ -2490,13 +2681,14 @@ function renderStrategyAlert(s){
 function renderRiskAlert(s){
   const el=document.getElementById('risk-alert'); if(!el) return;
   const r=computeRiskStatus(s);
+  try{ logRiskTransitions(r); }catch(_){}
   if(!r.level){ el.style.display='none'; el.onclick=null; return; }
   let title, action, crit=false;
   if(r.level==='floor'){ crit=true;
     title='⚠ 하방 플로어 붕괴';
     action=`레버리지 <b style="color:var(--text)">전량 해제</b> · 추가 손실 차단 최우선 (현재 ₩${fmtKRW(r.nav)} ≤ 하한 ₩${fmtKRW(r.floor)})`;
   } else if(r.level==='trend'){ crit=true;
-    title='⚠ 추세 이탈 — '+r.below.join('·')+' 200일선 하회';
+    title='⚠ 추세 이탈(200일선+모멘텀) — '+r.below.join('·');
     action='레버리지 <b style="color:var(--text)">0으로</b> + 1배 자산 일부 현금화 · 분할 실행';
   } else if(r.level==='lev'){
     title='레버리지 과다 — 변동성 대비 베팅 초과';
@@ -2533,7 +2725,10 @@ function openRiskPlan(){
   const t=risk.trend||{};
   function trendLine(sym,label){
     const d=t[sym]; if(!d) return `${label}: <span style="color:var(--text-3)">데이터 대기</span>`;
-    return `${label}: ${yn(d.below,'200일선 위','200일선 하회')} <span style="color:var(--text-3)">(${fmtPctSigned(d.gap,1)})</span>`;
+    const ma=d.below200?'200일선 하회':'200일선 위';
+    const mo=d.momNeg?'모멘텀 −':'모멘텀 +';
+    const dual=d.below?'<span style="color:#E5484D;font-weight:700">이탈(듀얼)</span>':'<span style="color:var(--up);font-weight:700">정상</span>';
+    return `${label}: ${dual} <span style="color:var(--text-3)">· ${ma}(${fmtPctSigned(d.gap,1)}) · ${mo}(${fmtPctSigned(d.mom||0,0)})</span>`;
   }
   // ④ 플로어
   const floorTxt = risk.floorMode==='peakpct' ? `전고점 −${((risk.floorPeakPct||0.25)*100).toFixed(0)}%` : `절대 ₩${fmtKRW(risk.floorAbs||0)}`;
@@ -2572,6 +2767,12 @@ function openRiskPlan(){
       <div><div style="font-weight:700;font-size:12.5px;margin-bottom:3px">④ 절대 플로어</div><div class="info-text">${row4}</div></div>
     </div>
     ${actionBlock}
+    ${(()=>{ const lg=(state.riskLog||[]).slice(-5).reverse();
+      if(!lg.length) return '';
+      const rows=lg.map(e=>{ const dt=new Date(e.t); const ds=`${dt.getMonth()+1}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+        return `<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-2);padding:3px 0"><span style="color:${e.on?'#E5484D':'var(--up)'}">${e.on?'●':'○'} ${esc(e.msg)}</span><span style="color:var(--text-3)">${ds} · ₩${fmtKRW(e.nav)}</span></div>`; }).join('');
+      return `<div style="margin-top:14px"><div style="font-weight:700;font-size:12.5px;margin-bottom:4px">최근 신호 이력</div>${rows}</div>`;
+    })()}
     <div class="info-text" style="margin-top:14px;font-size:10.5px;color:var(--text-3)">※ 계산·알림 전용(자동매매 아님). 변동성·추세는 추정이며 체결·세무는 직접 확인. 설정 → 하방 보호에서 수정.</div>`;
   openModal(html);
 }
@@ -2632,6 +2833,17 @@ function openRiskEditor(){
     </label>
     <div class="field" style="margin-bottom:16px"><label>전고점 −% (낙폭)</label><input id="rk-floorpct" type="number" step="1" value="${((rk.floorPeakPct||0.25)*100).toFixed(0)}" style="${inSt}"></div>
 
+    <div class="info-text" style="margin-bottom:6px;font-weight:700">⑤ 리밸런싱 노터치 밴드</div>
+    <div class="info-text" style="margin-bottom:6px">목표 비중에서 이 %p 이상 벗어날 때만 리밸런싱 권장(잦은 매매·세금 억제)</div>
+    <div class="field" style="margin-bottom:16px"><label>밴드 ±%p</label><input id="rk-band" type="number" step="1" value="${((rk.rebalBand!=null?rk.rebalBand:0.05)*100).toFixed(0)}" style="${inSt}"></div>
+
+    <div class="info-text" style="margin-bottom:6px;font-weight:700">⑥ 오버슛 현금화</div>
+    <div class="info-text" style="margin-bottom:6px">목표 페이스보다 이 % 이상 초과 시 현금화 권장 · 초과분의 일정 %만 분할 현금화</div>
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <div class="field" style="flex:1;min-width:0"><label>오버슛 임계 %</label><input id="rk-over" type="number" step="1" value="${((rk.overshootPct!=null?rk.overshootPct:0.15)*100).toFixed(0)}" style="${inSt}"></div>
+      <div class="field" style="flex:1;min-width:0"><label>현금화 비율 %</label><input id="rk-cashfrac" type="number" step="5" value="${((rk.cashoutFrac!=null?rk.cashoutFrac:0.50)*100).toFixed(0)}" style="${inSt}"></div>
+    </div>
+
     <button class="btn btn-primary" style="width:100%" onclick="saveRisk()">저장</button>
     <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="closeModal()">취소</button>
   `);
@@ -2644,9 +2856,13 @@ function saveRisk(){
   rk.floorMode=document.getElementById('rk-fm-peak').checked?'peakpct':'abs';
   rk.floorAbs=Math.max(0, Math.round(parseFloat(document.getElementById('rk-floorabs').value||'0')||0));
   const fp=parseFloat(document.getElementById('rk-floorpct').value||'25')||25; rk.floorPeakPct=Math.min(0.9,Math.max(0,fp/100));
+  const bd=parseFloat(document.getElementById('rk-band').value||'5')||5; rk.rebalBand=Math.min(0.5,Math.max(0,bd/100));
+  const ov=parseFloat(document.getElementById('rk-over').value||'15')||15; rk.overshootPct=Math.min(1,Math.max(0.01,ov/100));
+  const cf=parseFloat(document.getElementById('rk-cashfrac').value||'50')||50; rk.cashoutFrac=Math.min(1,Math.max(0.05,cf/100));
   saveState();
   closeModal();
-  try{ if(currentView==='dashboard') renderDashboard(); if(currentView==='settings') renderSettings(); }catch(_){}
+  try{ renderSettings(); }catch(_){}
+  try{ if(currentView==='dashboard') renderDashboard(); }catch(_){}
   if(rk.trendOn) fetchTrend200(true).then(()=>{ try{ if(currentView==='dashboard') renderRiskAlert(portfolioStats()); }catch(_){} }).catch(()=>{});
   toast('하방 보호 규칙 저장됨');
 }
@@ -2743,13 +2959,18 @@ function renderRebalAlert(s){
       if(Math.abs(dev)>Math.abs(maxDev)){ maxDev=dev; maxK=k; }
     }
   }
-  if(maxK && Math.abs(maxDev)>=REBAL_THRESHOLD){
+  const band=(state.settings.risk&&state.settings.risk.rebalBand!=null)?state.settings.risk.rebalBand:REBAL_THRESHOLD;
+  if(maxK && Math.abs(maxDev)>=band){
     const pp=(Math.abs(maxDev)*100).toFixed(1);
+    const tradeAmt=Math.abs(maxDev)*total;   // 목표 비중 복귀에 필요한 거래액
+    const act = maxDev>0 ? `매도 ₩${fmtKRW(tradeAmt)}` : `매수 ₩${fmtKRW(tradeAmt)}`;
+    const taxable = maxDev>0 && (maxK==='us_stock'||maxK==='leverage'||maxK==='global_etf');
+    const taxNote = taxable ? ' <span style="color:var(--orange)">· 과세 주의(손익 통산 점검)</span>' : '';
     el.innerHTML=`<div style="display:flex;align-items:center;gap:11px">
       <span class="ra-dot"></span>
       <div style="flex:1">
-        <div style="font-weight:700;font-size:13px">리밸런싱 권장</div>
-        <div style="font-size:11.5px;color:var(--text-2);margin-top:2px">${CATEGORIES[maxK].label} 비중이 목표보다 ${pp}%p ${maxDev>0?'높습니다':'낮습니다'}</div>
+        <div style="font-weight:700;font-size:13px">리밸런싱 권장 <span style="color:var(--text-3);font-weight:500;font-size:11px">노터치 ±${(band*100).toFixed(0)}%p 초과</span></div>
+        <div style="font-size:11.5px;color:var(--text-2);margin-top:2px">${CATEGORIES[maxK].label} 목표보다 ${pp}%p ${maxDev>0?'높음':'낮음'} · ${act}로 복귀${taxNote}</div>
       </div>
       <span style="color:var(--orange);font-size:12px;font-weight:600;white-space:nowrap">배분 ▸</span>
     </div>`;
@@ -6125,12 +6346,45 @@ function renderSettings(){
       const vol=r.kc.vol!=null?fmtPct(r.kc.vol,0):'—';
       const cap=r.kc.recMax!=null?r.kc.recMax.toFixed(2)+'배':'—';
       st=`① 사이징: 실효 ${r.eff.toFixed(2)}배 / 권장 ≤${cap} <span style="color:var(--text-3)">(변동성 ${vol})</span><br>`
-        +`② 추세 200일선 ${rk.trendOn?'사용':'끔'} · ③ 백스톱 ${state.settings.strategy&&state.settings.strategy.backstop!=null?('−'+(state.settings.strategy.backstop*100).toFixed(0)+'%'):'미사용'} · ④ 플로어 <b style="color:var(--text)">${floorTxt}</b>`;
+        +`② 추세 200일선 ${rk.trendOn?'사용':'끔'} · ③ 백스톱 ${state.settings.strategy&&state.settings.strategy.backstop!=null?('−'+(state.settings.strategy.backstop*100).toFixed(0)+'%'):'미사용'} · ④ 플로어 <b style="color:var(--text)">${floorTxt}</b><br>`
+        +`⑤ 리밸런싱 노터치 밴드 ±${((rk.rebalBand!=null?rk.rebalBand:0.05)*100).toFixed(0)}%p<br>`
+        +`⑥ 오버슛 현금화: 목표 +${((rk.overshootPct!=null?rk.overshootPct:0.15)*100).toFixed(0)}% 초과 시 초과분의 ${((rk.cashoutFrac!=null?rk.cashoutFrac:0.50)*100).toFixed(0)}% 분할`;
     }catch(e){ st=`② 추세 ${rk.trendOn?'사용':'끔'} · ④ 플로어 <b>${floorTxt}</b>`; }
     rs.innerHTML=st;
   }
   const erb=document.getElementById('edit-risk');
   if(erb) erb.onclick=openRiskEditor;
+  // 규칙 미니 백테스트
+  const bts=document.getElementById('backtest-summary');
+  if(bts){
+    try{
+      const bt=backtestRules();
+      if(!bt){ bts.innerHTML='<span style="color:var(--text-3)">데이터 부족 — 스냅샷 10일 이상 쌓이면 표시 (앱을 자주 열수록 정확)</span>'; }
+      else{
+        const mddImp=(bt.actualMDD-bt.ruledMDD)*100;   // 양수면 규칙이 낙폭 축소
+        bts.innerHTML=`히스토리 ${bt.n}개 · 트레일링 −${(bt.band*100).toFixed(0)}% 규칙 적용 시(근사)<br>`
+          +`최대낙폭(MDD): 실제 <b style="color:var(--down)">${fmtPct(bt.actualMDD,0)}</b> → 규칙 <b style="color:${mddImp>0?'var(--up)':'var(--down)'}">${fmtPct(bt.ruledMDD,0)}</b> <span style="color:var(--text-3)">(${mddImp>=0?'−':'+'}${Math.abs(mddImp).toFixed(0)}%p)</span><br>`
+          +`최종 성장배수: 실제 <b>${bt.actualEnd.toFixed(2)}x</b> · 규칙 <b>${bt.ruledEnd.toFixed(2)}x</b><br>`
+          +`<span style="color:var(--text-3);font-size:10.5px">※ 스냅샷(앱 사용일) 기반 근사 — 방향성 참고용</span>`;
+      }
+    }catch(e){ bts.innerHTML='<span style="color:var(--text-3)">계산 불가</span>'; }
+  }
+  // 세금 인지 리밸런싱
+  const txs=document.getElementById('taxaware-summary');
+  if(txs){
+    try{
+      const ytd=ytdOverseasRealized();
+      const ded=state.settings.overseasDeduction||0;
+      const dedLeft=Math.max(0, ded-Math.max(0,ytd));
+      const rate=(state.settings.taxRates&&state.settings.taxRates.overseas)||0.22;
+      const now=new Date(); const yearEnd = now.getMonth()>=10;   // 11월 이후
+      const taxableNow=Math.max(0, ytd-ded);
+      txs.innerHTML=`올해 해외 실현손익: <b style="color:${ytd>=0?'var(--up)':'var(--down)'}">₩${fmtKRW(ytd)}</b><br>`
+        +`기본공제(연 ₩${fmtKRW(ded)}) 잔여: <b>₩${fmtKRW(dedLeft)}</b>${taxableNow>0?` · 현재 과세대상 ₩${fmtKRW(taxableNow)}(예상세 ₩${fmtKRW(taxableNow*rate)})`:''}<br>`
+        +`<span style="color:var(--text-2)">리밸런싱·청산 시: 같은 해 손실 종목과 매칭하면 통산 절세. 해외양도세는 <b>이월공제 불가</b>(연도 내 통산만).</span>`
+        +(yearEnd?`<br><span style="color:var(--orange)">⚠ 연말 — 손익 통산·공제 점검 적기. 이익이 공제 미만이면 추가 실현 여지, 손실은 같은 해 이익과 매칭.</span>`:'');
+    }catch(e){ txs.innerHTML='<span style="color:var(--text-3)">계산 불가</span>'; }
+  }
   // 로컬 순환 스냅샷 목록
   listLocalSnaps().then(snaps=>{
     const el=document.getElementById('snap-list'); if(!el) return;

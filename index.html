@@ -884,7 +884,7 @@ const CATEGORIES = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v1.3.2';
+const APP_VER = 'v1.3.3';
 const APP_BUILD = '2026-06-25';
 
 const SEED = {
@@ -2163,9 +2163,9 @@ function renderDashboard(){
   const cagrBefore=calcCagr(s.totalWithCash);
   const cagrAfter=calcCagr(s.totalWithCash-totalItax);
   const gb=document.getElementById('cagr-before');
-  gb.textContent=fmtPct(cagrBefore); gb.className='sd-val num '+(cagrBefore>=st.targetCAGR?'up':'down');
+  gb.textContent=fmtPct(cagrBefore); gb.className='sd-val num '+(cagrBefore>=0?'up':'down');
   const ga=document.getElementById('cagr-after');
-  ga.textContent=fmtPct(cagrAfter); ga.className='sd-val num '+(cagrAfter>=st.targetCAGR?'up':'down');
+  ga.textContent=fmtPct(cagrAfter); ga.className='sd-val num '+(cagrAfter>=0?'up':'down');
   document.getElementById('stat-cagr-sub').textContent='목표 '+fmtPct(st.targetCAGR,1);
   const sdP=(st.startDate||'').split('-');
   document.getElementById('stat-startdate').textContent =

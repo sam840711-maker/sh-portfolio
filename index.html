@@ -884,7 +884,7 @@ const CATEGORIES = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v1.3.1';
+const APP_VER = 'v1.3.2';
 const APP_BUILD = '2026-06-25';
 
 const SEED = {
@@ -969,6 +969,7 @@ function eokFmt(n){ return (n==null||isNaN(n))?'—':(n/1e8).toFixed(1)+'억'; }
 
 let state = null;
 let isFetching = false;
+let _fetchStartedAt = 0;
 let _liveTimer = null;
 let lastFailed = new Set();
 
@@ -5538,8 +5539,8 @@ function setRefreshSpin(on){
 }
 
 async function refreshAllPrices(quiet){
-  if (isFetching) return;
-  isFetching=true; setRefreshSpin(true);
+  if (isFetching){ if(!_fetchStartedAt || Date.now()-_fetchStartedAt < 25000) return; }  // 진행 중이면 무시(단, 25초+ 멈춘 페치는 스턱으로 보고 진행)
+  isFetching=true; _fetchStartedAt=Date.now(); setRefreshSpin(true);
   if(!quiet) toast('시세 갱신 중...');
   let ok=0,fail=0; lastFailed=new Set();
   let krNaver=0, krYahoo=0;   // 국장 시세 출처 집계 (진단용)
@@ -5555,6 +5556,7 @@ async function refreshAllPrices(quiet){
   }
 
   // FX — 주식·코인 시세와 동시에 진행
+  try {
   const fxPromise=withTimeout(fetchFx(),8000).then(v=>{ if(v>0){ state.settings.fxRate=v; scheduleLiveRender(); } }).catch(()=>{});
 
   // 주식·ETF — Yahoo, 동시 8개
@@ -5636,16 +5638,19 @@ async function refreshAllPrices(quiet){
     }
   }
 
-  if(_liveTimer){ clearTimeout(_liveTimer); _liveTimer=null; }   // 스로틀 정리 후 최종 렌더
-  state.prices.lastFetch=Date.now();
-  isFetching=false; setRefreshSpin(false);
-  await saveState();
-  // 빠른입력에서 자산군 수정 중이면 화면 재렌더 생략 (입력 중 값 리셋 방지)
-  const editingQE = currentView==='quickentry' && qeUnlocked && Object.values(qeUnlocked).some(Boolean);
-  if(!editingQE) switchView(currentView);
+    state.prices.lastFetch=Date.now();
+    await saveState();
+  } catch(e){ /* 예기치 못한 오류도 아래 finally에서 정리 */ }
+  finally {
+    if(_liveTimer){ clearTimeout(_liveTimer); _liveTimer=null; }
+    isFetching=false; _fetchStartedAt=0; setRefreshSpin(false);
+    // 완료 후 반드시 1회 강제 재렌더 (진행 중 렌더가 누락돼도 여기서 보장) · 빠른입력 편집 중이면 생략
+    const editingQE = currentView==='quickentry' && qeUnlocked && Object.values(qeUnlocked).some(Boolean);
+    if(!editingQE) switchView(currentView);
+  }
   if(quiet){
     // 자동 갱신: 소수 실패는 직전 시세 유지로 무해 → 대량 실패(장애)일 때만 알림
-    const attempted=stocks.length+cryptos.length;
+    const attempted=state.holdings.length;
     if(fail>0 && fail>=Math.max(6, Math.ceil(attempted*0.4))) toast(`자동 갱신 · ${fail}종 실패`);
   } else {
     const krInfo = (krNaver+krYahoo>0) ? ` · 국장 네이버 ${krNaver}/야후 ${krYahoo}` : '';

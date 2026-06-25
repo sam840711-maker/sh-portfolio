@@ -909,7 +909,7 @@ const CATEGORIES = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v1.7.1';
+const APP_VER = 'v1.7.2';
 const APP_BUILD = '2026-06-26';
 
 const SEED = {
@@ -2749,11 +2749,23 @@ function openRiskPlan(){
     else if(r.level==='floor') act='레버리지 전량 해제 · 추가 손실 차단 최우선';
     else if(r.level==='near') act='신규 매수·추가 레버리지 중단 (방어 모드)';
     const crit = (r.level==='floor'||r.level==='trend');
+    // 앱 반영 방법 — 경고별 단계 안내
+    const sellSteps=`<b style="color:var(--text)">앱 반영:</b>
+      <div style="margin-top:3px">① 증권사에서 실제 매도 체결</div>
+      <div>② 하단 <b>입력</b> 탭 → 해당 종목 <b>수량</b>을 줄여 입력 → <b>전체 저장</b></div>
+      <div>③ 회수금은 같은 화면 <b>자산군별 예수금</b>에 더해 입력</div>
+      <div>④ 하단 <b>거래</b> 탭 → <b>실현손익</b> 입력(세금 자동 반영)</div>`;
+    let how;
+    if(r.level==='lev'||r.level==='trend'||r.level==='floor') how=sellSteps;
+    else how=`<b style="color:var(--text)">앱 반영:</b>
+      <div style="margin-top:3px">① 신규 매수·레버리지 추가를 멈춤(별도 입력 없음)</div>
+      <div>② NAV가 하한 위로 회복되면 경고 자동 해제</div>`;
     actionBlock=`<div style="margin-top:14px;padding:12px;border-radius:10px;border:1px solid ${crit?'#E5484D':'var(--orange)'};background:${crit?'rgba(229,72,77,0.10)':'var(--orange-soft)'}">
       <div style="font-weight:800;font-size:13px;color:${crit?'#E5484D':'var(--orange)'}">● 현재 조치 — ${lblMap[r.level]}</div>
       <div class="info-text" style="margin-top:6px"><b style="color:var(--text)">지금:</b> ${act}</div>
-      <div class="info-text" style="margin-top:4px"><b style="color:var(--text)">재진입:</b> ${r.reentry[r.level]}</div>
-      <div class="info-text" style="margin-top:6px;font-size:10.5px;color:var(--text-3)">※ 분할 실행 권장 · 자동매매 아님</div>
+      <div class="info-text" style="margin-top:8px;line-height:1.7">${how}</div>
+      <div class="info-text" style="margin-top:8px"><b style="color:var(--text)">재진입:</b> ${r.reentry[r.level]}</div>
+      <div class="info-text" style="margin-top:6px;font-size:10.5px;color:var(--text-3)">※ 조치 후 데이터가 반영되면 다음 새로고침에 경고가 자동으로 사라집니다 · 분할 실행 권장 · 자동매매 아님</div>
     </div>`;
   } else {
     actionBlock=`<div class="info-text" style="margin-top:14px;color:var(--up)">● 활성 경고 없음 — 4중 방어 정상</div>`;

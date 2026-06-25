@@ -917,7 +917,7 @@ const LEV_CATS = ['lev_tech','lev_crypto'];
 function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v1.8.3';
+const APP_VER = 'v1.8.4';
 const APP_BUILD = '2026-06-26';
 
 const SEED = {
@@ -3074,11 +3074,11 @@ function renderAllocChart(s){
     if(s.totals[k].current>0 || classTarget(k)>0)
       items.push({label:CATEGORIES[k].label,val:s.totals[k].current,color:CATEGORIES[k].color,target:classTarget(k)});
   }
+  items.sort((a,b)=>b.val-a.val);                  // 자산군만 평가액 내림차순
   const reserve = state.settings.reserveCash || 0;
   const brokerCash = Math.max(0, s.cash - reserve);
-  if(brokerCash>0) items.push({label:'예수금',val:brokerCash,color:'#565967',target:0});
+  if(brokerCash>0) items.push({label:'예수금',val:brokerCash,color:'#565967',target:0});   // 현금은 항상 맨 끝
   if(reserve>0)    items.push({label:'대기 자금',val:reserve,color:'#5A7A9A',target:0});
-  items.sort((a,b)=>b.val-a.val);
   if(!items.length){ el.innerHTML='<div class="empty">자산이 없습니다.</div>'; return; }
   const legend=`<div class="abar-legend"><span class="abar-lg-bar"></span>현재 비중<span class="abar-lg-tick"></span>목표 비중</div>`;
   el.innerHTML=legend+items.map(it=>{

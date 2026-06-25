@@ -751,6 +751,12 @@ input,select,textarea{font-family:inherit;color:inherit}
     </div>
 
     <div class="card">
+      <div class="card-title">추천 비중 적용</div>
+      <div class="info-text" style="margin-bottom:10px">2x 테크를 Lev Tech로 이동하고, 합의한 자산군·종목 목표비중을 한 번에 적용합니다(현재 종목 그대로·비중만). 기존 목표비중은 덮어써집니다.</div>
+      <button class="btn btn-secondary" style="width:100%" onclick="applyRecommendedTargets()">추천 자산군·종목 비중 적용</button>
+    </div>
+
+    <div class="card">
       <div class="card-title">규칙 미니 백테스트</div>
       <div class="info-text" id="backtest-summary" style="margin-bottom:4px"></div>
     </div>
@@ -901,15 +907,17 @@ input,select,textarea{font-family:inherit;color:inherit}
    CONSTANTS & SEED  (SH_Investment 시트 기반)
    ================================================================ */
 const CATEGORIES = {
-  us_stock:   {label:'US Stock',   color:'#4FB6C4', currency:'USD', target:0.60},
-  leverage:   {label:'Leverage',   color:'#E5484D', currency:'USD', target:0.30},
-  global_etf: {label:'Global ETF', color:'#4A90E2', currency:'KRW', target:0.10},
-  crypto:     {label:'Crypto',     color:'#9B7BD8', currency:'KRW', target:0.00},
-  bond:       {label:'Bond',       color:'#7AB89D', currency:'KRW', target:0.00},
+  us_stock:   {label:'US Stock',   color:'#4FB6C4', currency:'USD', target:0.40},
+  lev_tech:   {label:'Lev Tech 2x',   color:'#E5663D', currency:'USD', target:0.15},
+  lev_crypto: {label:'Lev Crypto 3x', color:'#C44ED9', currency:'USD', target:0.10},
+  global_etf: {label:'Global ETF', color:'#4A90E2', currency:'KRW', target:0.25},
+  crypto:     {label:'Crypto',     color:'#9B7BD8', currency:'KRW', target:0.10},
 };
+const LEV_CATS = ['lev_tech','lev_crypto'];
+function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v1.7.2';
+const APP_VER = 'v1.8.3';
 const APP_BUILD = '2026-06-26';
 
 const SEED = {
@@ -920,12 +928,12 @@ const SEED = {
     cumReturnAfterTax:0.3907710294, cagr:0.1123507516,
     cashByClass:{
       us_stock:{krw:5120,usd:396.38},
-      leverage:{krw:897506,usd:6.3},
+      lev_tech:{krw:0,usd:0},
+      lev_crypto:{krw:897506,usd:6.3},
       global_etf:{krw:138656,usd:0},
       crypto:{krw:0,usd:0},
-      bond:{krw:0,usd:0},
     },
-    classTargets:{us_stock:0.60,leverage:0.30,global_etf:0.10,crypto:0,bond:0},
+    classTargets:{us_stock:0.40,lev_tech:0.15,lev_crypto:0.10,global_etf:0.25,crypto:0.10},
     taxRates:{overseas:0.22,global_etf:0.154,crypto:0,bond:0},
     overseasDeduction:2500000,
   },
@@ -951,8 +959,8 @@ const SEED = {
     {id:'us_ARQQ',cat:'us_stock',symbol:'ARQQ',name:'Arqit Quantum',qty:594,avgUSD:25.54794613,curUSD:12.17,avgFx:1465.57,targetWt:0.05},
     {id:'us_PLUG',cat:'us_stock',symbol:'PLUG',name:'Plug Power',qty:5252,avgUSD:2.014487814,curUSD:3.31,avgFx:1465.57,targetWt:0.05},
     {id:'us_BWXT',cat:'us_stock',symbol:'BWXT',name:'BWX Technologies',qty:52,avgUSD:186.4013462,curUSD:197.33,avgFx:1465.57,targetWt:0.05},
-    {id:'lv_BMNU',cat:'leverage',symbol:'BMNU',name:'T-REX 2X Long BMNR Daily',qty:19713,avgUSD:3.262736773,curUSD:1.42,avgFx:1486.95,targetWt:0.40},
-    {id:'lv_MST3',cat:'leverage',symbol:'MST3.L',name:'Leverage Shares 3x Long MSTR',qty:1226,avgUSD:77.01631077,curUSD:70.00,avgFx:1486.95,targetWt:0.60},
+    {id:'lv_BMNU',cat:'lev_crypto',symbol:'BMNU',name:'T-REX 2X Long BMNR Daily',qty:19713,avgUSD:3.262736773,curUSD:1.42,avgFx:1486.95,targetWt:0.40},
+    {id:'lv_MST3',cat:'lev_crypto',symbol:'MST3.L',name:'Leverage Shares 3x Long MSTR',qty:1226,avgUSD:77.01631077,curUSD:70.00,avgFx:1486.95,targetWt:0.60},
   ],
   transactions: [
     {id:'tx1',type:'deposit',date:'2022-04-13',amount:100000000,memo:'초기 납입'},
@@ -1043,6 +1051,8 @@ function normalizeState(){
     if(rk.floorPeakPct==null) rk.floorPeakPct=0.25;
     if(rk.muExcess==null) rk.muExcess=0.10;
     if(rk.levMult==null) rk.levMult=2.5;
+    if(rk.levMultTech==null) rk.levMultTech=2;
+    if(rk.levMultCrypto==null) rk.levMultCrypto=3;
     if(rk.trendOn==null) rk.trendOn=true;
     if(rk.rebalBand==null) rk.rebalBand=0.05;
     if(rk.overshootPct==null) rk.overshootPct=0.15;
@@ -1100,17 +1110,40 @@ function normalizeState(){
   }
   // 납입은 deposits에서 관리하므로 거래목록에서 제외
   state.transactions = (state.transactions||[]).filter(t=>t.type!=='deposit');
+  // === 레버리지 자산군 분리 마이그레이션: leverage → lev_crypto, US Stock의 2x/3x → lev_tech ===
+  for (const h of (state.holdings||[])){
+    if(h.cat==='leverage') h.cat='lev_crypto';                                   // 기존 레버리지(코인 트레저리)
+    else if(h.cat==='us_stock' && /\b2X\b|\b3X\b/i.test(h.name||'')) h.cat='lev_tech';  // US Stock에 섞인 2x 빅테크
+  }
+  if(state.settings.classTargets && state.settings.classTargets.leverage!=null && state.settings.classTargets.lev_crypto==null){
+    state.settings.classTargets.lev_crypto = state.settings.classTargets.leverage;
+    if(state.settings.classTargets.lev_tech==null) state.settings.classTargets.lev_tech = 0;  // 기존 합(100%) 보존 — 사용자가 제안 비중 적용
+    delete state.settings.classTargets.leverage;
+  }
+  if(state.settings.cashByClass && state.settings.cashByClass.leverage){
+    state.settings.cashByClass.lev_crypto = state.settings.cashByClass.leverage;
+    delete state.settings.cashByClass.leverage;
+  }
+  // Bond 자산군 제거 — 기존 사용자 정리 (보유분 있으면 Global ETF로 흡수)
+  for(const h of (state.holdings||[])){ if(h.cat==='bond') h.cat='global_etf'; }
+  if(state.settings.classTargets){ delete state.settings.classTargets.bond; }
+  if(state.settings.cashByClass && state.settings.cashByClass.bond){
+    const b=state.settings.cashByClass.bond, g=state.settings.cashByClass.global_etf||{krw:0,usd:0};
+    g.krw=(g.krw||0)+(b.krw||0); g.usd=(g.usd||0)+(b.usd||0);
+    state.settings.cashByClass.global_etf=g; delete state.settings.cashByClass.bond;
+  }
   // 실현손익 장부 — { 연도: [{id,date,market:'overseas'|'domestic',amount}] }
   if (!state.realizedPnl) state.realizedPnl = {};
   if (!state.settings.classTargets){
     state.settings.classTargets = {};
     for (const k in CATEGORIES) state.settings.classTargets[k] = CATEGORIES[k].target;
   }
+  for (const k in CATEGORIES){ if(state.settings.classTargets[k]==null) state.settings.classTargets[k]=CATEGORIES[k].target; }
   // 양도세율 — 정리 시 예상 세금 계산용 (사용자 수정 가능)
   if (!state.settings.taxRates){
     state.settings.taxRates = {overseas:0.22,global_etf:0.154,crypto:0,bond:0};
   }
-  ['overseas','global_etf','crypto','bond'].forEach(k=>{
+  ['overseas','global_etf','crypto'].forEach(k=>{
     if (state.settings.taxRates[k]==null) state.settings.taxRates[k]=0;
   });
   if (state.settings.overseasDeduction==null) state.settings.overseasDeduction=2500000;
@@ -1132,7 +1165,7 @@ function normalizeState(){
   // USD 보유 종목에 매입환율(avgFx)이 없으면 카테고리 기준값으로 보정
   for (const h of state.holdings){
     if (isUSDcat(h.cat) && (h.avgFx==null || isNaN(h.avgFx))){
-      h.avgFx = h.cat==='leverage' ? 1486.95 : 1465.57;
+      h.avgFx = isLevCat(h.cat) ? 1486.95 : 1465.57;
     }
   }
   try{ compactOldHistory(); }catch(e){}   // 1년 이상 지난 일별 기록 → 주 1개로 압축 (실패해도 부팅 지속)
@@ -1263,7 +1296,7 @@ function relTime(ts){
   if(s<86400) return Math.floor(s/3600)+'시간 전';
   return Math.floor(s/86400)+'일 전';
 }
-function isUSDcat(cat){ return cat==='us_stock'||cat==='leverage'; }
+function isUSDcat(cat){ return cat==='us_stock'||cat==='lev_tech'||cat==='lev_crypto'; }
 
 /* 자산군 목표 비중 (사용자 수정값 우선) */
 function classTarget(k){
@@ -1296,7 +1329,7 @@ function holdingGainBreakdown(h,fx){
 function categoryTotals(){
   const fx=state.settings.fxRate, t={};
   for (const k in CATEGORIES) t[k]={invested:0,current:0,target:classTarget(k)};
-  for (const h of state.holdings){ const v=holdingValue(h,fx); t[h.cat].invested+=v.invested; t[h.cat].current+=v.current; }
+  for (const h of state.holdings){ if(!t[h.cat]) t[h.cat]={invested:0,current:0,target:0}; const v=holdingValue(h,fx); t[h.cat].invested+=v.invested; t[h.cat].current+=v.current; }
   return t;
 }
 /* 예수금 합계 — 자산군별 예수금(원화 환산) + 현금 계정 + 대기 자금 */
@@ -1320,19 +1353,19 @@ function taxEstimate(){
   const fx=state.settings.fxRate;
   const r=state.settings.taxRates||{};
   const ded=state.settings.overseasDeduction||0;
-  const gain={us_stock:0,leverage:0,global_etf:0,crypto:0,bond:0};
+  const gain={us_stock:0,lev_tech:0,lev_crypto:0,global_etf:0,crypto:0};
   for (const h of state.holdings){
     if (gain[h.cat]==null) gain[h.cat]=0;
     gain[h.cat]+=holdingGainBreakdown(h,fx).total;
   }
   const rows=[];
-  // 해외주식 — US Stock + Leverage 합산, 연 기본공제 후 과세
-  const ovGain=gain.us_stock+gain.leverage;
+  // 해외주식 — US Stock + Lev Tech + Lev Crypto 합산, 연 기본공제 후 과세
+  const ovGain=gain.us_stock+gain.lev_tech+gain.lev_crypto;
   const ovRate=r.overseas||0;
   const ovTaxable=Math.max(0, ovGain-ded);
   rows.push({key:'overseas',label:'해외주식',sub:'US Stock · Leverage',
              gain:ovGain,rate:ovRate,deduction:ded,taxable:ovTaxable,tax:ovTaxable*ovRate});
-  for (const k of ['global_etf','crypto','bond']){
+  for (const k of ['global_etf','crypto']){
     const g=gain[k]||0, rt=r[k]||0, taxable=Math.max(0,g);
     rows.push({key:k,label:CATEGORIES[k].label,sub:'',
                gain:g,rate:rt,deduction:0,taxable,tax:taxable*rt});
@@ -2394,10 +2427,12 @@ function kellyCap(s){
 }
 function effectiveLeverage(s){
   const nav=s.totalWithCash; if(nav<=0) return 0;
-  const K=(state.settings.risk&&state.settings.risk.levMult)||2.5;
-  const lev=(s.totals.leverage&&s.totals.leverage.current)||0;
-  const other=['us_stock','global_etf','crypto','bond'].reduce((a,k)=>a+((s.totals[k]&&s.totals[k].current)||0),0);
-  const grossExp=other + lev*K;        // 레버리지 슬리브는 내재배수 K만큼 노출 확대
+  const rk=state.settings.risk||{};
+  const Kt=rk.levMultTech||2, Kc=rk.levMultCrypto||3;     // 빅테크 2x / 코인 트레저리 3x 내재배수
+  const levT=(s.totals.lev_tech&&s.totals.lev_tech.current)||0;
+  const levC=(s.totals.lev_crypto&&s.totals.lev_crypto.current)||0;
+  const other=['us_stock','global_etf','crypto'].reduce((a,k)=>a+((s.totals[k]&&s.totals[k].current)||0),0);
+  const grossExp=other + levT*Kt + levC*Kc;              // 각 레버리지 슬리브는 내재배수만큼 노출 확대
   return grossExp/nav;
 }
 async function fetchTrend200(force){
@@ -2443,8 +2478,11 @@ function computeRiskStatus(s){
   else if(overLev) level='lev';
   else if(floorNear) level='near';
   // ① 권장 축소액 — 실효 레버리지를 ½켈리 상한까지 낮추려면 슬리브를 얼마 팔아 1배로 옮길지
-  const K=(risk.levMult)||2.5;
-  const levVal=(s.totals.leverage&&s.totals.leverage.current)||0;
+  const Kt=risk.levMultTech||2, Kc=risk.levMultCrypto||3;
+  const levT=(s.totals.lev_tech&&s.totals.lev_tech.current)||0;
+  const levC=(s.totals.lev_crypto&&s.totals.lev_crypto.current)||0;
+  const levVal=levT+levC;
+  const K=levVal>0 ? (levT*Kt+levC*Kc)/levVal : 2.5;   // 보유액 가중 평균 내재배수
   let reduceLev=0, levCapped=false;
   if(kc.recMax!=null && eff>kc.recMax && K>1){
     const raw=(eff-kc.recMax)*nav/(K-1);     // 1배 재배치 기준 매도 노셔널
@@ -2615,6 +2653,37 @@ function renderParkAlert(s){
 }
 window.parkDeployExecute=parkDeployExecute;
 window.parkAddPrompt=parkAddPrompt;
+/* 추천 자산군·종목 목표비중 1회 적용 — 2x 테크 이동 + 자산군 타깃 + 종목 타깃(자산군별 정규화) */
+function applyRecommendedTargets(){
+  if(!confirm('추천 자산군·종목 목표비중을 한 번에 적용합니다.\n· 2x 테크(NVDL·TSLL·GGLL·PLTU) → Lev Tech 2x 이동\n· 현재 종목은 그대로, 비중만 조정\n기존 목표비중 설정은 덮어써집니다. 계속할까요?')) return;
+  const base=h=>(h.symbol||'').replace('.KS','').replace('.L','').toUpperCase();
+  // 1) 2x 테크 이동
+  const TECH=['NVDL','TSLL','GGLL','PLTU'];
+  for(const h of state.holdings){
+    if(TECH.includes(base(h)) && h.cat!=='lev_tech') h.cat='lev_tech';
+    if(isUSDcat(h.cat)&&(h.avgFx==null||isNaN(h.avgFx))) h.avgFx=isLevCat(h.cat)?1486.95:1465.57;
+  }
+  // 2) 자산군 목표비중 (합 100%)
+  state.settings.classTargets={us_stock:0.40,lev_tech:0.15,lev_crypto:0.10,global_etf:0.25,crypto:0.10};
+  // 3) 종목 목표비중 — 원시 가중치 → 자산군별 정규화(누락/추가 종목 있어도 합 100% 보장)
+  const RAW={ NVDL:30,GGLL:30,TSLL:20,PLTU:20, BMNU:50,MST3:50,
+    IONQ:10,MU:10,CRWD:10,RKLB:10, SMR:8,RGTI:8,JOBY:8,
+    CRSP:6,RBLX:6,ARQQ:6,PLUG:6,BWXT:6,SPCX:6,
+    '453630':25,'453640':25,'390390':20,'494840':15,'218420':15,
+    BTC:70,ETH:30 };
+  const byCat={};
+  for(const h of state.holdings){ (byCat[h.cat]=byCat[h.cat]||[]).push(h); }
+  for(const cat in byCat){
+    const arr=byCat[cat]; let sum=0;
+    const raw=arr.map(h=>{ const w=RAW[base(h)]!=null?RAW[base(h)]:1; sum+=w; return w; });
+    arr.forEach((h,i)=>{ h.targetWt = sum>0 ? raw[i]/sum : (1/arr.length); });
+  }
+  saveState();
+  try{ renderDashboard(); }catch(_){}
+  try{ if(currentView) switchView(currentView); }catch(_){}
+  toast('추천 자산군·종목 비중 적용됨');
+}
+window.applyRecommendedTargets=applyRecommendedTargets;
 function computeStrategyPlan(s){
   const st=state.settings.strategy;
   if(!st||!st.enabled) return {enabled:false};
@@ -2622,10 +2691,12 @@ function computeStrategyPlan(s){
   const ms=st.milestones.slice().sort((a,b)=>a-b);
   let step=0; for(const m of ms){ if(total>=m) step++; }
   const phase = step>=4?'안정':(step>=1?'전환':'리스크온');
-  const levTgt = (state.settings.classTargets&&state.settings.classTargets.leverage!=null)?state.settings.classTargets.leverage:0.30;
+  const ct=state.settings.classTargets||{};
+  const levTgt = (ct.lev_tech!=null||ct.lev_crypto!=null) ? ((ct.lev_tech||0)+(ct.lev_crypto||0)) : 0.30;
   const recLevWeight = Math.max(0, levTgt*(1-step*(st.stepFrac||0.25)));
   const recLevValue = recLevWeight*total;
-  const lev = s.totals.leverage || {current:0,invested:0};
+  const lt=s.totals.lev_tech||{current:0,invested:0}, lc=s.totals.lev_crypto||{current:0,invested:0};
+  const lev = {current:(lt.current||0)+(lc.current||0), invested:(lt.invested||0)+(lc.invested||0)};
   const actualLev = lev.current||0;
   const sellAmt0 = Math.max(0, actualLev-recLevValue);
   let next=null, toNext=0; for(const m of ms){ if(total<m){ next=m; toNext=m-total; break; } }
@@ -2976,7 +3047,7 @@ function renderRebalAlert(s){
     const pp=(Math.abs(maxDev)*100).toFixed(1);
     const tradeAmt=Math.abs(maxDev)*total;   // 목표 비중 복귀에 필요한 거래액
     const act = maxDev>0 ? `매도 ₩${fmtKRW(tradeAmt)}` : `매수 ₩${fmtKRW(tradeAmt)}`;
-    const taxable = maxDev>0 && (maxK==='us_stock'||maxK==='leverage'||maxK==='global_etf');
+    const taxable = maxDev>0 && (maxK==='us_stock'||maxK==='lev_tech'||maxK==='lev_crypto'||maxK==='global_etf');
     const taxNote = taxable ? ' <span style="color:var(--orange)">· 과세 주의(손익 통산 점검)</span>' : '';
     el.innerHTML=`<div style="display:flex;align-items:center;gap:11px">
       <span class="ra-dot"></span>
@@ -5165,8 +5236,6 @@ function openTaxRateEditor(){
       <input id="tx-etf" type="number" step="0.1" value="${pct(r.global_etf)}"></div>
     <div class="field"><label>암호화폐 세율 % (2026년 비과세 → 0)</label>
       <input id="tx-crypto" type="number" step="0.1" value="${pct(r.crypto)}"></div>
-    <div class="field"><label>채권 세율 % (매매차익)</label>
-      <input id="tx-bond" type="number" step="0.1" value="${pct(r.bond)}"></div>
     <div class="btn-row">
       <button class="btn btn-secondary" onclick="closeModal()">취소</button>
       <button class="btn btn-primary" onclick="saveTaxRates()">저장</button>
@@ -5179,7 +5248,6 @@ async function saveTaxRates(){
     overseas:norm(g('tx-overseas'))/100,
     global_etf:norm(g('tx-etf'))/100,
     crypto:norm(g('tx-crypto'))/100,
-    bond:norm(g('tx-bond'))/100,
   };
   state.settings.overseasDeduction=norm(g('tx-ded'));
   await saveState(); closeModal(); toast('세율 저장됨'); switchView('tax');

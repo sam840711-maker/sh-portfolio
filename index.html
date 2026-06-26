@@ -918,7 +918,7 @@ const LEV_CATS = ['lev_tech','lev_crypto'];
 function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v1.8.9';
+const APP_VER = 'v1.9.0';
 const APP_BUILD = '2026-06-26';
 
 const SEED = {
@@ -3914,7 +3914,7 @@ function updateWithdrawPlan(){
       proceeds+=x.proc;
       return `<div class="ds-row"><div class="ds-head">
         <span class="abar-name">${esc(x.h.symbol)}</span>
-        <span class="ds-amt down">${x.sh.toLocaleString()}주 매도</span></div>
+        <span class="ds-amt down">${x.sh.toLocaleString()}${x.h.cat==='crypto'?'개':'주'} 매도</span></div>
         <div class="ds-sub">예상 회수 약 ₩${fmtKRW(x.proc)}</div></div>`;
     }).join('');
     html+=`<div style="margin-top:12px;font-size:11px;color:var(--text-3)">현금 부족 ₩${fmtKRW(_withdrawPlan.shortfall)} — 아래 종목 매도</div>
@@ -3997,7 +3997,7 @@ function stockRebalance(cat, mode){
     const targetVal=catTargetVal*tw;
     const adjustVal=targetVal-v.current;
     const priceKRW=isUSDcat(h.cat)?h.curUSD*fx:h.curKRW;
-    const adjustShares=priceKRW>0?Math.round(adjustVal/priceKRW):0;
+    const adjustShares=priceKRW>0?(h.cat==='crypto'?Math.round(adjustVal/priceKRW*1e6)/1e6:Math.round(adjustVal/priceKRW)):0;
     return { h, tw, targetVal, adjustVal, adjustShares,
       qtyAfter:h.qty+adjustShares,
       curWtInCat:catCurrent>0?v.current/catCurrent:0,
@@ -4040,13 +4040,17 @@ function renderStockRebalance(){
   // 행 렌더링 — 자산군 단일 모드 vs 전체 모드
   const buildRow = (r) => {
     const h=r.h;
-    const hold=r.adjustShares===0, buy=r.adjustShares>0;
+    const isC=h.cat==='crypto';
+    const unit=isC?'개':'주';
+    const fmtQ=n=>{ const a=Math.abs(n); return isC ? (+a.toFixed(a<1?6:4)).toString() : Math.round(a).toLocaleString(); };
+    const hold=isC ? Math.abs(r.adjustShares)<1e-6 : r.adjustShares===0;
+    const buy=r.adjustShares>0 && !hold;
     const cls=hold?'muted':(buy?'down':'up');
     const accent=hold?'var(--text-3)':(buy?'var(--down)':'var(--up)');
     const tk=h.symbol.replace('.KS','').replace('.L','');
-    const qtyTxt=hold ? '균형' : `${(buy?'+':'')+r.adjustShares.toLocaleString()}주 ${buy?'매수':'매도'}`;
-    const subTxt=hold ? `이후 ${r.qtyAfter.toLocaleString()}주`
-      : `₩${fmtKRW(Math.abs(r.adjustVal))} · 이후 ${r.qtyAfter.toLocaleString()}주`;
+    const qtyTxt=hold ? '균형' : `${buy?'+':'−'}${fmtQ(r.adjustShares)}${unit} ${buy?'매수':'매도'}`;
+    const subTxt=hold ? `이후 ${fmtQ(r.qtyAfter)}${unit}`
+      : `₩${fmtKRW(Math.abs(r.adjustVal))} · 이후 ${fmtQ(r.qtyAfter)}${unit}`;
     const wtLine = rbMode==='within'
       ? `현재 ${fmtPct(r.curWtInCat,1)} → 목표 ${fmtPct(r.tw,1)}`
       : `현재 ${fmtPct(r.curWtPort,1)} → 목표 ${fmtPct(r.tgtWtPort,1)} <span style="color:var(--text-3)">(전체 기준)</span>`;

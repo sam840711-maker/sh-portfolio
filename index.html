@@ -918,7 +918,7 @@ const LEV_CATS = ['lev_tech','lev_crypto'];
 function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v1.8.7';
+const APP_VER = 'v1.8.8';
 const APP_BUILD = '2026-06-26';
 
 const SEED = {
@@ -2667,6 +2667,14 @@ function applyRecommendedTargets(){
   }
   // 2) 자산군 목표비중 (합 100%)
   state.settings.classTargets={us_stock:0.40,lev_tech:0.15,lev_crypto:0.15,global_etf:0.25,crypto:0.05};
+  // 2-1) 현물 코인 자리 종목 자동 생성(없으면 수량 0으로) — 리밸런싱에 BTC/ETH 매수액이 뜨도록
+  const haveCrypto=state.holdings.filter(h=>h.cat==='crypto').map(h=>base(h));
+  ['BTC','ETH'].forEach(sym=>{
+    if(!haveCrypto.includes(sym)){
+      state.holdings.push({id:'crypto_'+sym+'_'+Date.now().toString(36)+Math.floor(Math.random()*1e3),
+        cat:'crypto', symbol:sym, name:sym, qty:0, avgKRW:0, curKRW:0, targetWt:0});
+    }
+  });
   // 3) 종목 목표비중 — 원시 가중치 → 자산군별 정규화(누락/추가 종목 있어도 합 100% 보장)
   const RAW={ NVDL:30,GGLL:30,TSLL:20,PLTU:20, BMNU:50,MST3:50,
     IONQ:10,MU:10,CRWD:10,RKLB:10, SMR:8,RGTI:8,JOBY:8,

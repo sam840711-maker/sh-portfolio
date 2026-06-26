@@ -679,16 +679,17 @@ input,select,textarea{font-family:inherit;color:inherit}
     <div class="card">
       <div class="card-title">시세 데이터 소스</div>
       <div class="info-text">
-        <b>주식·ETF</b> → Yahoo Finance<br>
+        <b>국내 주식·ETF</b> → 네이버 (실패 시 Yahoo)<br>
+        <b>미국 주식·ETF</b> → Yahoo Finance<br>
         <b>암호화폐</b> → Upbit (원화 직접)<br>
         <b>환율</b> → Yahoo (KRW=X, 실시간) · 실패 시 Frankfurter<br><br>
-        시트의 <b>YAHOO()</b>·<b>UPBIT()</b> 함수와 동일한 소스입니다. Google Finance는 공개 API가 없어 Yahoo로 대체합니다.
+        국내 6자리 종목은 네이버에서 실시간으로, 미국 종목은 Yahoo에서 가져옵니다. Google Finance는 공개 API가 없어 대체합니다.
       </div>
     </div>
 
     <div class="card">
       <div class="card-title">프록시 설정</div>
-      <div class="info-text" style="margin-bottom:10px">Yahoo는 브라우저 직접 호출을 막아 프록시가 필요합니다. Upbit·환율은 프록시 없이 작동합니다.</div>
+      <div class="info-text" style="margin-bottom:10px">Yahoo·네이버는 브라우저 직접 호출을 막아 프록시가 필요합니다. Upbit·환율은 프록시 없이 작동합니다.</div>
       <div class="seg" id="proxy-seg">
         <button data-mode="public" class="active">공개 프록시</button>
         <button data-mode="custom">내 프록시</button>
@@ -917,7 +918,7 @@ const LEV_CATS = ['lev_tech','lev_crypto'];
 function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v1.8.4';
+const APP_VER = 'v1.8.6';
 const APP_BUILD = '2026-06-26';
 
 const SEED = {
@@ -986,16 +987,17 @@ const SEED = {
 /* === 레버리지 청산(전환) 전략 기본값 === */
 const STRATEGY_DEFAULT = {
   enabled:true,
-  ver:3,                         // 바스켓 스키마/기본값 버전
+  ver:5,                         // 바스켓 스키마/기본값 버전
   stepFrac:0.25,                 // 단계별 ¼씩 해제
   backstop:0.20,                 // 트레일링 백스톱 — 고점 대비 −20% 시 방어적 디리스크
   milestones:[560000000,700000000,880000000,1100000000],  // 1~4차 NAV 트리거(원) · 25% 시간페이스
   peakNav:null,                  // 트레일링 고점(백스톱 기준, 전진식)
-  basket:[                        // 정착 바스켓: 미국 ETF 70% + 실물 BTC 30%
-    {name:'TIGER 미국S&P500', weight:0.40, cat:'global_etf'},
-    {name:'TIGER 미국나스닥100', weight:0.20, cat:'global_etf'},
-    {name:'TIGER 미국배당다우존스', weight:0.10, cat:'global_etf'},
-    {name:'비트코인(실물)', weight:0.30, cat:'crypto', symbol:'BTC'},
+  basket:[                        // 정착 바스켓: 나스닥 코어 50% + S&P500 20% + 방어섹터 20% + 실물 BTC 10%
+    {name:'미국 나스닥100 (광범위 코어)', weight:0.50, cat:'global_etf'},
+    {name:'미국 S&P500 (광범위)', weight:0.20, cat:'global_etf'},
+    {name:'KODEX S&P500 헬스케어', weight:0.10, cat:'global_etf'},
+    {name:'KODEX S&P500 필수소비재', weight:0.10, cat:'global_etf'},
+    {name:'비트코인(실물)', weight:0.10, cat:'crypto', symbol:'BTC'},
   ],
 };
 function eokFmt(n){ return (n==null||isNaN(n))?'—':(n/1e8).toFixed(1)+'억'; }

@@ -910,15 +910,15 @@ input,select,textarea{font-family:inherit;color:inherit}
 const CATEGORIES = {
   us_stock:   {label:'US Stock',   color:'#4FB6C4', currency:'USD', target:0.40},
   lev_tech:   {label:'Lev Tech 2x',   color:'#E5663D', currency:'USD', target:0.15},
-  lev_crypto: {label:'Lev Crypto 3x', color:'#C44ED9', currency:'USD', target:0.10},
+  lev_crypto: {label:'Lev Crypto 3x', color:'#C44ED9', currency:'USD', target:0.15},
   global_etf: {label:'Global ETF', color:'#4A90E2', currency:'KRW', target:0.25},
-  crypto:     {label:'Crypto',     color:'#9B7BD8', currency:'KRW', target:0.10},
+  crypto:     {label:'Crypto',     color:'#9B7BD8', currency:'KRW', target:0.05},
 };
 const LEV_CATS = ['lev_tech','lev_crypto'];
 function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v1.8.6';
+const APP_VER = 'v1.8.7';
 const APP_BUILD = '2026-06-26';
 
 const SEED = {
@@ -934,7 +934,7 @@ const SEED = {
       global_etf:{krw:138656,usd:0},
       crypto:{krw:0,usd:0},
     },
-    classTargets:{us_stock:0.40,lev_tech:0.15,lev_crypto:0.10,global_etf:0.25,crypto:0.10},
+    classTargets:{us_stock:0.40,lev_tech:0.15,lev_crypto:0.15,global_etf:0.25,crypto:0.05},
     taxRates:{overseas:0.22,global_etf:0.154,crypto:0,bond:0},
     overseasDeduction:2500000,
   },
@@ -2666,7 +2666,7 @@ function applyRecommendedTargets(){
     if(isUSDcat(h.cat)&&(h.avgFx==null||isNaN(h.avgFx))) h.avgFx=isLevCat(h.cat)?1486.95:1465.57;
   }
   // 2) 자산군 목표비중 (합 100%)
-  state.settings.classTargets={us_stock:0.40,lev_tech:0.15,lev_crypto:0.10,global_etf:0.25,crypto:0.10};
+  state.settings.classTargets={us_stock:0.40,lev_tech:0.15,lev_crypto:0.15,global_etf:0.25,crypto:0.05};
   // 3) 종목 목표비중 — 원시 가중치 → 자산군별 정규화(누락/추가 종목 있어도 합 100% 보장)
   const RAW={ NVDL:30,GGLL:30,TSLL:20,PLTU:20, BMNU:50,MST3:50,
     IONQ:10,MU:10,CRWD:10,RKLB:10, SMR:8,RGTI:8,JOBY:8,

@@ -918,7 +918,7 @@ const LEV_CATS = ['lev_tech','lev_crypto'];
 function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v1.9.1';
+const APP_VER = 'v1.9.2';
 const APP_BUILD = '2026-06-26';
 
 const SEED = {
@@ -6306,12 +6306,8 @@ document.getElementById('freshness').onclick=()=>refreshAllPrices(false);
     if(!pulling) return; pulling=false;
     ptr.classList.add('ptr-anim');
     if(ready && !(typeof isFetching!=='undefined' && isFetching)){
-      ptr.innerHTML='<span class="ptr-spin"></span><span class="ptr-txt">갱신 중…</span>';
-      ptr.style.height='42px';
-      Promise.resolve(refreshAllPrices(false)).catch(()=>{}).finally(()=>{
-        ptr.style.height='0';
-        setTimeout(()=>{ ptr.classList.remove('ptr-ready'); ptr.innerHTML='<span class="ptr-arrow">↓</span><span class="ptr-txt">당겨서 새로고침</span>'; },250);
-      });
+      ptr.style.height='0'; ptr.classList.remove('ptr-ready');   // 중앙 표시 제거 — 우측 ↻ 회전이 갱신 표시(중복 방지)
+      Promise.resolve(refreshAllPrices(false)).catch(()=>{});
     } else {
       ptr.style.height='0'; ptr.classList.remove('ptr-ready');
     }

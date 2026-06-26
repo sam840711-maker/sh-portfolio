@@ -918,7 +918,7 @@ const LEV_CATS = ['lev_tech','lev_crypto'];
 function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v1.9.0';
+const APP_VER = 'v1.9.1';
 const APP_BUILD = '2026-06-26';
 
 const SEED = {
@@ -6859,7 +6859,7 @@ function renderCloudUI(){
   renderTopbar();
   renderDashboard();
   applyAutoRefresh();       // 자동 갱신 주기 적용
-  freshenIfStale(60);       // 실행 시 시세가 60초 이상 묵었으면 즉시 갱신
+  refreshAllPrices(false);  // 첫 진입 시 무조건 시세 갱신(수동과 동일) — 묵은 데이터 방지
   // 구글 드라이브 동기화 — 버튼 이벤트 + 무인 재연결
   (function(){
     const byId=id=>document.getElementById(id);

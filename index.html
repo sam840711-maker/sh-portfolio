@@ -940,7 +940,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.7.22';
+const APP_VER = 'v2.7.23';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -3163,7 +3163,7 @@ function computeActionAlerts(s){
   try{ const ac=computeAccelRegime(s);
     if(ac.on && (ac.regime==='early'||ac.regime==='full')){
       const defenseLevOn=_r&&_r.level&&_r.level!=='near';
-      const defNote=defenseLevOn?' <b style="color:#E5663D">⚠ 방어로 레버리지 축소 중 — 가속은 현금·현물 노출에만 적용(레버리지 추가 아님)</b>':'';
+      const defNote=defenseLevOn?' · ⚠ 방어로 레버리지 축소 중 — 가속은 현금·현물 노출에만 적용(레버리지 추가 아님)':'';
       out.push({tag:'상승가속',sev:'info',
         why:`${ac.label} — ${ac.regime==='full'?'강한 상승 추세 확인':'200일선 회복(조기 진입)'} · 노출목표 ${Math.round(ac.expo*100)}%`,
         sub:'현금 목표 절반↓ → 남는 현금 슬리브에 자동 투입(½ 분할) · 초과 종목 익절 보류(윈너라이딩 ⅓)'+(ac.regime==='full'?' · 상승장 한정 +10%(추세게이트)':'')+defNote,act:'alloc'});

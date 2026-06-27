@@ -942,7 +942,7 @@ function levMult(h){
 const LEVTECH_SPOT_MAP = { NVDL:'NVDA', TSLL:'TSLA', GGLL:'GOOGL', PLTU:'PLTR' };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.6.5';
+const APP_VER = 'v2.6.6';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -4417,13 +4417,16 @@ function renderStockRebalance(){
       : hold ? `이후 ${fmtQ(qtyAfter)}${unit}`
       : `₩${fmtKRW(Math.abs(val))} · 이후 ${fmtQ(qtyAfter)}${unit}`;
     const isConv = !!(reasonTxt && reasonTxt.includes('전환'));
+    const isDefCut = useUni && isLevCat(h.cat) && sh<0 && reasonTxt && /켈리|축소|방어|플로어|추세/.test(reasonTxt);
     const wtLine = (isConv && (r.tgtWtPort||0) < 0.001)
       ? `<span style="color:var(--text-3)">레버리지 전환 매수 · 목표비중 외(노출 유지)</span>`
+      : isDefCut
+      ? `현재 ${fmtPct(rbMode==='within'?r.curWtInCat:r.curWtPort,1)} → <span style="color:var(--orange)">방어 축소</span> <span style="color:var(--text-3)">(평상시 목표 ${fmtPct(rbMode==='within'?r.tw:r.tgtWtPort,1)})</span>`
       : rbMode==='within'
       ? `현재 ${fmtPct(r.curWtInCat,1)} → 목표 ${fmtPct(r.tw,1)}`
       : `현재 ${fmtPct(r.curWtPort,1)} → 목표 ${fmtPct(r.tgtWtPort,1)} <span style="color:var(--text-3)">(전체)</span>`;
     const reasonBadge = (useUni && reasonTxt && !hold) ? `<div style="font-size:9.5px;color:var(--text-3);margin-top:2px">${esc(reasonTxt)}</div>` : '';
-    const conflictBadge = conflict ? `<div style="font-size:9.5px;color:var(--orange);margin-top:1px">⚠ ${esc(conflict)}</div>` : '';
+    const conflictBadge = (conflict && !isDefCut) ? `<div style="font-size:9.5px;color:var(--orange);margin-top:1px">⚠ ${esc(conflict)}</div>` : '';
     const releaseHint = heldReason ? ({
       lev:'3x 레버리지 축소를 실행하면 자동 해제',
       trend:'추세(200일선·모멘텀) 회복 시 자동 해제',

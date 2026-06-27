@@ -837,10 +837,6 @@ input,select,textarea{font-family:inherit;color:inherit}
           <span style="font-size:12px;color:var(--text-2)">현금 계정</span>
           <span class="num" id="qe-sum-cashacc" style="font-size:13px;color:var(--text)">₩0</span>
         </div>
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
-          <span style="font-size:12px;color:var(--text-2)"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#5A7A9A;margin-right:6px;vertical-align:middle"></span>현금</span>
-          <span class="num" id="qe-sum-reserve" style="font-size:13px;color:#8AA0BD">₩0</span>
-        </div>
         <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:8px;border-top:1px solid var(--hairline)">
           <span style="font-size:13px;font-weight:700;color:var(--text)">총 현금 합계</span>
           <span class="num" id="qe-sum-total" style="font-size:17px;font-weight:700;color:var(--gold)">₩0</span>
@@ -949,7 +945,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.7.16';
+const APP_VER = 'v2.7.17';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -4283,7 +4279,6 @@ function renderHoldingsSummary(){
     <div class="sum-top"><span class="sum-name">예수금</span><span class="sum-cash">₩${fmtKRW(cashKRW)}</span></div>
     <div class="sum-line">
       <span class="abar-dot" style="background:#565967;display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle"></span>증권사 <b>₩${fmtKRW(brokerCash)}</b>
-      ${reserve>0?` · <span class="abar-dot" style="background:#5A7A9A;display:inline-block;width:7px;height:7px;border-radius:50%;margin:0 5px 0 4px;vertical-align:middle"></span>대기 자금 <b style="color:#8AA0BD">₩${fmtKRW(reserve)}</b>`:''}
     </div>
     ${cashUSD>0?`<div class="sum-usd">달러 예수금 $${Math.round(cashUSD).toLocaleString()}</div>`:''}
   </div>`;
@@ -5855,7 +5850,6 @@ function renderQuickEntry(){
   const setText=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent='₩'+fmtKRW(v); };
   setText('qe-sum-broker', brokerCash);
   setText('qe-sum-cashacc', cashAcc);
-  setText('qe-sum-reserve', reserve);
   setText('qe-sum-total', grand);
   // 현금 계정 0이면 행 숨김
   const accRow=document.getElementById('qe-sum-cashacc-row');

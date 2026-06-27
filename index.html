@@ -344,6 +344,12 @@ input,select,textarea{font-family:inherit;color:inherit}
 .cagr-alert{cursor:pointer;border:1px solid var(--gold);background:var(--gold-soft)}
 .cagr-alert .ca-dot{width:9px;height:9px;border-radius:50%;background:var(--gold);flex-shrink:0}
 .risk-alert{cursor:pointer;border:1px solid var(--orange);background:var(--orange-soft)}
+.action-center{cursor:pointer;border:1px solid #5AA0A6;background:rgba(74,138,144,0.10)}
+.action-center.warn{border-color:var(--orange);background:var(--orange-soft)}
+.action-center.crit{border-color:#E5484D;background:rgba(229,72,77,0.12)}
+.action-center .ac-row{display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-top:1px solid var(--hairline)}
+.action-center .ac-row:first-of-type{border-top:none}
+.action-center .ac-tag{font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:5px;flex-shrink:0;margin-top:1px}
 .risk-alert .rk-dot{width:9px;height:9px;border-radius:50%;background:var(--orange);flex-shrink:0}
 .risk-alert.crit{border-color:#E5484D;background:rgba(229,72,77,0.12)}
 .risk-alert.crit .rk-dot{background:#E5484D}
@@ -432,6 +438,7 @@ input,select,textarea{font-family:inherit;color:inherit}
 
   <!-- DASHBOARD -->
   <div class="view" id="view-dashboard">
+    <div class="card action-center" id="action-center" style="display:none"></div>
     <div class="card risk-alert" id="risk-alert" style="display:none"></div>
     <div class="card rebal-alert" id="rebal-alert" style="display:none"></div>
     <div class="card cagr-alert" id="cagr-alert" style="display:none"></div>
@@ -927,7 +934,7 @@ function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
 const LEVTECH_SPOT_MAP = { NVDL:'NVDA', TSLL:'TSLA', GGLL:'GOOGL', PLTU:'PLTR' };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.1.0';
+const APP_VER = 'v2.2.0';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -2331,6 +2338,7 @@ function renderDashboard(){
   renderRebalAlert(s);
   renderCagrAlert();
   renderStrategyAlert(s);
+  renderActionCenter(s);
   renderRiskAlert(s);
   renderParkAlert(s);
   renderLevConvAlert(s);
@@ -2722,6 +2730,19 @@ function ensureBasketHoldings(){
   }
   return added;
 }
+// 종목 목표비중을 자산군별로 정확히 100% 합이 되도록 정규화(비율 유지) — 저장값 정리
+function normalizeStockTargets(){
+  let changed=false;
+  Object.keys(CATEGORIES).forEach(cat=>{
+    const hs=state.holdings.filter(h=>h.cat===cat);
+    const sum=hs.reduce((s,h)=>s+(h.targetWt||0),0);
+    if(sum>0 && Math.abs(sum-1)>0.0005){
+      hs.forEach(h=>{ if(h.targetWt) h.targetWt=h.targetWt/sum; });
+      changed=true;
+    }
+  });
+  return changed;
+}
 // 전환 플랜 계산 — 트리거: 추세 이탈 2일 확인(주) + NAV 마일스톤(보조)
 function computeLevConvertPlan(s){
   const legs=state.holdings.filter(h=>h.cat==='lev_tech'&&h.qty>0);
@@ -2975,6 +2996,45 @@ function renderStrategyAlert(s){
   el.style.display='block';
   el.onclick=()=>openStrategyPlan();
 }
+/* ===== 통합 할 일 알림 센터 — 모든 신호를 한 곳에 모아 "왜" 표시 ===== */
+function computeActionAlerts(s){
+  const out=[];
+  try{
+    const r=computeRiskStatus(s);
+    if(r.level==='floor') out.push({tag:'방어',sev:'crit',why:`하방 플로어 붕괴 — 레버리지 전량 해제 (NAV ₩${fmtKRW(r.nav)} ≤ 하한 ₩${fmtKRW(r.floor)})`,go:'allocation'});
+    else if(r.level==='trend') out.push({tag:'방어',sev:'crit',why:`추세 이탈(200일선+모멘텀${r.below?' · '+r.below.join('·'):''}) — 레버리지 0 + 분할 현금화`,go:'allocation'});
+    else if(r.level==='lev') out.push({tag:'방어',sev:'warn',why:`레버리지 과다 — 3x 우선 축소 (실효 ${r.eff?r.eff.toFixed(2):'?'}배 > 권장 ${r.kc&&r.kc.recMax?r.kc.recMax.toFixed(2):'?'}배)`,go:'allocation'});
+    else if(r.level==='near') out.push({tag:'방어',sev:'warn',why:'하방 플로어 근접 — 신규 매수·추가 레버리지 중단',go:'allocation'});
+  }catch(_){}
+  try{ const cv=computeLevConvertPlan(s);
+    if(cv&&cv.active) out.push({tag:'전환',sev:'warn',why:`Lev Tech → 현물 전환 신호 (${cv.trigger==='trend'?'추세 이탈 2일 확인':cv.trigger==='nav'?'NAV 마일스톤':'신호'}) — 대시보드 전환 카드에서 실행`,go:'dashboard'});
+  }catch(_){}
+  try{ const sp=computeStrategyPlan(s);
+    if(sp&&sp.enabled&&sp.sellAmt>1000000) out.push({tag:'정착',sev:'warn',why:`청산 트리거 도달 — 바스켓 정착 ₩${fmtKRW(sp.sellAmt)} (정착 입력에서 실행)`,go:'dashboard'});
+  }catch(_){}
+  try{ let drift=0;
+    Object.keys(CATEGORIES).forEach(cat=>{ stockRebalance(cat,'portfolio').forEach(rr=>{ if((rr.h.qty||0)>0 && Math.abs((rr.curWtPort||0)-(rr.tgtWtPort||0))>=0.05) drift++; }); });
+    if(drift>0) out.push({tag:'리밸런싱',sev:'info',why:`목표비중 ±5%p 이탈 ${drift}종목 — 배분에서 수량 확인 후 매매`,go:'allocation'});
+  }catch(_){}
+  return out;
+}
+function renderActionCenter(s){
+  const el=document.getElementById('action-center'); if(!el) return;
+  const acts=computeActionAlerts(s);
+  if(!acts.length){ el.style.display='none'; el.onclick=null; return; }
+  const sev = acts.some(a=>a.sev==='crit')?'crit':(acts.some(a=>a.sev==='warn')?'warn':'');
+  el.className='card action-center'+(sev?' '+sev:'');
+  const tagColor={방어:'var(--orange)',전환:'#C44ED9',정착:'#5AA0A6',리밸런싱:'#4FB6C4'};
+  const rows=acts.map(a=>`<div class="ac-row">
+    <span class="ac-tag" style="background:${tagColor[a.tag]||'#666'}22;color:${tagColor[a.tag]||'#aaa'}">${a.tag}</span>
+    <span style="font-size:11.5px;line-height:1.45">${esc(a.why)}</span></div>`).join('');
+  el.innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <span style="font-size:13px;font-weight:700">🔔 할 일 ${acts.length}건</span>
+      <span style="margin-left:auto;font-size:10px;color:var(--text-3)">배분에서 수량 확인 ▸</span></div>
+    ${rows}`;
+  el.onclick=()=>switchView('allocation');
+  el.style.display='block';
+}
 function renderRiskAlert(s){
   const el=document.getElementById('risk-alert'); if(!el) return;
   const r=computeRiskStatus(s);
@@ -3181,7 +3241,7 @@ function saveRisk(){
   closeModal();
   try{ renderSettings(); }catch(_){}
   try{ if(currentView==='dashboard') renderDashboard(); }catch(_){}
-  if(rk.trendOn) fetchTrend200(true).then(()=>{ try{ if(currentView==='dashboard'){ const _s=portfolioStats(); renderRiskAlert(_s); renderLevConvAlert(_s); } }catch(_){} }).catch(()=>{});
+  if(rk.trendOn) fetchTrend200(true).then(()=>{ try{ if(currentView==='dashboard'){ const _s=portfolioStats(); renderRiskAlert(_s); renderLevConvAlert(_s); renderActionCenter(_s); } }catch(_){} }).catch(()=>{});
   toast('하방 보호 규칙 저장됨');
 }
 function openStrategyEditor(){
@@ -4222,9 +4282,11 @@ function stockRebalance(cat, mode){
     basis -= reserve;
   }
   const catTargetVal = mode==='within' ? catCurrent : basis*classTarget(cat);
+  // 종목 목표비중을 자산군 합으로 정규화 — 합이 100%가 아니어도(반올림 등) 자산군 목표를 정확히 지킴
+  const twSumCat = holdings.reduce((s,h)=>s+(h.targetWt||0),0);
   return holdings.map(h=>{
     const v=holdingValue(h,fx);
-    const tw=h.targetWt||0;
+    const tw=twSumCat>0 ? (h.targetWt||0)/twSumCat : 0;
     const targetVal=catTargetVal*tw;
     const adjustVal=targetVal-v.current;
     const priceKRW=isUSDcat(h.cat)?h.curUSD*fx:h.curKRW;
@@ -4568,7 +4630,7 @@ function updateTwSum(prefix,total){
   const sumEl=document.getElementById(prefix+'-sum');
   if(sumEl){
     const ok=Math.abs(sum-100)<0.05;
-    sumEl.innerHTML=`합계 <b class="${ok?'':'up'}">${sum.toFixed(1)}%</b> ${ok?'✓':'— 100%로 맞춰주세요'}`;
+    sumEl.innerHTML=`합계 <b class="${ok?'':'up'}">${sum.toFixed(1)}%</b> ${ok?'✓':'· 비율대로 자동 정규화됨'}`;
   }
 }
 async function saveClassTargets(){
@@ -4692,7 +4754,7 @@ function updateSwSum(){
     const perEl=document.getElementById('sw-sum-'+cat);
     if(perEl) perEl.innerHTML=`합계 <b class="${ok?'':'up'}">${sum.toFixed(1)}%</b> ${ok?'✓':''}`;
     const sumEl=(rbStockCat!=='all')?document.getElementById('sw-sum'):null;
-    if(sumEl) sumEl.innerHTML=`합계 <b class="${ok?'':'up'}">${sum.toFixed(1)}%</b> ${ok?'✓':'— 100%로 맞춰주세요'}`;
+    if(sumEl) sumEl.innerHTML=`합계 <b class="${ok?'':'up'}">${sum.toFixed(1)}%</b> ${ok?'✓':'· 비율대로 자동 정규화됨'}`;
   }
 }
 async function saveStockWeights(){
@@ -4703,6 +4765,7 @@ async function saveStockWeights(){
     const v=parseFloat(el.value);
     if(!isNaN(v)&&v>=0) h.targetWt=v/100;
   }
+  normalizeStockTargets();   // 자산군별 100% 정규화(비율 유지)
   await saveState(); closeModal(); toast('종목 목표 비중 저장됨'); switchView('allocation');
 }
 window.openClassTargetEditor=openClassTargetEditor; window.openStockWeightEditor=openStockWeightEditor;
@@ -4734,7 +4797,7 @@ function openTargetProposalStep2(){
     return `<div style="display:flex;align-items:center;gap:7px;margin:14px 0 6px"><span style="width:9px;height:9px;border-radius:2px;background:${CATEGORIES[cat].color}"></span><b style="font-size:13px">${CATEGORIES[cat].label}</b><span id="swa-sum-${cat}" style="margin-left:auto;font-size:11px;color:var(--text-2)"></span></div>`+rows;
   }).join('');
   openModal(`<h3>2단계 · 종목 비중 + 바스켓</h3>
-    <div class="modal-sub">자산군 안에서 종목별 목표 비중(각 합계 100%) · 정착 바스켓 보유 점검</div>
+    <div class="modal-sub">자산군 내 종목 비중 · 합이 100%가 아니어도 비율대로 자동 정규화 · 바스켓 점검</div>
     ${basketHtml}
     ${sections}
     <div class="btn-row">
@@ -4754,6 +4817,7 @@ function updateSwSumAll(){
 }
 async function saveStockWeightsAll(){
   state.holdings.forEach(h=>{ const el=document.getElementById('sw-'+h.id); if(el){ const v=parseFloat(el.value); if(!isNaN(v)&&v>=0) h.targetWt=v/100; } });
+  normalizeStockTargets();   // 자산군별 100% 정규화(비율 유지)
   await saveState(); closeModal(); toast('종목 목표 비중 적용됨'); switchView('allocation');
 }
 window.saveClassTargetsNext=saveClassTargetsNext; window.openTargetProposalStep2=openTargetProposalStep2;
@@ -6655,7 +6719,7 @@ async function refreshAllPrices(quiet){
   try {
   const fxPromise=withTimeout(fetchFx(),8000).then(v=>{ if(v>0){ state.settings.fxRate=v; scheduleLiveRender(); } }).catch(()=>{});
   // 추세 필터(200일선) — 6시간 1회, 비차단. 도착하면 하방 보호 카드만 갱신
-  fetchTrend200(false).then(()=>{ try{ if(currentView==='dashboard'){ const _s=portfolioStats(); renderRiskAlert(_s); renderLevConvAlert(_s); } }catch(_){} }).catch(()=>{});
+  fetchTrend200(false).then(()=>{ try{ if(currentView==='dashboard'){ const _s=portfolioStats(); renderRiskAlert(_s); renderLevConvAlert(_s); renderActionCenter(_s); } }catch(_){} }).catch(()=>{});
 
   // 주식·ETF — Yahoo, 동시 8개
   const stocks=state.holdings.filter(h=>h.cat!=='crypto');
@@ -7368,6 +7432,7 @@ function renderCloudUI(){
   await loadState();
   try{ if(ensureLevTechSpots()) await saveState(); }catch(_){}   // Lev Tech 대응 현물(NVDA 등) 0주 자동 생성
   try{ if(ensureBasketHoldings()) await saveState(); }catch(_){}  // 정착 바스켓 종목(133690·360750 등) 0주 자동 생성·표시
+  try{ if(normalizeStockTargets()) await saveState(); }catch(_){}  // 종목 목표비중 자산군별 100% 정규화(비율 유지)
   try{ updateVolBaseline(); }catch(_){}   // 변동성 기준선(EMA) 갱신 — 목표 비중 제안용
   // 저장소 영속성 요청 — 브라우저 저장소 압박 시 데이터 보존(설치형 PWA에서 효과)
   try{ if(navigator.storage&&navigator.storage.persist){ navigator.storage.persisted().then(p=>{ if(!p) navigator.storage.persist().catch(()=>{}); }); } }catch(_){}

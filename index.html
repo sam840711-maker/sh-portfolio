@@ -927,7 +927,7 @@ function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
 const LEVTECH_SPOT_MAP = { NVDL:'NVDA', TSLL:'TSLA', GGLL:'GOOGL', PLTU:'PLTR' };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.0.7';
+const APP_VER = 'v2.0.8';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -3999,7 +3999,7 @@ function renderHoldings(){
   chips.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{activeCategory=c.dataset.cat;renderHoldings();});
   document.querySelectorAll('#holding-sort button').forEach(b=>b.classList.toggle('active',b.dataset.hs===holdingSort));
 
-  const filtered=state.holdings.filter(h=>(activeCategory==='all'||h.cat===activeCategory) && !(h._convSpot && (h.qty||0)===0));
+  const filtered=state.holdings.filter(h=>(activeCategory==='all'||h.cat===activeCategory));
   const el=document.getElementById('holdings-list');
   if (!filtered.length){ el.innerHTML='<div class="empty">보유 종목이 없습니다.<br>＋ 버튼으로 추가하세요.</div>'; return; }
 
@@ -4198,7 +4198,7 @@ function computeCagrGap(){
    within   : 그 자산군의 보유 평가액만 기준 → 예수금 제외, 자산군 내 재분배만 */
 function stockRebalance(cat, mode){
   const fx=state.settings.fxRate;
-  const holdings=state.holdings.filter(h=>h.cat===cat && !(h._convSpot && (h.qty||0)===0));
+  const holdings=state.holdings.filter(h=>h.cat===cat);
   const catCurrent=holdings.reduce((s,h)=>s+holdingValue(h,fx).current,0);
   let basis=portfolioStats().totalWithCash;
   const reserve=state.settings.reserveCash||0;
@@ -4452,7 +4452,7 @@ function computeUnifiedPlan(s){
     else { const tsum=nonLev.reduce((a,k)=>a+classTarget(k),0)||1; nonLev.forEach(k=>{ alloc[k]=pool*(classTarget(k)/tsum); }); }
     nonLev.forEach(cat=>{
       const catCash=alloc[cat]||0; if(catCash<=0) return;
-      const hs=state.holdings.filter(h=>h.cat===cat && !(h._convSpot&&(h.qty||0)===0));
+      const hs=state.holdings.filter(h=>h.cat===cat);
       const twSum=hs.reduce((a,h)=>a+(h.targetWt||0),0);
       hs.forEach(h=>{
         const w = twSum>0 ? (h.targetWt||0)/twSum : 1/hs.length;
@@ -4688,7 +4688,7 @@ async function saveClassTargetsNext(){
   openTargetProposalStep2();
 }
 function openTargetProposalStep2(){
-  const cats=Object.keys(CATEGORIES).filter(k=>state.holdings.some(h=>h.cat===k && !(h._convSpot&&(h.qty||0)===0)));
+  const cats=Object.keys(CATEGORIES).filter(k=>state.holdings.some(h=>h.cat===k));
   const basket=(state.settings.strategy&&state.settings.strategy.basket)||[];
   const _bs=s=>(s||'').toUpperCase().replace(/\.(KS|KQ|L)$/,'');
   const heldSyms=new Set(state.holdings.filter(h=>h.qty>0).map(h=>_bs(h.symbol)));
@@ -4700,7 +4700,7 @@ function openTargetProposalStep2(){
       return `<div style="display:flex;justify-content:space-between;font-size:11px;padding:2.5px 0"><span>${esc(b.name)}</span><span><b>${(b.weight*100).toFixed(0)}%</b> · ${stat}</span></div>`; }).join('')}
     <div style="font-size:9.5px;color:var(--text-3);margin-top:5px">미보유 항목은 ＋ 버튼으로 종목 추가 후 아래에서 목표 비중을 설정하세요. (설명형 ETF는 해당 상품을 직접 등록)</div></div>` : '';
   const sections=cats.map(cat=>{
-    const hs=state.holdings.filter(h=>h.cat===cat && !(h._convSpot&&(h.qty||0)===0));
+    const hs=state.holdings.filter(h=>h.cat===cat);
     if(!hs.length) return '';
     const rows=hs.map(h=>`<div class="field"><label>${esc((h.symbol||'').replace('.KS','').replace('.L',''))} · ${esc(h.name)}</label>
       <input id="sw-${h.id}" type="number" step="0.1" value="${((h.targetWt||0)*100).toFixed(1)}" oninput="updateSwSumAll()"></div>`).join('');
@@ -4718,7 +4718,7 @@ function openTargetProposalStep2(){
 }
 function updateSwSumAll(){
   Object.keys(CATEGORIES).forEach(cat=>{
-    const hs=state.holdings.filter(h=>h.cat===cat && !(h._convSpot&&(h.qty||0)===0));
+    const hs=state.holdings.filter(h=>h.cat===cat);
     if(!hs.length) return;
     let sum=0; hs.forEach(h=>{ const el=document.getElementById('sw-'+h.id); if(el) sum+=parseFloat(el.value)||0; });
     const el=document.getElementById('swa-sum-'+cat);

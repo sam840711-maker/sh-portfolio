@@ -942,7 +942,7 @@ function levMult(h){
 const LEVTECH_SPOT_MAP = { NVDL:'NVDA', TSLL:'TSLA', GGLL:'GOOGL', PLTU:'PLTR' };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.6.4';
+const APP_VER = 'v2.6.5';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -4399,7 +4399,12 @@ function renderStockRebalance(){
       else if(normalSh<0) conflict='목표비중 매도 → 방어 우선 보류';
     } else if(u){
       sh=u.sh; val=u.val; reasonTxt=u.reason||'';
-      if(normalSh!==0 && Math.sign(normalSh)!==Math.sign(sh)) conflict=`목표비중 ${normalSh>0?'매수':'매도'} ↔ 종합 ${sh>0?'매수':'매도'}`;
+      if(normalSh!==0 && Math.sign(normalSh)!==Math.sign(sh)){
+        const defAct=/켈리|축소|전환|방어|플로어|추세/.test(reasonTxt);
+        conflict = defAct
+          ? `방어 우선 — 목표비중상 ${normalSh>0?'매수':'매도'} 대상이나 축소`
+          : `목표비중 ${normalSh>0?'매수':'매도'} ↔ 종합 ${sh>0?'매수':'매도'}`;
+      }
     } else { sh=normalSh; val=r.adjustVal; }
     const hold = !heldReason && (isC ? Math.abs(sh)<1e-6 : Math.round(sh)===0);
     const buy=sh>0 && !hold && !heldReason;

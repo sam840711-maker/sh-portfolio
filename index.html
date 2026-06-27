@@ -927,7 +927,7 @@ function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
 const LEVTECH_SPOT_MAP = { NVDL:'NVDA', TSLL:'TSLA', GGLL:'GOOGL', PLTU:'PLTR' };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.0.8';
+const APP_VER = 'v2.1.0';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -3240,7 +3240,22 @@ let destFlow=null;
 function startDestEntry(){
   const p=computeStrategyPlan(portfolioStats());
   if(!p.enabled || !(p.sellAmt>1000000)){ toast('지금은 청산 트리거 미도달'); return; }
-  const items=(p.basket||[]).filter(b=>b.amount>0).map(b=>({name:b.name,amount:b.amount,cat:b.cat||'global_etf',symbol:b.symbol||''}));
+  const items=[];
+  (p.basket||[]).filter(b=>b.amount>0).forEach(b=>{
+    if(!b.symbol && b.cat){
+      // 카테고리 슬롯(US 개별주 등) → 해당 자산군 실보유 종목으로 목표비중 비례 분배 (0주 전환현물·바스켓 슬롯 제외)
+      const hs=state.holdings.filter(h=>h.cat===b.cat && !(h._convSpot&&(h.qty||0)===0) && !h._basketSpot);
+      const twSum=hs.reduce((s,h)=>s+(h.targetWt||0),0);
+      if(hs.length && twSum>0){
+        hs.forEach(h=>{ const w=(h.targetWt||0)/twSum; if(w>0) items.push({name:h.name,amount:b.amount*w,cat:b.cat,symbol:(h.symbol||'').replace('.KS','').replace('.L','')}); });
+        return;
+      }
+      if(hs.length){ hs.forEach(h=>items.push({name:h.name,amount:b.amount/hs.length,cat:b.cat,symbol:(h.symbol||'').replace('.KS','').replace('.L','')})); return; }
+      items.push({name:b.name,amount:b.amount,cat:b.cat,symbol:''});   // 보유 없으면 단일 슬롯
+    } else {
+      items.push({name:b.name,amount:b.amount,cat:b.cat||'global_etf',symbol:b.symbol||''});
+    }
+  });
   if(!items.length){ toast('바스켓이 비어있어'); return; }
   destFlow={items, idx:0};
   openDestEntry();
@@ -4296,12 +4311,24 @@ function renderStockRebalance(){
       floor:'플로어 여유 회복 시 자동 해제'
     }[(typeof _uniPlan!=='undefined'&&_uniPlan)?_uniPlan.mode:'']||'경고 해제 시 매수 수량 표시') : '';
     const releaseBadge = (heldReason&&releaseHint) ? `<div style="font-size:9.5px;color:var(--text-3);margin-top:1px">↪ ${esc(releaseHint)}</div>` : '';
+    let activateHint='';
+    if(hold && !heldReason && (h.qty||0)===0){
+      if(h._convSpot){
+        const tc=(state.settings.risk&&state.settings.risk.trendConv)||{};
+        activateHint = ((tc.days||0)>0)
+          ? `Lev Tech 추세 이탈 ${tc.days}일째 · 2일 확인 시 전환 매수`
+          : 'Lev Tech 추세 이탈 2일 확인(또는 NAV 마일스톤) 시 전환 매수';
+      } else if(h._basketSpot){
+        activateHint = '레버리지 청산 트리거 도달 시 정착 매수';
+      }
+    }
+    const activateBadge = activateHint ? `<div style="font-size:9.5px;color:var(--text-3);margin-top:1px">↪ ${esc(activateHint)}</div>` : '';
     return `<div class="rbx-row" data-id="${h.id}">
       <div class="rbx-accent" style="background:${accent}"></div>
       <div class="rbx-main">
         <div class="rbx-l1"><span class="rbx-tk">${tk}</span><span class="rbx-nm">${esc(h.name)}</span></div>
         <div class="rbx-wt">${wtLine}</div>
-        ${conflictBadge}${releaseBadge}
+        ${conflictBadge}${releaseBadge}${activateBadge}
       </div>
       <div class="rbx-right">
         <div class="rbx-qty ${cls}">${qtyTxt}</div>
@@ -4695,7 +4722,7 @@ function openTargetProposalStep2(){
   const basketHtml = basket.length ? `<div style="margin:6px 0 12px;padding:11px;border-radius:9px;border:1px solid var(--hairline);background:var(--surface)">
     <div style="font-size:12px;font-weight:700;margin-bottom:6px">정착 바스켓 (청산 시 이동 목적지 · 비중)</div>
     ${basket.map(b=>{ const held=b.symbol&&heldSyms.has(_bs(b.symbol));
-      const stat = !b.symbol ? `<span style="color:var(--text-3)">현물 슬롯 · 직접 선택</span>`
+      const stat = !b.symbol ? `<span style="color:var(--text-3)">보유 종목에 비중 비례 분배</span>`
         : (held?'<span class="up">✓ 보유</span>':'<span style="color:var(--orange)">미보유</span>');
       return `<div style="display:flex;justify-content:space-between;font-size:11px;padding:2.5px 0"><span>${esc(b.name)}</span><span><b>${(b.weight*100).toFixed(0)}%</b> · ${stat}</span></div>`; }).join('')}
     <div style="font-size:9.5px;color:var(--text-3);margin-top:5px">미보유 항목은 ＋ 버튼으로 종목 추가 후 아래에서 목표 비중을 설정하세요. (설명형 ETF는 해당 상품을 직접 등록)</div></div>` : '';

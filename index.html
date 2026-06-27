@@ -949,7 +949,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.7.12';
+const APP_VER = 'v2.7.14';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -1438,7 +1438,7 @@ function totalCash(){
   const fx=state.settings.fxRate, cb=state.settings.cashByClass||{};
   let sum=0;
   for (const k in cb){ sum += (cb[k].krw||0) + (cb[k].usd||0)*fx; }
-  sum += (state.settings.cashAccount||0) + (state.settings.reserveCash||0);
+  sum += (state.settings.cashAccount||0);
   return sum;
 }
 function portfolioStats(){
@@ -2432,7 +2432,6 @@ function renderCagrAlert(){
   const {gap, expected}=computeCagrGap();
   if(expected<=0){ el.style.display='none'; return; }
   const pct=gap/expected;
-  const reserve=state.settings.reserveCash||0;
   const rk=state.settings.risk||{};
   const overshootPct=(rk.overshootPct!=null)?rk.overshootPct:0.10;
   const cashoutFrac=(rk.cashoutFrac!=null)?rk.cashoutFrac:1;
@@ -2455,21 +2454,6 @@ function renderCagrAlert(){
     </div>`;
     el.style.display='block';
     el.onclick=()=>startGoalExcessRebalance(Math.round(gap));
-  } else if(gap<0 && Math.abs(pct)>=0.05 && reserve>0){
-    // 미달 + 대기 자금 보유 (슬레이트블루)
-    const deploy=Math.min(-gap, reserve);
-    el.style.borderColor='#5A7A9A';
-    el.style.background='rgba(90,122,154,0.12)';
-    el.innerHTML=`<div style="display:flex;align-items:center;gap:11px">
-      <span class="ca-dot" style="background:#5A7A9A"></span>
-      <div style="flex:1">
-        <div style="font-weight:700;font-size:13px">CAGR 목표 미달</div>
-        <div style="font-size:11.5px;color:var(--text-2);margin-top:2px">현재 시점 목표보다 ${(pct*100).toFixed(1)}% 미달 — 대기 자금 ₩${fmtKRW(deploy)} 매수 투입 권장</div>
-      </div>
-      <span style="color:#8AA0BD;font-size:12px;font-weight:600;white-space:nowrap">배분 ▸</span>
-    </div>`;
-    el.style.display='block';
-    el.onclick=()=>switchView('allocation');
   } else {
     el.style.display='none';
     el.innerHTML='';
@@ -2590,15 +2574,6 @@ function effectiveCashPct(s){
   }catch(_){}
   return base;
 }
-// 대기자금 상태 — 목표(NAV×%) 대비 현재 reserveCash. 예수금(거쳐가는 돈)과 별개.
-function computeReserveStatus(s){
-  const nav=s.totalWithCash||0;
-  const pct=state.settings.reserveTargetPct!=null?state.settings.reserveTargetPct:0.15;
-  const target=Math.round(nav*pct);
-  const current=Math.round(state.settings.reserveCash||0);
-  const gap=target-current;   // +면 부족(적립 권장), −면 초과(투입 여력)
-  return {pct,target,current,gap,curPct:nav>0?current/nav:0};
-}
 /* ================================================================
    상승 가속 엔진 — 조기 진입(2단계) · 윈너라이딩
    - 방어(하방)의 대칭: 상승 추세 확인 시 노출↑, 하락 시 방어가 우선
@@ -2611,27 +2586,26 @@ function computeAccelRegime(s){
   if(!rk.accelOn) return {on:false};
   const t=rk.trend||{};
   const g=t['^GSPC'], n=t['^NDX'];
-  const reserve=state.settings.reserveCash||0;
-  if(!g && !n) return {on:true, regime:'unknown', label:'추세 데이터 대기', expo:0.9, reserve};
+  if(!g && !n) return {on:true, regime:'unknown', label:'추세 데이터 대기', expo:0.9};
   const gaps=[g,n].filter(Boolean).map(x=>x.gap||0);
   const moms=[g,n].filter(Boolean).map(x=>x.mom||0);
   const bestGap=Math.max(...gaps), bestMom=Math.max(...moms);
   const anyBelow=(g&&g.below)||(n&&n.below);
-  let regime,expo,label,color,why,deploy=0,winnerRun=false;
+  let regime,expo,label,color,why,winnerRun=false;
   if(anyBelow){
     regime='defend'; expo=0.5; label='방어'; color='#E5663D'; winnerRun=false;
     why='추세 이탈(200일선 하향+모멘텀 음전) — 가속 중단, 방어 우선(축소는 빠르게)';
   } else if(bestGap>0.03 && bestMom>0.08){
-    regime='full'; expo=(rk.accelMax||1.15); label='풀가속'; color='#1E9E5A'; winnerRun=true; deploy=Math.round(reserve/2);
+    regime='full'; expo=(rk.accelMax||1.15); label='풀가속'; color='#1E9E5A'; winnerRun=true;
     why='강한 상승 추세 확인 — 현금 목표 절반↓ 자동 투입·풀노출(상승장 한정 +10%)·윈너 익절 보류';
   } else if(bestGap>-0.01){
-    regime='early'; expo=1.00; label='조기가속'; color='#3FA796'; winnerRun=true; deploy=Math.round(reserve/2);
+    regime='early'; expo=1.00; label='조기가속'; color='#3FA796'; winnerRun=true;
     why='200일선 회복 — 조기 진입(현금 목표 절반↓ 자동 투입·풀노출)';
   } else {
     regime='neutral'; expo=0.9; label='중립'; color='#7A8195'; winnerRun=false;
     why='추세 미확인 — 기본 노출 유지(현금 목표대로 보유)';
   }
-  return {on:true, regime, expo, label, color, why, deploy, deployFull:reserve, winnerRun, bestGap, bestMom, reserve};
+  return {on:true, regime, expo, label, color, why, winnerRun, bestGap, bestMom};
 }
 function computeRiskStatus(s){
   const risk=state.settings.risk||{};
@@ -3134,8 +3108,7 @@ function computeStrategyPlan(s){
   const ms=st.milestones.slice().sort((a,b)=>a-b);
   let step=0; for(const m of ms){ if(total>=m) step++; }
   const phase = step>=4?'안정':(step>=1?'전환':'리스크온');
-  const ct=state.settings.classTargets||{};
-  const levTgt = (ct.lev_tech!=null||ct.lev_crypto!=null) ? ((ct.lev_tech||0)+(ct.lev_crypto||0)) : 0.30;
+  const levTgt = (classTarget('lev_tech')>0||classTarget('lev_crypto')>0) ? (classTarget('lev_tech')+classTarget('lev_crypto')) : 0.30;   // 글라이드 보간 반영
   const recLevWeight = Math.max(0, levTgt*(1-step*(st.stepFrac||0.25)));
   const recLevValue = recLevWeight*total;
   const lt=s.totals.lev_tech||{current:0,invested:0}, lc=s.totals.lev_crypto||{current:0,invested:0};
@@ -3637,16 +3610,15 @@ function renderAllocChart(s){
   const el=document.getElementById('alloc-bars');
   if(!el) return;
   const total=s.totalWithCash||1;
+  const cashPct=(typeof effectiveCashPct==='function')?effectiveCashPct(s):(state.settings.reserveTargetPct||0);
   const items=[];
   for (const k in CATEGORIES){
     if(s.totals[k].current>0 || classTarget(k)>0)
-      items.push({label:CATEGORIES[k].label,val:s.totals[k].current,color:CATEGORIES[k].color,target:classTarget(k)});
+      items.push({label:CATEGORIES[k].label,val:s.totals[k].current,color:CATEGORIES[k].color,target:classTarget(k)*(1-cashPct)});  // 현금 차감 기준
   }
   items.sort((a,b)=>b.val-a.val);                  // 자산군만 평가액 내림차순
-  const reserve = state.settings.reserveCash || 0;
-  const brokerCash = Math.max(0, s.cash - reserve);
-  if(brokerCash>0) items.push({label:'예수금',val:brokerCash,color:'#565967',target:0});   // 현금은 항상 맨 끝
-  if(reserve>0)    items.push({label:'대기 자금',val:reserve,color:'#5A7A9A',target:0});
+  // 현금 — 하나의 자산군처럼 목표(cashPct) 표시. 별도 대기자금 버킷 없음.
+  items.push({label:'현금',val:Math.max(0,s.cash),color:'#565967',target:cashPct,isCash:true});
   if(!items.length){ el.innerHTML='<div class="empty">자산이 없습니다.</div>'; return; }
   const legend=`<div class="abar-legend"><span class="abar-lg-bar"></span>현재 비중<span class="abar-lg-tick"></span>목표 비중</div>`;
   el.innerHTML=legend+items.map(it=>{
@@ -3661,7 +3633,9 @@ function renderAllocChart(s){
     // 목표 도달을 위한 조정 금액
     const adjust=total*it.target-it.val;
     const action=Math.abs(adjust)>10000
-      ? (adjust>0?`+${fmtKRW(adjust)} 매수`:`${fmtKRW(adjust)} 매도`)
+      ? (it.isCash
+          ? (adjust>0?`${fmtKRW(adjust)} 현금 확보 필요(매도)`:`${fmtKRW(-adjust)} 투입 가능`)
+          : (adjust>0?`+${fmtKRW(adjust)} 매수`:`${fmtKRW(adjust)} 매도`))
       : '균형 상태';
     const statsRight = hasTgt
       ? `<span class="abar-tgt">목표 ${tgtPct.toFixed(1)}%</span>
@@ -4303,8 +4277,7 @@ function renderHoldingsSummary(){
   let cashUSD=0;
   for (const k in cb){ if(cb[k]) cashUSD += (cb[k].usd||0); }
   const cashKRW=totalCash();
-  const reserve=state.settings.reserveCash||0;
-  const brokerCash=Math.max(0,cashKRW-reserve);
+  const brokerCash=cashKRW;
   html+=`<div class="sum-row">
     <div class="sum-top"><span class="sum-name">예수금</span><span class="sum-cash">₩${fmtKRW(cashKRW)}</span></div>
     <div class="sum-line">
@@ -4429,7 +4402,7 @@ function computeWithdrawalPlan(amount){
 /* 출금 모달 — 금액 입력 → 자동 매도 가이드 + 자동 기록 + 빠른 입력 이동 */
 let _withdrawPlan=null;
 function openWithdrawModal(){
-  const activeCash = totalCash() - (state.settings.reserveCash||0);
+  const activeCash = totalCash();
   openModal(`<h3>출금하기</h3>
     <div class="modal-sub">원금 회수 · 외부 출금 — 가이드 + 자동 기록</div>
     <div class="field">
@@ -5873,8 +5846,7 @@ function renderQuickEntry(){
   let brokerCash=0;
   for(const k in _cb) brokerCash += (_cb[k].krw||0) + (_cb[k].usd||0)*_fx;
   const cashAcc=state.settings.cashAccount||0;
-  const reserve=state.settings.reserveCash||0;
-  const grand=brokerCash+cashAcc+reserve;
+  const grand=brokerCash+cashAcc;
   const setText=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent='₩'+fmtKRW(v); };
   setText('qe-sum-broker', brokerCash);
   setText('qe-sum-cashacc', cashAcc);

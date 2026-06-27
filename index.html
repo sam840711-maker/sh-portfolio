@@ -642,6 +642,7 @@ input,select,textarea{font-family:inherit;color:inherit}
         <button data-rbmode="portfolio" class="active">전체 포트폴리오</button>
         <button data-rbmode="within">자산군 내</button>
       </div>
+      <div id="rb-glide"></div>
       <div id="rb-mode-desc" style="font-size:10.5px;color:var(--text-3);margin:0 2px 12px"></div>
       <div id="rb-stock-list"></div>
       <div id="rb-stock-foot"></div>
@@ -923,10 +924,10 @@ input,select,textarea{font-family:inherit;color:inherit}
    ================================================================ */
 const CATEGORIES = {
   us_stock:   {label:'US Stock',   color:'#4FB6C4', currency:'USD', target:0.35},
-  lev_tech:   {label:'Lev Tech 2x',   color:'#E5663D', currency:'USD', target:0.15},
-  lev_crypto: {label:'Lev Crypto', color:'#C44ED9', currency:'USD', target:0.05},
-  global_etf: {label:'Global ETF', color:'#4A90E2', currency:'KRW', target:0.20},
-  crypto:     {label:'Crypto',     color:'#9B7BD8', currency:'KRW', target:0.25},
+  lev_tech:   {label:'Lev Tech 2x',   color:'#E5663D', currency:'USD', target:0.05},
+  lev_crypto: {label:'Lev Crypto', color:'#C44ED9', currency:'USD', target:0.00},
+  global_etf: {label:'Global ETF', color:'#4A90E2', currency:'KRW', target:0.05},
+  crypto:     {label:'Crypto',     color:'#9B7BD8', currency:'KRW', target:0.55},
 };
 const LEV_CATS = ['lev_tech','lev_crypto'];
 function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
@@ -948,7 +949,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.7.5';
+const APP_VER = 'v2.7.9';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -964,7 +965,7 @@ const SEED = {
       global_etf:{krw:138656,usd:0},
       crypto:{krw:0,usd:0},
     },
-    classTargets:{us_stock:0.35,lev_tech:0.15,lev_crypto:0.05,global_etf:0.20,crypto:0.25},
+    classTargets:{us_stock:0.35,lev_tech:0.05,lev_crypto:0.00,global_etf:0.05,crypto:0.55},
     taxRates:{overseas:0.22,global_etf:0.154,crypto:0,bond:0},
     overseasDeduction:2500000,
   },
@@ -1091,6 +1092,7 @@ function normalizeState(){
     if(rk.levMultCrypto==null) rk.levMultCrypto=3;
     if(rk.trendOn==null) rk.trendOn=true;
     if(rk.accelOn==null) rk.accelOn=true;   // 상승 가속(조기진입·윈너라이딩) 기본 ON
+    if(rk.accelMax==null) rk.accelMax=1.25;   // 가속 노출 상한(공격 다이얼)
     if(rk.rebalBand==null) rk.rebalBand=0.05;
     if(rk.overshootPct==null) rk.overshootPct=0.15;
     if(rk.cashoutFrac==null) rk.cashoutFrac=0.50;
@@ -1197,7 +1199,7 @@ function normalizeState(){
   // 현금 계정 — 자산군에 배정 안 된 순수 현금 (추가납입이 자동으로 들어옴)
   if (state.settings.cashAccount==null) state.settings.cashAccount=0;
   if (state.settings.reserveCash==null) state.settings.reserveCash=0;
-  if (state.settings.reserveTargetPct==null) state.settings.reserveTargetPct=0.15;   // 현금 목표 비중(NAV 대비)
+  if (state.settings.reserveTargetPct==null) state.settings.reserveTargetPct=0.05;   // 현금 목표 비중(NAV 대비)
   // 대기자금(별도 버킷) 개념 폐지 → 현금 비중(%)으로 통합. 기존 reserveCash는 현금계정으로 흡수(총현금 보존).
   if ((state.settings.reserveCash||0) > 0){
     state.settings.cashAccount = (state.settings.cashAccount||0) + state.settings.reserveCash;
@@ -1343,8 +1345,54 @@ function isUSDcat(cat){ return cat==='us_stock'||cat==='lev_tech'||cat==='lev_cr
 
 /* 자산군 목표 비중 (사용자 수정값 우선) */
 function classTarget(k){
+  const g=state.settings.glide;
+  if(g && g.active){
+    const f=(g.from&&g.from[k]!=null)?g.from[k]:0;
+    const t=(g.to&&g.to[k]!=null)?g.to[k]:0;
+    const p=(g.steps>0)?Math.min(1,Math.max(0,g.step/g.steps)):1;
+    return f+(t-f)*p;   // 글라이드: 현재→목표 보간
+  }
   const ct=state.settings.classTargets;
   return (ct && ct[k]!=null) ? ct[k] : CATEGORIES[k].target;
+}
+// 점진 전환(글라이드 패스) — 현재 실제 비중에서 목표까지 N단계로 보간
+function startGlide(toTargets, steps, cashTo){
+  const s=portfolioStats();
+  const invested=Object.keys(CATEGORIES).reduce((a,k)=>a+((s.totals[k]&&s.totals[k].current)||0),0);
+  const from={};
+  Object.keys(CATEGORIES).forEach(k=>{ from[k]= invested>0 ? ((s.totals[k]&&s.totals[k].current)||0)/invested : (CATEGORIES[k].target); });
+  state.settings.glide={ from, to:{...toTargets}, steps:steps||6, step:0, active:true,
+    cashFrom:(state.settings.reserveTargetPct!=null?state.settings.reserveTargetPct:0.10), cashTo:(cashTo!=null?cashTo:0.05),
+    started:Date.now() };
+}
+function glideCashPct(){
+  const g=state.settings.glide;
+  if(g && g.active){ const p=(g.steps>0)?Math.min(1,g.step/g.steps):1; return g.cashFrom+(g.cashTo-g.cashFrom)*p; }
+  return state.settings.reserveTargetPct!=null?state.settings.reserveTargetPct:0.10;
+}
+async function advanceGlide(){
+  const g=state.settings.glide; if(!g||!g.active) return;
+  g.step=(g.step||0)+1;
+  if(g.step>=g.steps){   // 완료 → 최종 목표 고정
+    state.settings.classTargets={...g.to};
+    if(g.cashTo!=null) state.settings.reserveTargetPct=g.cashTo;
+    g.active=false;
+    toast('전환 완료 — 최종 공격 목표 도달');
+  } else {
+    toast(`전환 ${g.step}/${g.steps} 단계 진행 — 목표 보간 갱신됨`);
+  }
+  await saveState();
+  try{ if(currentView) switchView(currentView); }catch(_){}
+}
+async function cancelGlide(){
+  const g=state.settings.glide; if(!g) return;
+  if(!confirm('점진 전환을 취소할까요? 현재 보간 목표가 고정됩니다.')) return;
+  // 현재 보간값을 classTargets로 고정
+  const ct={}; Object.keys(CATEGORIES).forEach(k=>{ ct[k]=classTarget(k); });
+  state.settings.classTargets=ct;
+  state.settings.reserveTargetPct=glideCashPct();
+  g.active=false; await saveState();
+  toast('전환 취소 — 현재 보간 목표로 고정'); try{ if(currentView) switchView(currentView); }catch(_){}
 }
 
 /* 평가액·매입액 — USD 자산은 매입환율(avgFx)로 원화 매입액 산출 → 환차익 반영 */
@@ -2523,7 +2571,7 @@ function tickTrendConv(){
 }
 // 현금 목표 비중 — 엔진이 굴림: 상승 확인 시 절반(투입), 방어/중립은 기본. 정적 현금 드래그 회피.
 function effectiveCashPct(s){
-  const base=state.settings.reserveTargetPct!=null?state.settings.reserveTargetPct:0.15;
+  const base=glideCashPct();
   try{
     const r=computeRiskStatus(s);
     if(r.level && r.level!=='near') return base;                 // 방어: 기본 유지(레버리지 축소가 현금을 별도로 늘림)
@@ -2564,7 +2612,7 @@ function computeAccelRegime(s){
     regime='defend'; expo=0.5; label='방어'; color='#E5663D'; winnerRun=false;
     why='추세 이탈(200일선 하향+모멘텀 음전) — 가속 중단, 방어 우선(축소는 빠르게)';
   } else if(bestGap>0.03 && bestMom>0.08){
-    regime='full'; expo=1.10; label='풀가속'; color='#1E9E5A'; winnerRun=true; deploy=Math.round(reserve/2);
+    regime='full'; expo=(rk.accelMax||1.15); label='풀가속'; color='#1E9E5A'; winnerRun=true; deploy=Math.round(reserve/2);
     why='강한 상승 추세 확인 — 현금 목표 절반↓ 자동 투입·풀노출(상승장 한정 +10%)·윈너 익절 보류';
   } else if(bestGap>-0.01){
     regime='early'; expo=1.00; label='조기가속'; color='#3FA796'; winnerRun=true; deploy=Math.round(reserve/2);
@@ -3026,7 +3074,7 @@ function kellyCutBreakdown(cutAmt){
 }
 /* 추천 자산군·종목 목표비중 1회 적용 — 2x 테크 이동 + 자산군 타깃 + 종목 타깃(자산군별 정규화) */
 function applyRecommendedTargets(){
-  if(!confirm('생존형 성장 목표비중을 적용합니다.\n· 자산군: US 35 / ETF 20 / BTC(크립토) 25 / Lev Tech 15 / Lev Crypto 5\n· 디레버리징 수렴 지점 — 3x는 사다리로 점진 축소\n· BTC 현물 중심, decay 최소화\n기존 목표비중은 덮어써집니다. 계속할까요?')) return;
+  if(!confirm('공격 다이얼로 점진 전환을 시작합니다 (6단계 글라이드).\n· 목표: 크립토(BTC+ETH) 55 / US 35 / Lev Tech 5 / ETF 5 / Lev Crypto 0\n· 크립토 분할 BTC 90 : ETH 10 · 현금 10→5% · 가속 1.25\n· 한 번에 안 옮기고 6단계로 나눠 이동 (타이밍·세금 분산)\n· 매 단계 리밸런싱대로 매매 후 "다음 단계" 진행\n계속할까요?')) return;
   const base=h=>(h.symbol||'').replace('.KS','').replace('.L','').toUpperCase();
   // 1) 2x 테크 이동
   const TECH=['NVDL','TSLL','GGLL','PLTU'];
@@ -3034,8 +3082,10 @@ function applyRecommendedTargets(){
     if(TECH.includes(base(h)) && h.cat!=='lev_tech') h.cat='lev_tech';
     if(isUSDcat(h.cat)&&(h.avgFx==null||isNaN(h.avgFx))) h.avgFx=isLevCat(h.cat)?1486.95:1465.57;
   }
-  // 2) 자산군 목표비중 (합 100%) — 생존형 성장 구조 (디레버리징 수렴 지점)
-  state.settings.classTargets={us_stock:0.35,lev_tech:0.15,lev_crypto:0.05,global_etf:0.20,crypto:0.25};
+  // 2) 자산군 목표비중 (합 100%) — 공격 다이얼. 점진 전환은 글라이드가 처리.
+  const AGG={us_stock:0.35,lev_tech:0.05,lev_crypto:0.00,global_etf:0.05,crypto:0.55};
+  state.settings.classTargets={...AGG};   // 최종(글라이드 완료 시 도달)
+  if(state.settings.risk) state.settings.risk.accelMax=1.25;   // 가속 상한 1.25
   // 2-1) 현물 코인 자리 종목 자동 생성(없으면 수량 0으로) — 리밸런싱에 BTC/ETH 매수액이 뜨도록
   const haveCrypto=state.holdings.filter(h=>h.cat==='crypto').map(h=>base(h));
   ['BTC','ETH'].forEach(sym=>{
@@ -3049,7 +3099,7 @@ function applyRecommendedTargets(){
     IONQ:10,MU:10,CRWD:10,RKLB:10, SMR:8,RGTI:8,JOBY:8,
     CRSP:6,RBLX:6,ARQQ:6,PLUG:6,BWXT:6,SPCX:6,
     '453630':25,'453640':25,'390390':20,'494840':15,'218420':15,
-    BTC:85,ETH:15 };
+    BTC:90,ETH:10 };
   const byCat={};
   for(const h of state.holdings){ (byCat[h.cat]=byCat[h.cat]||[]).push(h); }
   for(const cat in byCat){
@@ -3057,13 +3107,16 @@ function applyRecommendedTargets(){
     const raw=arr.map(h=>{ const w=RAW[base(h)]!=null?RAW[base(h)]:1; sum+=w; return w; });
     arr.forEach((h,i)=>{ h.targetWt = sum>0 ? raw[i]/sum : (1/arr.length); });
   }
+  // 4) 점진 전환 시작 — 현재 비중에서 공격 목표까지 6단계 글라이드 (현금 →5%)
+  startGlide(AGG, 6, 0.05);
   saveState();
   try{ renderDashboard(); }catch(_){}
   try{ if(currentView) switchView(currentView); }catch(_){}
   try{ if(typeof refreshAllPrices==='function') refreshAllPrices(); }catch(_){}   // 신규 BTC/ETH 시세 즉시 갱신
-  toast('추천 자산군·종목 비중 적용됨');
+  toast('점진 전환 시작 — 1/6 단계 (배분 페이지 확인)');
 }
 window.applyRecommendedTargets=applyRecommendedTargets;
+window.advanceGlide=advanceGlide; window.cancelGlide=cancelGlide;
 function computeStrategyPlan(s){
   const st=state.settings.strategy;
   if(!st||!st.enabled) return {enabled:false};
@@ -3386,7 +3439,8 @@ function openRiskEditor(){
       <b>분할 규칙</b> — 매수(가속)는 ½ 천천히 · 위험 축소는 빠르게 · 윈너 트림은 ⅓ 느리게<br>
       <span style="color:var(--text-3);font-size:11px">상승장 +10%는 추세게이트 노출이며 상시 레버리지가 아님 · 플로어·백스톱은 가속 중에도 작동</span>
     </div>
-    <div class="field" style="margin-bottom:6px"><label>현금 목표 비중 % (NAV 대비)</label><input id="rk-reservepct" type="number" step="1" value="${((state.settings.reserveTargetPct!=null?state.settings.reserveTargetPct:0.15)*100).toFixed(0)}" style="${inSt}"></div>
+    <div class="field" style="margin-bottom:6px"><label>현금 목표 비중 % (NAV 대비)</label><input id="rk-reservepct" type="number" step="1" value="${((state.settings.reserveTargetPct!=null?state.settings.reserveTargetPct:0.10)*100).toFixed(0)}" style="${inSt}"></div>
+    <div class="field" style="margin-bottom:6px"><label>가속 노출 상한 (풀가속 시 · 1.10~1.25)</label><input id="rk-accelmax" type="number" step="0.05" value="${(rk.accelMax||1.15).toFixed(2)}" style="${inSt}"></div>
     <div style="font-size:11px;color:var(--text-3);padding:6px 10px;background:var(--bg-2);border-radius:8px;line-height:1.6;margin-bottom:14px">
       현금도 하나의 <b>목표 비중</b> \u2014 리밸런싱이 나머지(예: 85%)만 슬리브에 배분, 이만큼은 현금 유지.<br>
       엔진이 굴림: 상승 확인 시 절반↓(자동 투입) · 하락 시 적립 · 별도 \u2018대기자금\u2019 버킷 없음. 권장 10~15%.
@@ -3423,6 +3477,7 @@ function saveRisk(){
   rk.trendOn=document.getElementById('rk-trend').checked;
   { const ae=document.getElementById('rk-accel'); if(ae) rk.accelOn=ae.checked; }
   { const re=document.getElementById('rk-reservepct'); if(re){ const v=parseFloat(re.value); if(!isNaN(v)) state.settings.reserveTargetPct=Math.max(0,Math.min(0.5,v/100)); } }
+  { const am=document.getElementById('rk-accelmax'); if(am){ const v=parseFloat(am.value); if(!isNaN(v)) rk.accelMax=Math.max(1.0,Math.min(1.4,v)); } }
   rk.floorMode=document.getElementById('rk-fm-peak').checked?'peakpct':'abs';
   rk.floorAbs=Math.max(0, Math.round(parseFloat(document.getElementById('rk-floorabs').value||'0')||0));
   const fp=parseFloat(document.getElementById('rk-floorpct').value||'25')||25; rk.floorPeakPct=Math.min(0.9,Math.max(0,fp/100));
@@ -4514,6 +4569,25 @@ function renderStockRebalance(){
     if(gap>0) _modeNote=` · <span style="color:var(--text-3)">참고: CAGR 페이스 +₩${fmtKRW(gap)} 초과(목표비중엔 미반영)</span>`;
     else if(gap<0) _modeNote=` · <span style="color:var(--text-3)">참고: CAGR 페이스 −₩${fmtKRW(-gap)} 미달(목표비중엔 미반영)</span>`;
   }
+  // 점진 전환(글라이드) 진행 카드
+  (function(){ const ge=document.getElementById('rb-glide'); if(!ge) return;
+    const g=state.settings.glide;
+    if(!g||!g.active){ ge.innerHTML=''; return; }
+    const pct=Math.round(Math.min(1,g.step/g.steps)*100);
+    const cryptoNow=(classTarget('crypto')*100).toFixed(0), cryptoTo=((g.to.crypto||0)*100).toFixed(0);
+    ge.innerHTML=`<div style="margin:0 0 12px;padding:11px 13px;background:rgba(30,158,90,0.10);border:1px solid #1E9E5A;border-radius:11px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-weight:800;font-size:13px;color:#1E9E5A">⏩ 공격 다이얼 점진 전환</span>
+        <span style="font-size:12px;font-weight:700;color:var(--text-2)">${g.step} / ${g.steps} 단계</span></div>
+      <div style="height:6px;background:var(--bg-2);border-radius:3px;overflow:hidden;margin-bottom:7px"><div style="height:100%;width:${pct}%;background:#1E9E5A;border-radius:3px"></div></div>
+      <div style="font-size:11px;color:var(--text-2);line-height:1.6;margin-bottom:9px">
+        이번 단계 크립토 목표 <b style="color:var(--text)">${cryptoNow}%</b> → 최종 <b style="color:#1E9E5A">${cryptoTo}%</b> · 현금 ${(glideCashPct()*100).toFixed(0)}%<br>
+        <span style="color:var(--text-3)">아래 수량대로 매매·입력 후 "다음 단계" — 매끄럽게 옮겨집니다</span></div>
+      <div style="display:flex;gap:7px">
+        <button onclick="advanceGlide()" style="flex:1;padding:9px;border-radius:9px;background:#1E9E5A;color:#fff;font-size:12px;font-weight:700;border:none">이번 단계 완료 · 다음 ▸</button>
+        <button onclick="cancelGlide()" style="padding:9px 13px;border-radius:9px;background:var(--bg-2);color:var(--text-2);font-size:12px;border:1px solid var(--hairline)">취소</button>
+      </div></div>`;
+  })();
   document.getElementById('rb-mode-desc').innerHTML = (rbMode==='within'
     ? '그 자산군의 보유 평가액 안에서 종목을 재분배합니다 (예수금 제외)'
     : '활성 자산(보유 + 예수금) 기준 — 대기 자금은 평소엔 별도 보관, 미달 시에만 자동 투입') + _modeNote;

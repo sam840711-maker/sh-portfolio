@@ -922,11 +922,11 @@ input,select,textarea{font-family:inherit;color:inherit}
    CONSTANTS & SEED  (SH_Investment 시트 기반)
    ================================================================ */
 const CATEGORIES = {
-  us_stock:   {label:'US Stock',   color:'#4FB6C4', currency:'USD', target:0.40},
+  us_stock:   {label:'US Stock',   color:'#4FB6C4', currency:'USD', target:0.35},
   lev_tech:   {label:'Lev Tech 2x',   color:'#E5663D', currency:'USD', target:0.15},
-  lev_crypto: {label:'Lev Crypto', color:'#C44ED9', currency:'USD', target:0.15},
-  global_etf: {label:'Global ETF', color:'#4A90E2', currency:'KRW', target:0.25},
-  crypto:     {label:'Crypto',     color:'#9B7BD8', currency:'KRW', target:0.05},
+  lev_crypto: {label:'Lev Crypto', color:'#C44ED9', currency:'USD', target:0.05},
+  global_etf: {label:'Global ETF', color:'#4A90E2', currency:'KRW', target:0.20},
+  crypto:     {label:'Crypto',     color:'#9B7BD8', currency:'KRW', target:0.25},
 };
 const LEV_CATS = ['lev_tech','lev_crypto'];
 function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
@@ -940,9 +940,15 @@ function levMult(h){
 }
 // Lev Tech(2x) → 현물(1x) 전환 매핑 — 청산 시 레버리지를 같은 종목 현물로 갈아탐
 const LEVTECH_SPOT_MAP = { NVDL:'NVDA', TSLL:'TSLA', GGLL:'GOOGL', PLTU:'PLTR' };
+// 디레버리징 사다리 — 고배율 레버리지를 한 칸씩 낮춰 최종 현물로 수렴. {to, toMult, finalSpot}
+// MST3(3x MSTR) → MSTU(2x MSTR) → BTC(현물). decay를 단계적으로 제거하며 청산으로 하강.
+const LEV_STEPDOWN_MAP = {
+  'MST3.L': { to:'MSTU', toMult:2, cat:'lev_crypto', name:'T-REX 2X Long MSTR', finalSpot:'BTC' },
+  'MSTU':   { to:'BTC',  toMult:1, cat:'crypto',     name:'비트코인(현물)',      finalSpot:'BTC' },
+};
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.6.6';
+const APP_VER = 'v2.7.3';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -958,7 +964,7 @@ const SEED = {
       global_etf:{krw:138656,usd:0},
       crypto:{krw:0,usd:0},
     },
-    classTargets:{us_stock:0.40,lev_tech:0.15,lev_crypto:0.15,global_etf:0.25,crypto:0.05},
+    classTargets:{us_stock:0.35,lev_tech:0.15,lev_crypto:0.05,global_etf:0.20,crypto:0.25},
     taxRates:{overseas:0.22,global_etf:0.154,crypto:0,bond:0},
     overseasDeduction:2500000,
   },
@@ -1073,7 +1079,7 @@ function normalizeState(){
   // 하방 보호 규칙 — 기본값 주입/보정
   if (!state.settings.risk) {
     const pr=(state.settings.principal||400000000);
-    state.settings.risk = { floorMode:'abs', floorAbs:Math.round(pr*0.8), floorPeakPct:0.25, muExcess:0.10, levMult:2.5, trendOn:true, rebalBand:0.05, overshootPct:0.15, cashoutFrac:0.50, trend:{} };
+    state.settings.risk = { floorMode:'abs', floorAbs:Math.round(pr*0.8), floorPeakPct:0.25, muExcess:0.10, levMult:2.5, trendOn:true, accelOn:true, rebalBand:0.05, overshootPct:0.15, cashoutFrac:0.50, trend:{} };
   } else {
     const rk=state.settings.risk;
     if(rk.floorMode==null) rk.floorMode='abs';
@@ -1084,6 +1090,7 @@ function normalizeState(){
     if(rk.levMultTech==null) rk.levMultTech=2;
     if(rk.levMultCrypto==null) rk.levMultCrypto=3;
     if(rk.trendOn==null) rk.trendOn=true;
+    if(rk.accelOn==null) rk.accelOn=true;   // 상승 가속(조기진입·윈너라이딩) 기본 ON
     if(rk.rebalBand==null) rk.rebalBand=0.05;
     if(rk.overshootPct==null) rk.overshootPct=0.15;
     if(rk.cashoutFrac==null) rk.cashoutFrac=0.50;
@@ -2508,6 +2515,40 @@ function tickTrendConv(){
     tc.lastDate=today; tc.prevBroken=broken;
   } else { tc.prevBroken=broken; if(!broken) tc.days=0; }  // 같은 날 회복하면 리셋
 }
+/* ================================================================
+   상승 가속 엔진 — 조기 진입(2단계) · 윈너라이딩
+   - 방어(하방)의 대칭: 상승 추세 확인 시 노출↑, 하락 시 방어가 우선
+   - 조기진입: 200일선 회복(gap>-1%)에 대기자금 빠르게 투입 (위험 감수·빠른 진입)
+   - 풀가속: 강한 추세(gap>3% & mom>8%) 확인 시 풀노출 + 상승장 한정 +10%
+   - 계산·알림 전용(자동매매 아님) · 플로어·백스톱은 가속 중에도 우선
+   ================================================================ */
+function computeAccelRegime(s){
+  const rk=state.settings.risk||{};
+  if(!rk.accelOn) return {on:false};
+  const t=rk.trend||{};
+  const g=t['^GSPC'], n=t['^NDX'];
+  const reserve=state.settings.reserveCash||0;
+  if(!g && !n) return {on:true, regime:'unknown', label:'추세 데이터 대기', expo:0.9, reserve};
+  const gaps=[g,n].filter(Boolean).map(x=>x.gap||0);
+  const moms=[g,n].filter(Boolean).map(x=>x.mom||0);
+  const bestGap=Math.max(...gaps), bestMom=Math.max(...moms);
+  const anyBelow=(g&&g.below)||(n&&n.below);
+  let regime,expo,label,color,why,deploy=0,winnerRun=false;
+  if(anyBelow){
+    regime='defend'; expo=0.5; label='방어'; color='#E5663D'; winnerRun=false;
+    why='추세 이탈(200일선 하향+모멘텀 음전) — 가속 중단, 방어 우선(축소는 빠르게)';
+  } else if(bestGap>0.03 && bestMom>0.08){
+    regime='full'; expo=1.10; label='풀가속'; color='#1E9E5A'; winnerRun=true; deploy=Math.round(reserve/2);
+    why='강한 상승 추세 확인 — 대기자금 ½ 분할 투입·풀노출(상승장 한정 +10%)·윈너 익절 보류';
+  } else if(bestGap>-0.01){
+    regime='early'; expo=1.00; label='조기가속'; color='#3FA796'; winnerRun=true; deploy=Math.round(reserve/2);
+    why='200일선 회복 — 조기 진입(대기자금 ½ 분할 투입·풀노출)';
+  } else {
+    regime='neutral'; expo=0.9; label='중립'; color='#7A8195'; winnerRun=false;
+    why='추세 미확인 — 기본 노출 유지(대기자금 보유)';
+  }
+  return {on:true, regime, expo, label, color, why, deploy, deployFull:reserve, winnerRun, bestGap, bestMom, reserve};
+}
 function computeRiskStatus(s){
   const risk=state.settings.risk||{};
   const nav=s.totalWithCash;
@@ -2719,6 +2760,23 @@ function ensureLevTechSpots(){
   }
   return added;
 }
+// 디레버리징 사다리 경유 종목(MSTU 2x 등) 0주 자동 생성 — 3x→2x 전환 목적지
+function ensureStepdownHoldings(){
+  let added=false;
+  for(const fromSym of Object.keys(LEV_STEPDOWN_MAP)){
+    const m=LEV_STEPDOWN_MAP[fromSym];
+    if(m.cat==='crypto') continue;   // BTC는 별도(이미 보유 목록에 있음)
+    const has=state.holdings.some(h=>(h.symbol||'').toUpperCase()===m.to.toUpperCase());
+    // 출처(예: MST3)를 보유 중일 때만 경유지 생성
+    const haveFrom=state.holdings.some(h=>(h.symbol||'').toUpperCase()===fromSym.toUpperCase());
+    if(haveFrom && !has){
+      state.holdings.push({id:'step_'+m.to+'_'+Date.now().toString(36)+Math.floor(Math.random()*1e3),
+        cat:m.cat, symbol:m.to, name:m.name, qty:0, avgUSD:0, curUSD:0, targetWt:0, lev:m.toMult, _stepSpot:true, _ladderFrom:fromSym});
+      added=true;
+    }
+  }
+  return added;
+}
 // 바스켓 종목(133690·360750 등) 0주 자동 생성 — 숨기지 않음(항상 표시·시세 수신)
 function ensureBasketHoldings(){
   const basket=(state.settings.strategy&&state.settings.strategy.basket)||[];
@@ -2747,7 +2805,7 @@ function ensureBasketHoldings(){
 function clearPlaceholderTargets(){
   let changed=false;
   state.holdings.forEach(h=>{
-    if((h._convSpot||h._basketSpot) && (h.qty||0)===0 && (h.targetWt||0)!==0){
+    if((h._convSpot||h._basketSpot||h._stepSpot) && (h.qty||0)===0 && (h.targetWt||0)!==0){
       h.targetWt=0; changed=true;
     }
   });
@@ -2765,6 +2823,30 @@ function normalizeStockTargets(){
     }
   });
   return changed;
+}
+// 디레버리징 사다리 플랜 — 고배율 레버리지를 한 칸씩 낮춰 BTC로 수렴. 분할(⅓) 권장.
+// 자본유지(A)방식: 출처 ₩X 매도 → 목적지 ₩X 매수 (노출·decay 동시 축소).
+function computeDeleverPlan(s){
+  const fx=state.settings.fxRate||1;
+  const frac=1/3;   // 회차당 ⅓ 분할
+  const rows=[];
+  for(const fromSym of Object.keys(LEV_STEPDOWN_MAP)){
+    const src=state.holdings.find(h=>(h.symbol||'').toUpperCase()===fromSym.toUpperCase()&&(h.qty||0)>0);
+    if(!src) continue;
+    const m=LEV_STEPDOWN_MAP[fromSym];
+    const srcPriceKRW = isUSDcat(src.cat)?(src.curUSD||0)*fx:(src.curKRW||0);
+    if(srcPriceKRW<=0) continue;
+    const moveVal=srcPriceKRW*(src.qty||0)*frac;
+    if(moveVal<=1000) continue;
+    const sellSh = src.cat==='crypto'?+(moveVal/srcPriceKRW).toFixed(6):Math.round(moveVal/srcPriceKRW);
+    // 목적지 가격
+    const dst=state.holdings.find(h=>(h.symbol||'').toUpperCase()===m.to.toUpperCase());
+    const dstPriceKRW = dst?(isUSDcat(dst.cat)?(dst.curUSD||0)*fx:(dst.curKRW||0)):0;
+    const buySh = dstPriceKRW>0 ? (m.cat==='crypto'?+(moveVal/dstPriceKRW).toFixed(6):Math.round(moveVal/dstPriceKRW)) : null;
+    const fromMult=levMult(src);
+    rows.push({fromSym:src.symbol, fromMult, toSym:m.to, toMult:m.toMult, sellSh, moveVal, buySh, dstMissing:!dst||!(dstPriceKRW>0), finalSpot:m.finalSpot});
+  }
+  return {active:rows.length>0, frac, rows};
 }
 // 전환 플랜 계산 — 트리거: 추세 이탈 2일 확인(주) + NAV 마일스톤(보조)
 function computeLevConvertPlan(s){
@@ -2918,7 +3000,7 @@ function kellyCutBreakdown(cutAmt){
 }
 /* 추천 자산군·종목 목표비중 1회 적용 — 2x 테크 이동 + 자산군 타깃 + 종목 타깃(자산군별 정규화) */
 function applyRecommendedTargets(){
-  if(!confirm('추천 자산군·종목 목표비중을 한 번에 적용합니다.\n· 2x 테크(NVDL·TSLL·GGLL·PLTU) → Lev Tech 2x 이동\n· 현재 종목은 그대로, 비중만 조정\n기존 목표비중 설정은 덮어써집니다. 계속할까요?')) return;
+  if(!confirm('생존형 성장 목표비중을 적용합니다.\n· 자산군: US 35 / ETF 20 / BTC(크립토) 25 / Lev Tech 15 / Lev Crypto 5\n· 디레버리징 수렴 지점 — 3x는 사다리로 점진 축소\n· BTC 현물 중심, decay 최소화\n기존 목표비중은 덮어써집니다. 계속할까요?')) return;
   const base=h=>(h.symbol||'').replace('.KS','').replace('.L','').toUpperCase();
   // 1) 2x 테크 이동
   const TECH=['NVDL','TSLL','GGLL','PLTU'];
@@ -2926,8 +3008,8 @@ function applyRecommendedTargets(){
     if(TECH.includes(base(h)) && h.cat!=='lev_tech') h.cat='lev_tech';
     if(isUSDcat(h.cat)&&(h.avgFx==null||isNaN(h.avgFx))) h.avgFx=isLevCat(h.cat)?1486.95:1465.57;
   }
-  // 2) 자산군 목표비중 (합 100%)
-  state.settings.classTargets={us_stock:0.40,lev_tech:0.15,lev_crypto:0.15,global_etf:0.25,crypto:0.05};
+  // 2) 자산군 목표비중 (합 100%) — 생존형 성장 구조 (디레버리징 수렴 지점)
+  state.settings.classTargets={us_stock:0.35,lev_tech:0.15,lev_crypto:0.05,global_etf:0.20,crypto:0.25};
   // 2-1) 현물 코인 자리 종목 자동 생성(없으면 수량 0으로) — 리밸런싱에 BTC/ETH 매수액이 뜨도록
   const haveCrypto=state.holdings.filter(h=>h.cat==='crypto').map(h=>base(h));
   ['BTC','ETH'].forEach(sym=>{
@@ -2937,11 +3019,11 @@ function applyRecommendedTargets(){
     }
   });
   // 3) 종목 목표비중 — 원시 가중치 → 자산군별 정규화(누락/추가 종목 있어도 합 100% 보장)
-  const RAW={ NVDL:30,GGLL:30,TSLL:20,PLTU:20, BMNU:50,MST3:50,
+  const RAW={ NVDL:30,GGLL:30,TSLL:20,PLTU:20, BMNU:60,MST3:25,MSTU:15,
     IONQ:10,MU:10,CRWD:10,RKLB:10, SMR:8,RGTI:8,JOBY:8,
     CRSP:6,RBLX:6,ARQQ:6,PLUG:6,BWXT:6,SPCX:6,
     '453630':25,'453640':25,'390390':20,'494840':15,'218420':15,
-    BTC:70,ETH:30 };
+    BTC:85,ETH:15 };
   const byCat={};
   for(const h of state.holdings){ (byCat[h.cat]=byCat[h.cat]||[]).push(h); }
   for(const cat in byCat){
@@ -3044,6 +3126,26 @@ function computeActionAlerts(s){
   try{ const sp=computeStrategyPlan(s);
     if(sp&&sp.enabled&&sp.sellAmt>1000000) out.push({tag:'정착',sev:'warn',why:`청산 트리거 도달 — 바스켓 정착 ₩${fmtKRW(sp.sellAmt)}`,sub:'정착 입력에서 바스켓 종목별 분배 매수 ▸',act:'settle'});
   }catch(_){}
+  // 상승 가속 — 상승 추세 확인 시 대기자금 ½ 분할 투입·윈너라이딩 (방어의 대칭, 상방 극대화)
+  try{ const ac=computeAccelRegime(s);
+    if(ac.on && (ac.regime==='early'||ac.regime==='full')){
+      const parts=[];
+      if(ac.deploy>1000) parts.push(`대기자금 이번 회차 ₩${fmtKRW(ac.deploy)} 투입 (½ 분할 · 추세 지속 시 다음 회차)`);
+      parts.push('초과 종목 익절 보류(윈너라이딩 · 줄일 땐 ⅓ 천천히)');
+      out.push({tag:'상승가속',sev:'info',
+        why:`${ac.label} — ${ac.regime==='full'?'강한 상승 추세 확인':'200일선 회복(조기 진입)'} · 노출목표 ${Math.round(ac.expo*100)}%`,
+        sub:parts.join(' · ')+(ac.regime==='full'?' · 상승장 한정 +10%(추세게이트·상시 레버리지 아님)':''),act:'alloc'});
+    }
+  }catch(_){}
+  // 디레버리징 사다리 — 고배율(3x) 보유 시 한 칸 낮추는 전환 권장 (방어와 별개의 상시 전략)
+  try{ const dl=computeDeleverPlan(s);
+    if(dl&&dl.active){
+      const top=dl.rows.filter(r=>r.fromMult>=3);   // 3x 우선 표시
+      const show=(top.length?top:dl.rows).slice(0,2);
+      const q=show.map(r=>`${r.fromSym}(${r.fromMult}x) −${r.cat==='crypto'?r.sellSh:Math.round(r.sellSh)}주 → ${r.toSym}(${r.toMult}x)${r.buySh!=null?' +'+(typeof r.buySh==='number'&&r.toSym==='BTC'?r.buySh:Math.round(r.buySh)):''}`).join(' · ');
+      out.push({tag:'디레버리지',sev:'info',why:`레버리지 한 칸 낮추기 — decay 절감 (3x→2x→BTC)`,sub:(q?q+' · ':'')+'⅓ 분할 · 매매 후 입력하면 목표 자동 이전',act:'alloc'});
+    }
+  }catch(_){}
   // 리밸런싱 드리프트 — 방어 중인 레버리지 종목은 방어 알림이 처리하므로 제외(중복 방지)
   try{ let drift=0; const defenseOn=_r&&_r.level&&_r.level!=='near';
     Object.keys(CATEGORIES).forEach(cat=>{ if(defenseOn&&isLevCat(cat)) return; stockRebalance(cat,'portfolio').forEach(rr=>{ if((rr.h.qty||0)>0 && Math.abs((rr.curWtPort||0)-(rr.tgtWtPort||0))>=0.05) drift++; }); });
@@ -3065,7 +3167,7 @@ function renderActionCenter(s){
   if(!acts.length){ el.style.display='none'; el.onclick=null; return; }
   const sev = acts.some(a=>a.sev==='crit')?'crit':(acts.some(a=>a.sev==='warn')?'warn':'');
   el.className='card action-center'+(sev?' '+sev:'');
-  const tagColor={방어:'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',리밸런싱:'#4FB6C4'};
+  const tagColor={방어:'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A'};
   const rows=acts.map(a=>`<div class="ac-row" onclick="event.stopPropagation();acDispatch('${a.act}')" style="cursor:pointer">
     <span class="ac-tag" style="background:${tagColor[a.tag]||'#666'}22;color:${tagColor[a.tag]||'#aaa'}">${a.tag}</span>
     <span style="flex:1;min-width:0"><span style="font-size:11.5px;line-height:1.4;font-weight:600">${esc(a.why)}</span>${a.sub?`<br><span style="font-size:10px;color:var(--text-3);line-height:1.35">${esc(a.sub)}</span>`:''}</span>
@@ -3249,6 +3351,19 @@ function openRiskEditor(){
       <input type="checkbox" id="rk-trend" ${rk.trendOn?'checked':''}> S&P500·나스닥100 200일선 이탈 시 경고
     </label>
 
+    <div class="info-text" style="margin-bottom:6px;font-weight:700">⑤ 상승 가속 (조기진입·윈너라이딩)</div>
+    <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:13px">
+      <input type="checkbox" id="rk-accel" ${rk.accelOn?'checked':''}> 상승 추세 확인 시 대기자금 투입·노출 확대 권장
+    </label>
+    <div style="font-size:11.5px;color:var(--text-2);padding:8px 10px;background:var(--bg-2);border-radius:8px;line-height:1.65;margin-bottom:14px">
+      방어의 <b>대칭</b> 장치 — 하락엔 방어, 상승엔 가속.<br>
+      · <b style="color:#3FA796">조기가속</b>: 200일선 회복 시 대기자금 <b>½ 분할</b> 투입(노출 100%)<br>
+      · <b style="color:#1E9E5A">풀가속</b>: 강한 추세 확인 시 풀노출 + 상승장 한정 +10%<br>
+      · <b style="color:#E5663D">방어 우선</b>: 추세 이탈 시 가속 중단(0.5로 빠르게 축소)<br>
+      <b>분할 규칙</b> — 매수(가속)는 ½ 천천히 · 위험 축소는 빠르게 · 윈너 트림은 ⅓ 느리게<br>
+      <span style="color:var(--text-3);font-size:11px">상승장 +10%는 추세게이트 노출이며 상시 레버리지가 아님 · 플로어·백스톱은 가속 중에도 작동</span>
+    </div>
+
     <div class="info-text" style="margin-bottom:6px;font-weight:700">④ 절대 플로어 (불가침 하한)</div>
     <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px">
       <input type="radio" name="rk-fm" id="rk-fm-abs" ${isAbs?'checked':''}> 절대 금액
@@ -3278,6 +3393,7 @@ function saveRisk(){
   const rk=state.settings.risk||(state.settings.risk={});
   const mu=parseFloat(document.getElementById('rk-mu').value||'10')||10; rk.muExcess=Math.max(0.01,mu/100);
   rk.trendOn=document.getElementById('rk-trend').checked;
+  { const ae=document.getElementById('rk-accel'); if(ae) rk.accelOn=ae.checked; }
   rk.floorMode=document.getElementById('rk-fm-peak').checked?'peakpct':'abs';
   rk.floorAbs=Math.max(0, Math.round(parseFloat(document.getElementById('rk-floorabs').value||'0')||0));
   const fp=parseFloat(document.getElementById('rk-floorpct').value||'25')||25; rk.floorPeakPct=Math.min(0.9,Math.max(0,fp/100));
@@ -4442,6 +4558,8 @@ function renderStockRebalance(){
           : 'Lev Tech 추세 이탈 2일 확인(또는 NAV 마일스톤) 시 전환 매수';
       } else if(h._basketSpot){
         activateHint = '레버리지 청산 트리거 도달 시 정착 매수';
+      } else if(h._stepSpot){
+        activateHint = '디레버리징 — 상위 배율(3x) 전환 시 매수 (decay 절감)';
       }
     }
     const activateBadge = activateHint ? `<div style="font-size:9.5px;color:var(--text-3);margin-top:1px">↪ ${esc(activateHint)}</div>` : '';
@@ -4577,11 +4695,34 @@ function computeUnifiedPlan(s){
         rows.push({sym:x.dest,cat:'us_stock',sh:x.buySh,val:x.cutVal,reason:`${x.levSym} 전환 매수`,dest:true});
     });
   }
+  // 1-b) 디레버리징 사다리(상시·비방어): 최상위 배율 1칸만 ⅓ 분할로 페이지 반영 (3x→2x→BTC)
+  const ladderSrc=new Set();
+  let deleverInfo=null;
+  if(!defense){
+    const dl=computeDeleverPlan(s);
+    if(dl&&dl.active&&dl.rows.length){
+      const top=dl.rows.slice().sort((a,b)=>b.fromMult-a.fromMult)[0];   // 3x 우선, 한 칸만
+      const srcH=state.holdings.find(h=>(h.symbol||'').toUpperCase()===(top.fromSym||'').toUpperCase());
+      const dstH=state.holdings.find(h=>(h.symbol||'').toUpperCase()===(top.toSym||'').toUpperCase());
+      if(srcH && top.sellSh>0){
+        rows.push({sym:top.fromSym,cat:srcH.cat,sh:-top.sellSh,val:-top.moveVal,reason:`디레버리징 ⅓ (${top.fromMult}x→${top.toMult}x)`,unit:srcH.cat==='crypto'?'개':'주'});
+        ladderSrc.add((top.fromSym||'').toUpperCase());
+        if(top.buySh!=null && top.buySh>0 && dstH){
+          rows.push({sym:top.toSym,cat:dstH.cat,sh:top.buySh,val:top.moveVal,reason:`${top.fromSym} 디레버리징 전환`,dest:true,unit:dstH.cat==='crypto'?'개':'주'});
+        }
+        deleverInfo={fromSym:top.fromSym,fromMult:top.fromMult,toSym:top.toSym,toMult:top.toMult,moveVal:top.moveVal,finalSpot:top.finalSpot};
+      }
+    }
+  }
+  // 상승 가속 국면(비방어) — 윈너 트림 ⅓ 완화 + 대기자금 ½ 투입
+  const ac=computeAccelRegime(s);
+  const accelOn = !defense && ac && ac.on && (ac.regime==='early'||ac.regime==='full');
   // 2) 일반 목표비중 리밸런싱 — 방어로 처리한 레버리지는 제외/보류
   const step1Syms=new Set(rows.map(x=>x.sym));   // 방어 1단계에서 이미 축소한 종목
   Object.keys(CATEGORIES).forEach(cat=>{
     stockRebalance(cat,'portfolio').forEach(rr=>{
       if(rr.adjustShares===0) return;
+      if(ladderSrc.has((rr.h.symbol||'').toUpperCase())) return;   // 디레버리징이 이미 처리
       const lev=isLevCat(rr.h.cat);
       if(defense && lev){
         if(step1Syms.has(rr.h.symbol)) return;   // 1단계에서 이미 축소 확정 — 그 행을 그대로 사용(보류로 덮지 않음)
@@ -4589,11 +4730,41 @@ function computeUnifiedPlan(s){
         else if(rr.adjustShares<0) holds.push({sym:rr.h.symbol,reason:'3x 우선 축소 — 이번 차례 보류'});
         return;   // 매도는 방어 축소(1단계)가 처리, 미처리 2x는 보류
       }
+      // 윈너라이딩 — 상승 가속 국면에선 비레버리지 초과(매도)를 ⅓만 천천히 트림(나머지 태움)
+      if(accelOn && !lev && rr.adjustShares<0){
+        const trimSh=Math.round(rr.adjustShares/3);
+        if(trimSh<0){ rows.push({sym:rr.h.symbol,cat:rr.h.cat,sh:trimSh,val:rr.adjustVal/3,reason:'윈너라이딩 ⅓ 트림',unit:rr.h.cat==='crypto'?'개':'주'}); }
+        else { holds.push({sym:rr.h.symbol,reason:'윈너라이딩 — 익절 보류(추세 지속)'}); }
+        return;
+      }
       rows.push({sym:rr.h.symbol,cat:rr.h.cat,sh:rr.adjustShares,
         val:rr.adjustVal,reason:'목표비중',
         unit:rr.h.cat==='crypto'?'개':'주'});
     });
   });
+  // 2-0) 상승 가속 — 대기자금 ½ 분할 투입 (비방어·미달 비레버리지 종목에 분배). reserveCash는 리밸런싱 현금과 분리.
+  let accelInfo=null;
+  if(accelOn && ac.deploy>1000000){
+    const deploy=ac.deploy;   // 이미 ½ 분할 금액
+    const total=s.totalWithCash||1;
+    const nonLev=Object.keys(CATEGORIES).filter(k=>!isLevCat(k));
+    const defs=nonLev.map(k=>({k,deficit:Math.max(0, classTarget(k)*total-(s.totals[k]?s.totals[k].current:0))}));
+    let defSum=defs.reduce((a,x)=>a+x.deficit,0); let alloc={};
+    if(defSum>0) defs.forEach(d=>{alloc[d.k]=deploy*(d.deficit/defSum);});
+    else { const tsum=nonLev.reduce((a,k)=>a+classTarget(k),0)||1; nonLev.forEach(k=>{alloc[k]=deploy*(classTarget(k)/tsum);}); }
+    nonLev.forEach(cat=>{
+      const catCash=alloc[cat]||0; if(catCash<=0) return;
+      const hs=state.holdings.filter(h=>h.cat===cat);
+      const twSum=hs.reduce((a,h)=>a+(h.targetWt||0),0);
+      hs.forEach(h=>{
+        const w=twSum>0?(h.targetWt||0)/twSum:1/hs.length; const buyVal=catCash*w; if(buyVal<=0) return;
+        const priceKRW=isUSDcat(h.cat)?(h.curUSD||0)*fx:(h.curKRW||0); if(priceKRW<=0) return;
+        const sh=h.cat==='crypto'?Math.round(buyVal/priceKRW*1e6)/1e6:Math.round(buyVal/priceKRW); if(sh<=0) return;
+        rows.push({sym:h.symbol,cat:h.cat,sh,val:buyVal,reason:'상승가속 ½ 투입(대기자금)',unit:h.cat==='crypto'?'개':'주'});
+      });
+    });
+    accelInfo={regime:ac.regime,label:ac.label,deploy,reserve:ac.reserve};
+  }
   // 2-1) 청산 현금 재배분 (A) 미달 순 — 아직 안 쓴 순현금만 배분(이중매수 방지, 순현금≈0)
   const netSoFar = rows.reduce((a,x)=>a+x.val,0);   // +면 순매수(현금 필요), −면 순매도(현금 여유)
   const pool = (defense && netSoFar<0) ? -netSoFar : 0;
@@ -4633,7 +4804,7 @@ function computeUnifiedPlan(s){
   const sells=finalRows.filter(x=>x.sh<0).sort((a,b)=>a.val-b.val);
   const buyTotal=buys.reduce((a,x)=>a+x.val,0);
   const sellTotal=sells.reduce((a,x)=>a-x.val,0);
-  return {mode:r.level||'normal',modeLabel,defense,buys,sells,holds,buyTotal,sellTotal,net:buyTotal-sellTotal};
+  return {mode:r.level||'normal',modeLabel,defense,buys,sells,holds,buyTotal,sellTotal,net:buyTotal-sellTotal,deleverInfo,accelInfo,accelOn};
 }
 function renderUnifiedCard(s){
   const p=computeUnifiedPlan(s);
@@ -4652,7 +4823,14 @@ function renderUnifiedCard(s){
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
       <span style="font-weight:800;font-size:14px">🎯 종합 실행</span>
       <span style="font-size:10.5px;color:${modeColor};font-weight:700">${esc(p.modeLabel)}</span></div>
-    <div style="font-size:10.5px;color:var(--text-3);margin-bottom:6px">모든 신호(목표비중·켈리·추세·방어)를 우선순위로 통합 — 자동매매 아님, 분할 실행 권장</div>
+    <div style="font-size:10.5px;color:var(--text-3);margin-bottom:6px">모든 신호(목표비중·켈리·추세·방어·디레버리징·가속)를 우선순위로 통합 — 자동매매 아님, 분할 실행 권장</div>
+    ${(()=>{ const chips=[];
+      if(p.defense) chips.push(`<span style="background:rgba(229,102,61,0.15);color:#E5663D;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px">방어 우선 · 빠르게 축소</span>`);
+      if(p.deleverInfo) chips.push(`<span style="background:rgba(183,121,31,0.15);color:#B7791F;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px">디레버리징 ⅓ · ${esc(p.deleverInfo.fromSym)}(${p.deleverInfo.fromMult}x)→${esc(p.deleverInfo.toSym)}(${p.deleverInfo.toMult}x)→${esc(p.deleverInfo.finalSpot)}</span>`);
+      if(p.accelInfo) chips.push(`<span style="background:rgba(30,158,90,0.15);color:#1E9E5A;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px">${esc(p.accelInfo.label)} · 대기자금 ½ ₩${fmtKRW(p.accelInfo.deploy)} 투입</span>`);
+      if(p.accelOn) chips.push(`<span style="background:rgba(30,158,90,0.12);color:#1E9E5A;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px">윈너라이딩 · 초과분 ⅓만 트림</span>`);
+      return chips.length?`<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px">${chips.join('')}</div>`:'';
+    })()}
     ${sec('매도',p.sells)}
     ${sec('매수',p.buys)}
     ${holdHtml}
@@ -5700,6 +5878,22 @@ function reconcileConversions(oldQty){
       TV.set(lev, Math.max(0,(TV.get(lev)||0)-convVal));
       TV.set(spot, (TV.get(spot)||0)+convVal);
       spot._convSpot=false; any=true; conv.push(`${levSym}→${spotSym}`);
+    }
+  });
+  // 1-b) 디레버리징 사다리: 출처(MST3 3x) 감소 + 목적지(MSTU 2x / BTC) 증가 → 목표가치 이전
+  Object.keys(LEV_STEPDOWN_MAP).forEach(fromSym=>{
+    const m=LEV_STEPDOWN_MAP[fromSym];
+    const src=state.holdings.find(h=>(h.symbol||'').toUpperCase()===fromSym.toUpperCase());
+    const dst=state.holdings.find(h=>(h.symbol||'').toUpperCase()===m.to.toUpperCase());
+    if(!src||!dst) return;
+    const dSrc=(oldQty.get(src.id)||0)-(src.qty||0);   // 출처 감소량
+    const dDst=(dst.qty||0)-(oldQty.get(dst.id)||0);   // 목적지 증가량
+    if(dSrc>0.0000001 && dDst>0.0000001){
+      const srcPrice=isUSDcat(src.cat)?(src.curUSD||0)*fx:(src.curKRW||0);
+      const moveTV=Math.min(TV.get(src)||0, dSrc*srcPrice);   // 이전할 목표가치(자본 기준)
+      TV.set(src, Math.max(0,(TV.get(src)||0)-moveTV));
+      TV.set(dst, (TV.get(dst)||0)+moveTV);
+      dst._stepSpot=false; any=true; conv.push(`${fromSym}→${m.to}`);
     }
   });
   // 2) 정착: 바스켓 플레이스홀더(_basketSpot)가 매수되면 → 레버리지 풀에서 목표가치 이전
@@ -7140,6 +7334,9 @@ function renderSettings(){
         +`② 추세 200일선 ${rk.trendOn?'사용':'끔'} · ③ 백스톱 ${state.settings.strategy&&state.settings.strategy.backstop!=null?('−'+(state.settings.strategy.backstop*100).toFixed(0)+'%'):'미사용'} · ④ 플로어 <b style="color:var(--text)">${floorTxt}</b><br>`
         +`⑤ 리밸런싱 노터치 밴드 ±${((rk.rebalBand!=null?rk.rebalBand:0.05)*100).toFixed(0)}%p<br>`
         +`⑥ 오버슛 현금화: 목표 +${((rk.overshootPct!=null?rk.overshootPct:0.15)*100).toFixed(0)}% 초과 시 초과분의 ${((rk.cashoutFrac!=null?rk.cashoutFrac:0.50)*100).toFixed(0)}% 분할`;
+      try{ const ac=computeAccelRegime(portfolioStats()); if(ac.on&&ac.regime&&ac.regime!=='unknown'){
+        st+=`<br>⑦ 상승 가속: <b style="color:${ac.color}">${ac.label}</b> <span style="color:var(--text-3)">(노출목표 ${Math.round(ac.expo*100)}%)</span>`;
+      } }catch(_){}
     }catch(e){ st=`② 추세 ${rk.trendOn?'사용':'끔'} · ④ 플로어 <b>${floorTxt}</b>`; }
     rs.innerHTML=st;
   }
@@ -7550,6 +7747,7 @@ function renderCloudUI(){
 (async function(){
   await loadState();
   try{ if(ensureLevTechSpots()) await saveState(); }catch(_){}   // Lev Tech 대응 현물(NVDA 등) 0주 자동 생성
+  try{ if(ensureStepdownHoldings()) await saveState(); }catch(_){}  // 디레버리징 경유지(MSTU 2x 등) 0주 자동 생성
   try{ if(ensureBasketHoldings()) await saveState(); }catch(_){}  // 정착 바스켓 종목(133690·360750 등) 0주 자동 생성·표시
   try{ if(clearPlaceholderTargets()) await saveState(); }catch(_){}  // 0주 대기 종목 목표 0 강제(전환/정착 전 매수 방지)
   try{ if(normalizeStockTargets()) await saveState(); }catch(_){}  // 종목 목표비중 자산군별 100% 정규화(비율 유지)

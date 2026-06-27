@@ -949,7 +949,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.7.11';
+const APP_VER = 'v2.7.12';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -1363,16 +1363,26 @@ function startGlide(toTargets, steps, cashTo){
   Object.keys(CATEGORIES).forEach(k=>{ from[k]= invested>0 ? ((s.totals[k]&&s.totals[k].current)||0)/invested : (CATEGORIES[k].target); });
   state.settings.glide={ from, to:{...toTargets}, steps:steps||6, step:1, active:true,
     cashFrom:(state.settings.reserveTargetPct!=null?state.settings.reserveTargetPct:0.10), cashTo:(cashTo!=null?cashTo:0.05),
-    started:Date.now() };
+    started:Date.now(), lastStepAt:Date.now(), intervalDays:14 };
 }
 function glideCashPct(){
   const g=state.settings.glide;
   if(g && g.active){ const p=(g.steps>0)?Math.min(1,g.step/g.steps):1; return g.cashFrom+(g.cashTo-g.cashFrom)*p; }
   return state.settings.reserveTargetPct!=null?state.settings.reserveTargetPct:0.10;
 }
+async function tryAdvanceGlide(){
+  const g=state.settings.glide; if(!g||!g.active) return;
+  let defOn=false; try{ const r=computeRiskStatus(portfolioStats()); defOn=r&&r.level&&r.level!=='near'; }catch(_){}
+  const intv=g.intervalDays||14;
+  const dLeft=Math.ceil(intv-(Date.now()-(g.lastStepAt||g.started||Date.now()))/86400000);
+  if(defOn){ if(!confirm('지금은 방어 모드(급락)입니다.\n다음 단계로 크립토 비중을 더 늘리는 건 권장하지 않아요(떨어지는 데 추가 베팅).\n그래도 진행할까요?')) return; }
+  else if(dLeft>0){ if(!confirm(`권장 간격(${intv}일)이 ${dLeft}일 남았습니다.\n타이밍 분산을 위해 기다리는 걸 권장해요.\n그래도 지금 진행할까요?`)) return; }
+  await advanceGlide();
+}
 async function advanceGlide(){
   const g=state.settings.glide; if(!g||!g.active) return;
   g.step=(g.step||0)+1;
+  g.lastStepAt=Date.now();   // 단계 진행 시각 — 2주 가이드용
   if(g.step>=g.steps){   // 완료 → 최종 목표 고정
     state.settings.classTargets={...g.to};
     if(g.cashTo!=null) state.settings.reserveTargetPct=g.cashTo;
@@ -3116,7 +3126,7 @@ function applyRecommendedTargets(){
   toast('점진 전환 시작 — 1/6 단계 (배분 페이지 확인)');
 }
 window.applyRecommendedTargets=applyRecommendedTargets;
-window.advanceGlide=advanceGlide; window.cancelGlide=cancelGlide;
+window.advanceGlide=advanceGlide; window.cancelGlide=cancelGlide; window.tryAdvanceGlide=tryAdvanceGlide;
 function computeStrategyPlan(s){
   const st=state.settings.strategy;
   if(!st||!st.enabled) return {enabled:false};
@@ -4577,17 +4587,26 @@ function renderStockRebalance(){
     const cryptoNow=(classTarget('crypto')*100).toFixed(0), cryptoTo=((g.to.crypto||0)*100).toFixed(0);
     const levcNow=(classTarget('lev_crypto')*100).toFixed(0);
     const defOn=(function(){ try{ const r=computeRiskStatus(portfolioStats()); return r&&r.level&&r.level!=='near'; }catch(_){return false;} })();
+    // 진행 가이드 — 시간 분산(권장 간격) + 하락 브레이크. 강제 아님.
+    const intv=g.intervalDays||14;
+    const days=(Date.now()-(g.lastStepAt||g.started||Date.now()))/86400000;
+    const dLeft=Math.ceil(intv-days);
+    let btnLabel,btnColor,guide;
+    if(defOn){ btnLabel='⚠ 하락장 — 보류 권장'; btnColor='#E5894D'; guide='방어 모드(급락) 중 — 다음 단계 보류 권장. 떨어지는 데 비중↑은 위험. 안정되면 진행.'; }
+    else if(dLeft>0){ btnLabel=`다음 단계 (D-${dLeft})`; btnColor='#5A6B7A'; guide=`권장 간격 ${intv}일 중 ${dLeft}일 남음 — 시간 분산 위해 대기 권장(매매·정산 끝났어도).`; }
+    else { btnLabel='다음 단계 준비됨 ✓'; btnColor='#1E9E5A'; guide='권장 간격 도달 ✓ — 이번 단계 매매·정산 완료됐으면 진행하세요.'; }
     ge.innerHTML=`<div style="margin:0 0 12px;padding:11px 13px;background:rgba(30,158,90,0.10);border:1px solid #1E9E5A;border-radius:11px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <span style="font-weight:800;font-size:13px;color:#1E9E5A">⏩ 공격 다이얼 점진 전환</span>
         <span style="font-size:12px;font-weight:700;color:var(--text-2)">${g.step} / ${g.steps} 단계</span></div>
       <div style="height:6px;background:var(--bg-2);border-radius:3px;overflow:hidden;margin-bottom:7px"><div style="height:100%;width:${pct}%;background:#1E9E5A;border-radius:3px"></div></div>
-      <div style="font-size:11px;color:var(--text-2);line-height:1.6;margin-bottom:9px">
+      <div style="font-size:11px;color:var(--text-2);line-height:1.6;margin-bottom:7px">
         이번 단계 크립토(BTC/ETH) <b style="color:var(--text)">${cryptoNow}%</b> · Lev Crypto <b style="color:var(--text)">${levcNow}%</b> → 최종 크립토 <b style="color:#1E9E5A">${cryptoTo}%</b>·LevC 0%<br>
         <span style="color:var(--text-3)">Lev Crypto를 단계별로 BTC/ETH 현물로 이전 · 현금 ${(glideCashPct()*100).toFixed(0)}%</span>
-        ${defOn?'<br><span style="color:#E5894D">⚠ 방어 모드 동시 활성 — 레버리지 축소가 우선(전환과 같은 방향). 아래 수량은 둘이 합쳐진 값.</span>':''}</div>
+        ${defOn?'<br><span style="color:#E5894D">⚠ 방어 모드 동시 활성 — 레버리지 축소가 우선(전환과 같은 방향).</span>':''}</div>
+      <div style="font-size:10.5px;color:${btnColor};background:var(--bg-2);border-radius:7px;padding:6px 9px;margin-bottom:8px;line-height:1.5">${guide}</div>
       <div style="display:flex;gap:7px">
-        <button onclick="advanceGlide()" style="flex:1;padding:9px;border-radius:9px;background:#1E9E5A;color:#fff;font-size:12px;font-weight:700;border:none">이번 단계 완료 · 다음 ▸</button>
+        <button onclick="tryAdvanceGlide()" style="flex:1;padding:9px;border-radius:9px;background:${btnColor};color:#fff;font-size:12px;font-weight:700;border:none">${btnLabel}</button>
         <button onclick="cancelGlide()" style="padding:9px 13px;border-radius:9px;background:var(--bg-2);color:var(--text-2);font-size:12px;border:1px solid var(--hairline)">취소</button>
       </div></div>`;
   })();

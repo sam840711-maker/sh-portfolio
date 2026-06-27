@@ -436,6 +436,7 @@ input,select,textarea{font-family:inherit;color:inherit}
     <div class="card rebal-alert" id="rebal-alert" style="display:none"></div>
     <div class="card cagr-alert" id="cagr-alert" style="display:none"></div>
     <div class="card park-alert" id="park-alert" style="display:none"></div>
+    <div class="card risk-alert" id="levconv-alert" style="display:none"></div>
     <div class="card strategy-alert" id="strategy-alert" style="display:none"></div>
     <div id="market-banner" class="mkt-banner" style="display:none"></div>
     <div class="freshness" id="freshness">
@@ -916,10 +917,12 @@ const CATEGORIES = {
 };
 const LEV_CATS = ['lev_tech','lev_crypto'];
 function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
+// Lev Tech(2x) → 현물(1x) 전환 매핑 — 청산 시 레버리지를 같은 종목 현물로 갈아탐
+const LEVTECH_SPOT_MAP = { NVDL:'NVDA', TSLL:'TSLA', GGLL:'GOOGL', PLTU:'PLTR' };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v1.9.2';
-const APP_BUILD = '2026-06-26';
+const APP_VER = 'v1.9.3';
+const APP_BUILD = '2026-06-27';
 
 const SEED = {
   settings: {
@@ -2320,6 +2323,7 @@ function renderDashboard(){
   renderStrategyAlert(s);
   renderRiskAlert(s);
   renderParkAlert(s);
+  renderLevConvAlert(s);
 }
 /* 리밸런싱 시점 알림 — 자산군 비중이 목표에서 임계치 이상 벌어지면 표시 */
 const REBAL_THRESHOLD=0.05;  // 5%p
@@ -2457,6 +2461,19 @@ async function fetchTrend200(force){
     }catch(_){}
   }
   t.ts=Date.now();
+  tickTrendConv();   // 추세 이탈 연속일 카운트(현물 전환 확인용)
+}
+// 추세 이탈(200일선+모멘텀 음전) 연속 거래일 카운터 — 2일 확인 후 전환 트리거
+function tickTrendConv(){
+  const risk=state.settings.risk; if(!risk) return;
+  const t=risk.trend||{};
+  const broken=(t['^GSPC']&&t['^GSPC'].below)||(t['^NDX']&&t['^NDX'].below);
+  const tc=risk.trendConv||(risk.trendConv={days:0,lastDate:null,prevBroken:false});
+  const today=new Date(Date.now()+9*3600*1000).toISOString().slice(0,10);  // KST
+  if(tc.lastDate!==today){            // 하루 1회만 증감
+    tc.days = broken ? (tc.prevBroken?(tc.days||0)+1:1) : 0;
+    tc.lastDate=today; tc.prevBroken=broken;
+  } else { tc.prevBroken=broken; if(!broken) tc.days=0; }  // 같은 날 회복하면 리셋
 }
 function computeRiskStatus(s){
   const risk=state.settings.risk||{};
@@ -2655,6 +2672,101 @@ function renderParkAlert(s){
 }
 window.parkDeployExecute=parkDeployExecute;
 window.parkAddPrompt=parkAddPrompt;
+
+/* ===== Lev Tech 2x → 현물(1x) 전환 전략 ===== */
+// 매핑된 현물 종목이 없으면 0주로 자동 생성(전환액 즉시 계산되도록)
+function ensureLevTechSpots(){
+  let added=false;
+  const have=new Set(state.holdings.filter(h=>h.cat==='us_stock').map(h=>(h.symbol||'').toUpperCase()));
+  for(const h of state.holdings.filter(h=>h.cat==='lev_tech')){
+    const spot=LEVTECH_SPOT_MAP[(h.symbol||'').toUpperCase()];
+    if(spot && !have.has(spot)){
+      state.holdings.push({id:'spot_'+spot+'_'+Date.now().toString(36)+Math.floor(Math.random()*1e3),
+        cat:'us_stock', symbol:spot, name:spot, qty:0, avgUSD:0, curUSD:0, targetWt:0, _convSpot:true});
+      have.add(spot); added=true;
+    }
+  }
+  return added;
+}
+// 전환 플랜 계산 — 트리거: 추세 이탈 2일 확인(주) + NAV 마일스톤(보조)
+function computeLevConvertPlan(s){
+  const legs=state.holdings.filter(h=>h.cat==='lev_tech'&&h.qty>0);
+  if(!legs.length) return {active:false};
+  const fx=state.settings.fxRate||1;
+  const risk=state.settings.risk||{}; const t=risk.trend||{};
+  const tc=risk.trendConv||{days:0};
+  const brokenNow=(t['^GSPC']&&t['^GSPC'].below)||(t['^NDX']&&t['^NDX'].below);
+  const trendConfirmed = brokenNow && (tc.days||0)>=2;
+  // NAV 마일스톤(보조) — 단계당 ¼ 누적
+  const ms=(state.settings.strategy&&state.settings.strategy.milestones)||[];
+  const nav=s.totalWithCash;
+  const navStep=ms.filter(m=>nav>=m).length;
+  const fracTrend = trendConfirmed ? (1/3) : 0;       // 추세: ⅓ 분할
+  const fracNav   = Math.min(1, 0.25*navStep);        // NAV: 단계당 ¼
+  const frac=Math.max(fracTrend,fracNav);
+  const trigger = (fracTrend>=fracNav&&fracTrend>0)?'trend':(fracNav>0?'nav':'none');
+  if(frac<=0) return {active:false, brokenNow, confirmDays:tc.days||0, navStep};
+  const rows=[];
+  for(const h of legs){
+    const spotSym=LEVTECH_SPOT_MAP[(h.symbol||'').toUpperCase()];
+    if(!spotSym) continue;
+    const levPriceKRW=(h.curUSD||0)*fx;
+    const convVal=(levPriceKRW*h.qty)*frac;
+    if(convVal<=0||levPriceKRW<=0) continue;
+    const sellSh=Math.round(convVal/levPriceKRW);
+    if(sellSh<=0) continue;
+    const spot=state.holdings.find(x=>x.cat==='us_stock'&&(x.symbol||'').toUpperCase()===spotSym);
+    const spotPriceKRW=spot?(spot.curUSD||0)*fx:0;
+    const buySh=spotPriceKRW>0?Math.round(convVal/spotPriceKRW):null;
+    rows.push({levSym:h.symbol, sellSh, convVal, spotSym, buySh, spotMissing:!spot||!(spot.curUSD>0)});
+  }
+  if(!rows.length) return {active:false, brokenNow, confirmDays:tc.days||0, navStep};
+  return {active:true, trigger, frac, confirmDays:tc.days||0, navStep, brokenNow,
+    rows, totalConv:rows.reduce((a,r)=>a+r.convVal,0)};
+}
+function renderLevConvAlert(s){
+  const el=document.getElementById('levconv-alert'); if(!el) return;
+  const p=computeLevConvertPlan(s);
+  if(!p.active){ el.style.display='none'; el.onclick=null; return; }
+  const trigTxt = p.trigger==='trend'
+    ? `추세 이탈 ${p.confirmDays}일 확인 · ⅓ 전환`
+    : `NAV ${p.navStep}단계 · ${(p.frac*100).toFixed(0)}% 전환`;
+  el.className='card risk-alert';
+  el.innerHTML=`<div style="display:flex;align-items:center;gap:11px">
+    <span class="rk-dot"></span>
+    <div style="flex:1">
+      <div style="font-weight:700;font-size:13px">Lev Tech → 현물 전환 권장</div>
+      <div style="font-size:11.5px;color:var(--text-2);margin-top:2px">${trigTxt} · 총 ₩${fmtKRW(p.totalConv)} · 레버리지 매도→현물 매수</div>
+    </div>
+    <span style="color:var(--orange);font-size:12px;font-weight:600;white-space:nowrap">상세 ▸</span>
+  </div>`;
+  el.style.display='block';
+  el.onclick=()=>openLevConvPlan();
+}
+function openLevConvPlan(){
+  const s=portfolioStats(); const p=computeLevConvertPlan(s);
+  if(!p.active){ openModal('<h3 style="margin-bottom:8px">Lev Tech 현물 전환</h3><div class="info-text">현재 전환 트리거가 없습니다. 추세가 200일선 아래로 2거래일 이상 이탈하거나 NAV 마일스톤 도달 시 전환을 권장합니다.</div>'); return; }
+  const trigTxt = p.trigger==='trend'
+    ? `추세 이탈 ${p.confirmDays}거래일 확인 — ⅓ 분할 전환`
+    : `NAV ${p.navStep}단계 도달 — ${(p.frac*100).toFixed(0)}% 전환`;
+  const rowsHtml=p.rows.map(r=>`
+    <div class="ds-row"><div class="ds-head">
+      <span class="abar-name">${esc(r.levSym)} → ${esc(r.spotSym)}</span>
+      <span class="ds-amt">₩${fmtKRW(r.convVal)}</span></div>
+      <div class="ds-sub"><span class="down">${r.levSym} −${r.sellSh.toLocaleString()}주 매도</span> · <span class="up">${r.spotSym} ${r.buySh!=null?'+'+r.buySh.toLocaleString()+'주 매수':'매수(시세 갱신 필요)'}</span>${r.spotMissing?' · <span style="color:var(--orange)">현물 시세 0 — 새로고침</span>':''}</div></div>`).join('');
+  openModal(`<h3 style="margin-bottom:4px">Lev Tech → 현물 전환 플랜</h3>
+    <div class="info-text" style="margin-bottom:12px">${trigTxt}. 레버리지(2x)를 같은 종목 현물(1x)로 갈아타 <b>decay·청산 위험만 제거</b>하고 방향 노출은 유지합니다. 금액 보존(매도액=매수액).</div>
+    ${rowsHtml}
+    <div class="info-text" style="margin-top:12px">
+      <b>실행</b><br>
+      ① 입력 탭에서 레버리지 종목 수량을 매도 후 값으로 수정<br>
+      ② 현물 종목 수량을 매수 후 값으로 수정(없으면 신규 추가)<br>
+      ③ 거래 탭에 실현손익 입력(미국주식 양도세 22% 대상)<br><br>
+      <b>분할</b> 한 번에 전량 말고 ⅓씩 · <b>재진입</b> 200일선 재돌파 시 현물→레버리지 복귀도 분할<br>
+      <b>주의</b> 현물도 시장 하락 위험엔 노출됩니다(레버리지 위험만 제거). 자동매매 아님 — 계산 안내입니다.
+    </div>`);
+}
+window.openLevConvPlan=openLevConvPlan;
 /* 추천 자산군·종목 목표비중 1회 적용 — 2x 테크 이동 + 자산군 타깃 + 종목 타깃(자산군별 정규화) */
 function applyRecommendedTargets(){
   if(!confirm('추천 자산군·종목 목표비중을 한 번에 적용합니다.\n· 2x 테크(NVDL·TSLL·GGLL·PLTU) → Lev Tech 2x 이동\n· 현재 종목은 그대로, 비중만 조정\n기존 목표비중 설정은 덮어써집니다. 계속할까요?')) return;
@@ -2957,7 +3069,7 @@ function saveRisk(){
   closeModal();
   try{ renderSettings(); }catch(_){}
   try{ if(currentView==='dashboard') renderDashboard(); }catch(_){}
-  if(rk.trendOn) fetchTrend200(true).then(()=>{ try{ if(currentView==='dashboard') renderRiskAlert(portfolioStats()); }catch(_){} }).catch(()=>{});
+  if(rk.trendOn) fetchTrend200(true).then(()=>{ try{ if(currentView==='dashboard'){ const _s=portfolioStats(); renderRiskAlert(_s); renderLevConvAlert(_s); } }catch(_){} }).catch(()=>{});
   toast('하방 보호 규칙 저장됨');
 }
 function openStrategyEditor(){
@@ -6138,7 +6250,7 @@ async function refreshAllPrices(quiet){
   try {
   const fxPromise=withTimeout(fetchFx(),8000).then(v=>{ if(v>0){ state.settings.fxRate=v; scheduleLiveRender(); } }).catch(()=>{});
   // 추세 필터(200일선) — 6시간 1회, 비차단. 도착하면 하방 보호 카드만 갱신
-  fetchTrend200(false).then(()=>{ try{ if(currentView==='dashboard') renderRiskAlert(portfolioStats()); }catch(_){} }).catch(()=>{});
+  fetchTrend200(false).then(()=>{ try{ if(currentView==='dashboard'){ const _s=portfolioStats(); renderRiskAlert(_s); renderLevConvAlert(_s); } }catch(_){} }).catch(()=>{});
 
   // 주식·ETF — Yahoo, 동시 8개
   const stocks=state.holdings.filter(h=>h.cat!=='crypto');
@@ -6849,6 +6961,7 @@ function renderCloudUI(){
    ================================================================ */
 (async function(){
   await loadState();
+  try{ if(ensureLevTechSpots()) await saveState(); }catch(_){}   // Lev Tech 대응 현물(NVDA 등) 0주 자동 생성
   // 저장소 영속성 요청 — 브라우저 저장소 압박 시 데이터 보존(설치형 PWA에서 효과)
   try{ if(navigator.storage&&navigator.storage.persist){ navigator.storage.persisted().then(p=>{ if(!p) navigator.storage.persist().catch(()=>{}); }); } }catch(_){}
   await saveState();        // 앱 실행 시 이번 달 자산 스냅샷 기록

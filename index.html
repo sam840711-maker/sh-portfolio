@@ -949,7 +949,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.7.14';
+const APP_VER = 'v2.7.15';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -1375,8 +1375,9 @@ async function tryAdvanceGlide(){
   let defOn=false; try{ const r=computeRiskStatus(portfolioStats()); defOn=r&&r.level&&r.level!=='near'; }catch(_){}
   const intv=g.intervalDays||14;
   const dLeft=Math.ceil(intv-(Date.now()-(g.lastStepAt||g.started||Date.now()))/86400000);
-  if(defOn){ if(!confirm('지금은 방어 모드(급락)입니다.\n다음 단계로 크립토 비중을 더 늘리는 건 권장하지 않아요(떨어지는 데 추가 베팅).\n그래도 진행할까요?')) return; }
-  else if(dLeft>0){ if(!confirm(`권장 간격(${intv}일)이 ${dLeft}일 남았습니다.\n타이밍 분산을 위해 기다리는 걸 권장해요.\n그래도 지금 진행할까요?`)) return; }
+  const nextN=Math.min((g.step||1)+1,g.steps);
+  if(defOn){ if(!confirm(`[${nextN}단계로 이동] — 지금 ${g.step}단계 매매와 별개입니다.\n현재 방어 모드(급락)라 다음 칸으로 크립토 비중을 더 늘리는 건 권장하지 않아요.\n그래도 ${nextN}단계로 넘어갈까요?`)) return; }
+  else if(dLeft>0){ if(!confirm(`[${nextN}단계로 이동] — 지금 ${g.step}단계 매매와 별개입니다.\n권장 간격(${intv}일)이 ${dLeft}일 남았어요(타이밍 분산).\n그래도 지금 ${nextN}단계로 넘어갈까요?`)) return; }
   await advanceGlide();
 }
 async function advanceGlide(){
@@ -4564,19 +4565,23 @@ function renderStockRebalance(){
     const intv=g.intervalDays||14;
     const days=(Date.now()-(g.lastStepAt||g.started||Date.now()))/86400000;
     const dLeft=Math.ceil(intv-days);
+    const isLast=g.step>=g.steps;
+    const nextN=isLast?g.steps:g.step+1;
+    const moveTxt=isLast?'전환 완료(목표 고정)':`${nextN}단계로 진행`;
     let btnLabel,btnColor,guide;
-    if(defOn){ btnLabel='⚠ 하락장 — 보류 권장'; btnColor='#E5894D'; guide='방어 모드(급락) 중 — 다음 단계 보류 권장. 떨어지는 데 비중↑은 위험. 안정되면 진행.'; }
-    else if(dLeft>0){ btnLabel=`다음 단계 (D-${dLeft})`; btnColor='#5A6B7A'; guide=`권장 간격 ${intv}일 중 ${dLeft}일 남음 — 시간 분산 위해 대기 권장(매매·정산 끝났어도).`; }
-    else { btnLabel='다음 단계 준비됨 ✓'; btnColor='#1E9E5A'; guide='권장 간격 도달 ✓ — 이번 단계 매매·정산 완료됐으면 진행하세요.'; }
+    if(defOn){ btnLabel=`⚠ ${moveTxt} 보류`; btnColor='#E5894D'; guide=`이 버튼은 <b>${isLast?'전환을 완료':nextN+'단계로 넘어가는'}</b> 버튼 — 지금 <b>${g.step}단계 매매</b>와 별개. 방어 모드 중이라 다음 칸은 보류 권장(안정 후).`; }
+    else if(dLeft>0){ btnLabel=`${moveTxt} (D-${dLeft})`; btnColor='#5A6B7A'; guide=`이 버튼은 <b>${nextN}단계로 넘어가는</b> 버튼 — 지금 ${g.step}단계 매매와 별개. 권장 간격 ${intv}일 중 ${dLeft}일 남음, 대기 권장.`; }
+    else { btnLabel=`${moveTxt} 준비됨 ✓`; btnColor='#1E9E5A'; guide=`이 버튼은 <b>${isLast?'전환을 완료하는':nextN+'단계로 넘어가는'}</b> 버튼. <b>${g.step}단계</b> 매매·정산 끝났으면 진행하세요.`; }
     ge.innerHTML=`<div style="margin:0 0 12px;padding:11px 13px;background:rgba(30,158,90,0.10);border:1px solid #1E9E5A;border-radius:11px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <span style="font-weight:800;font-size:13px;color:#1E9E5A">⏩ 공격 다이얼 점진 전환</span>
         <span style="font-size:12px;font-weight:700;color:var(--text-2)">${g.step} / ${g.steps} 단계</span></div>
       <div style="height:6px;background:var(--bg-2);border-radius:3px;overflow:hidden;margin-bottom:7px"><div style="height:100%;width:${pct}%;background:#1E9E5A;border-radius:3px"></div></div>
       <div style="font-size:11px;color:var(--text-2);line-height:1.6;margin-bottom:7px">
-        이번 단계 크립토(BTC/ETH) <b style="color:var(--text)">${cryptoNow}%</b> · Lev Crypto <b style="color:var(--text)">${levcNow}%</b> → 최종 크립토 <b style="color:#1E9E5A">${cryptoTo}%</b>·LevC 0%<br>
+        <b style="color:var(--text)">${g.step}단계 매매</b>(아래 종목 수량 · 지금 실행): 크립토(BTC/ETH) <b style="color:var(--text)">${cryptoNow}%</b> · Lev Crypto <b style="color:var(--text)">${levcNow}%</b> → 최종 크립토 <b style="color:#1E9E5A">${cryptoTo}%</b>·LevC 0%<br>
         <span style="color:var(--text-3)">Lev Crypto를 단계별로 BTC/ETH 현물로 이전 · 현금 ${(glideCashPct()*100).toFixed(0)}%</span>
         ${defOn?'<br><span style="color:#E5894D">⚠ 방어 모드 동시 활성 — 레버리지 축소가 우선(전환과 같은 방향).</span>':''}</div>
+      <div style="font-size:10px;color:var(--text-3);border-top:1px dashed var(--hairline);padding-top:7px;margin-bottom:6px">아래 종목 수량 = <b style="color:var(--text-2)">${g.step}단계 매매(지금)</b> · 아래 버튼 = <b style="color:var(--text-2)">${isLast?'전환 완료':nextN+'단계로 이동(나중)'}</b></div>
       <div style="font-size:10.5px;color:${btnColor};background:var(--bg-2);border-radius:7px;padding:6px 9px;margin-bottom:8px;line-height:1.5">${guide}</div>
       <div style="display:flex;gap:7px">
         <button onclick="tryAdvanceGlide()" style="flex:1;padding:9px;border-radius:9px;background:${btnColor};color:#fff;font-size:12px;font-weight:700;border:none">${btnLabel}</button>

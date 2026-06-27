@@ -815,8 +815,8 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div class="card-title">현금 계정 (직접 입력)</div>
       <div class="info-text" style="margin-bottom:10px">자산군에 배정 안 된 순수 현금 · 이자 수익 등은 잔액에 더해 입력 후 <b>전체 저장</b> · 리밸런싱·전환 시 자동 연동</div>
       <div style="display:flex;gap:8px">
-        <input id="qe-cashacc-krw" type="number" step="1" inputmode="numeric" placeholder="원화 ₩" style="flex:1;background:var(--frame);border:1px solid var(--hairline);border-radius:9px;padding:11px 12px;font-size:15px;font-variant-numeric:tabular-nums;color:var(--text)">
-        <input id="qe-cashacc-usd" type="number" step="0.01" inputmode="decimal" placeholder="달러 $" style="flex:1;background:var(--frame);border:1px solid var(--hairline);border-radius:9px;padding:11px 12px;font-size:15px;font-variant-numeric:tabular-nums;color:var(--text)">
+        <input id="qe-cashacc-krw" type="number" step="1" inputmode="numeric" placeholder="원화 ₩" style="flex:1;min-width:0;background:var(--frame);border:1px solid var(--hairline);border-radius:9px;padding:11px 12px;font-size:15px;font-variant-numeric:tabular-nums;color:var(--text)">
+        <input id="qe-cashacc-usd" type="number" step="0.01" inputmode="decimal" placeholder="달러 $" style="flex:1;min-width:0;background:var(--frame);border:1px solid var(--hairline);border-radius:9px;padding:11px 12px;font-size:15px;font-variant-numeric:tabular-nums;color:var(--text)">
       </div>
       <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--hairline)">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
@@ -935,7 +935,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.1';
+const APP_VER = 'v2.9.2';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -5046,8 +5046,8 @@ function openCashEditor(){
     <div class="modal-sub">현금 계정 + 각 자산군의 현금 잔액 · 현금 목표 비중은 방어 설정에서</div>
     <div class="field"><label>현금 계정 — 자산군에 배정 안 된 순수 현금 (직접 편집)</label>
       <div class="field-row" style="gap:8px">
-        <input id="cash-account-krw" type="number" step="1" inputmode="numeric" value="${(state.settings.cashAccount&&state.settings.cashAccount.krw)||''}" placeholder="원화 ₩" style="flex:1">
-        <input id="cash-account-usd" type="number" step="0.01" inputmode="decimal" value="${(state.settings.cashAccount&&state.settings.cashAccount.usd)||''}" placeholder="달러 $" style="flex:1">
+        <input id="cash-account-krw" type="number" step="1" inputmode="numeric" value="${(state.settings.cashAccount&&state.settings.cashAccount.krw)||''}" placeholder="원화 ₩" style="flex:1;min-width:0">
+        <input id="cash-account-usd" type="number" step="0.01" inputmode="decimal" value="${(state.settings.cashAccount&&state.settings.cashAccount.usd)||''}" placeholder="달러 $" style="flex:1;min-width:0">
       </div>
       <small>이자 수익 등은 잔액에 더해 입력 · 종목 매수에 쓰면 직접 줄여주세요 · 리밸런싱/전환 시 자동 연동</small></div>
     <div style="height:1px;background:var(--hairline);margin:14px 0"></div>

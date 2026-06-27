@@ -921,7 +921,7 @@ function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
 const LEVTECH_SPOT_MAP = { NVDL:'NVDA', TSLL:'TSLA', GGLL:'GOOGL', PLTU:'PLTR' };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v1.9.6';
+const APP_VER = 'v2.0.0';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -2764,9 +2764,44 @@ function openLevConvPlan(){
       ③ 거래 탭에 실현손익 입력(미국주식 양도세 22% 대상)<br><br>
       <b>분할</b> 한 번에 전량 말고 ⅓씩 · <b>재진입</b> 200일선 재돌파 시 현물→레버리지 복귀도 분할<br>
       <b>주의</b> 현물도 시장 하락 위험엔 노출됩니다(레버리지 위험만 제거). 자동매매 아님 — 계산 안내입니다.
-    </div>`);
+    </div>
+    <button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="executeLevConversion()">이 비율로 전환 실행 (목표비중 자동 이전)</button>`);
 }
 window.openLevConvPlan=openLevConvPlan;
+// 전환 실행 — 보유 수량 이동 + 목표비중 비례 이전(절대 목표가치 보존 방식)
+function executeLevConversion(){
+  const s=portfolioStats(); const p=computeLevConvertPlan(s);
+  if(!p.active){ toast('전환할 항목이 없습니다'); return; }
+  if(!confirm('전환 플랜대로 보유 수량을 이동하고, 전환한 비율만큼 목표비중을 NVDL→NVDA 식으로 자동 이전합니다.\n실제 증권사 체결은 별도로 하세요. 계속할까요?')) return;
+  const fx=state.settings.fxRate||1; const total=s.totalWithCash||1;
+  // 1) 현재 절대 목표가치 TV(h) = total × classTarget × targetWt
+  const TV=new Map();
+  state.holdings.forEach(h=>{ TV.set(h, total*classTarget(h.cat)*(h.targetWt||0)); });
+  // 2) 전환 실행: 수량 이동 + 목표가치를 레버리지→현물로 이전
+  p.rows.forEach(r=>{
+    const lev=state.holdings.find(h=>h.cat==='lev_tech'&&h.symbol===r.levSym); if(!lev) return;
+    let spot=state.holdings.find(h=>h.cat==='us_stock'&&(h.symbol||'').toUpperCase()===r.spotSym);
+    if(!spot){ spot={id:'spot_'+r.spotSym+'_'+Date.now().toString(36)+Math.floor(Math.random()*1e3),cat:'us_stock',symbol:r.spotSym,name:r.spotSym,qty:0,avgUSD:0,curUSD:0,targetWt:0,_convSpot:true}; state.holdings.push(spot); TV.set(spot,0); }
+    const sellSh=Math.min(lev.qty||0, r.sellSh);
+    const convVal=sellSh*(lev.curUSD||0)*fx;
+    const buySh=r.buySh!=null?r.buySh:0;
+    lev.qty=Math.max(0,(lev.qty||0)-sellSh);
+    spot.qty=(spot.qty||0)+buySh; spot._convSpot=false;   // 실제 보유 생김 → 숨김 해제
+    TV.set(lev, Math.max(0,(TV.get(lev)||0)-convVal));
+    TV.set(spot, (TV.get(spot)||0)+convVal);
+  });
+  // 3) classTargets / targetWt 재구성 — 다른 종목 절대 목표가치는 보존
+  const cats={};
+  state.holdings.forEach(h=>{ cats[h.cat]=(cats[h.cat]||0)+(TV.get(h)||0); });
+  const ct={};
+  Object.keys(CATEGORIES).forEach(c=>{ ct[c]= total>0 ? (cats[c]||0)/total : 0; });
+  state.settings.classTargets=ct;
+  state.holdings.forEach(h=>{ const cv=cats[h.cat]||0; h.targetWt = cv>0 ? (TV.get(h)||0)/cv : 0; });
+  saveState(); closeModal(); try{ renderDashboard(); }catch(_){}
+  switchView('allocation');
+  toast('레버리지 → 현물 전환 반영 · 목표비중 자동 이전됨');
+}
+window.executeLevConversion=executeLevConversion;
 // 켈리 슬리브 축소액을 종목별로 분해 — 3x(Lev Crypto) 먼저, 그 다음 2x(Lev Tech)는 현물 전환
 function kellyCutBreakdown(cutAmt){
   const fx=state.settings.fxRate||1;
@@ -4134,16 +4169,8 @@ function stockRebalance(cat, mode){
   let basis=portfolioStats().totalWithCash;
   const reserve=state.settings.reserveCash||0;
   if(mode!=='within'){
-    // 평소엔 대기 자금을 basis에서 제외 (별도 보관)
+    // 평소엔 대기 자금을 basis에서 제외 (별도 보관) — CAGR는 참고용으로 강등(목표비중 순수 계산)
     basis -= reserve;
-    const {gap}=computeCagrGap();
-    if(gap>0){
-      // 초과: 매도 권장
-      basis = Math.max(0, basis-gap);
-    } else if(gap<0 && reserve>0){
-      // 미달 + 대기 자금 있음: 부족분 만큼 대기 자금 투입
-      basis += Math.min(-gap, reserve);
-    }
   }
   const catTargetVal = mode==='within' ? catCurrent : basis*classTarget(cat);
   return holdings.map(h=>{
@@ -4180,84 +4207,125 @@ function renderStockRebalance(){
   let _modeNote='';
   if(rbMode==='portfolio'){
     const {gap}=computeCagrGap();
-    const reserve=state.settings.reserveCash||0;
-    if(gap>0){
-      _modeNote=` · <b style="color:var(--gold)">CAGR 초과분 ₩${fmtKRW(gap)} 매도 반영됨</b>`;
-    } else if(gap<0 && reserve>0){
-      const deploy=Math.min(-gap, reserve);
-      _modeNote=` · <b style="color:#5A7A9A">CAGR 미달 — 대기 자금 ₩${fmtKRW(deploy)} 매수 투입</b>`;
-    }
+    if(gap>0) _modeNote=` · <span style="color:var(--text-3)">참고: CAGR 페이스 +₩${fmtKRW(gap)} 초과(목표비중엔 미반영)</span>`;
+    else if(gap<0) _modeNote=` · <span style="color:var(--text-3)">참고: CAGR 페이스 −₩${fmtKRW(-gap)} 미달(목표비중엔 미반영)</span>`;
   }
   document.getElementById('rb-mode-desc').innerHTML = (rbMode==='within'
     ? '그 자산군의 보유 평가액 안에서 종목을 재분배합니다 (예수금 제외)'
     : '활성 자산(보유 + 예수금) 기준 — 대기 자금은 평소엔 별도 보관, 미달 시에만 자동 투입') + _modeNote;
 
+  // 종합(모든 로직) 결과 — 종목별 최종 매수/매도로 사용 (전체 포트폴리오 모드에서만)
+  const useUni = rbMode==='portfolio';
+  let _uniMap={}, _holdMap={}, _uniPlan=null;
+  if(useUni){
+    try{
+      _uniPlan=computeUnifiedPlan(portfolioStats());
+      _uniPlan.buys.concat(_uniPlan.sells).forEach(x=>{ _uniMap[x.sym]=x; });
+      _uniPlan.holds.forEach(h=>{ _holdMap[h.sym]=h.reason; });
+    }catch(e){ _uniPlan=null; }
+  }
   // 행 렌더링 — 자산군 단일 모드 vs 전체 모드
   const buildRow = (r) => {
     const h=r.h;
     const isC=h.cat==='crypto';
     const unit=isC?'개':'주';
     const fmtQ=n=>{ const a=Math.abs(n); return isC ? (+a.toFixed(a<1?6:4)).toString() : Math.round(a).toLocaleString(); };
-    const hold=isC ? Math.abs(r.adjustShares)<1e-6 : r.adjustShares===0;
-    const buy=r.adjustShares>0 && !hold;
-    const cls=hold?'muted':(buy?'down':'up');
-    const accent=hold?'var(--text-3)':(buy?'var(--down)':'var(--up)');
+    const normalSh=r.adjustShares;
+    const u=useUni?_uniMap[h.symbol]:null;
+    const heldReason=useUni?_holdMap[h.symbol]:null;
+    let sh, val, reasonTxt='', conflict='';
+    if(heldReason){
+      sh=0; val=0; reasonTxt=heldReason;
+      if(normalSh>0) conflict='목표비중 매수 → 경고로 보류';
+    } else if(u){
+      sh=u.sh; val=u.val; reasonTxt=u.reason||'';
+      if(normalSh!==0 && Math.sign(normalSh)!==Math.sign(sh)) conflict=`목표비중 ${normalSh>0?'매수':'매도'} ↔ 종합 ${sh>0?'매수':'매도'}`;
+    } else { sh=normalSh; val=r.adjustVal; }
+    const hold = !heldReason && (isC ? Math.abs(sh)<1e-6 : Math.round(sh)===0);
+    const buy=sh>0 && !hold && !heldReason;
+    const cls=(hold||heldReason)?'muted':(buy?'down':'up');
+    const accent=heldReason?'var(--orange)':(hold?'var(--text-3)':(buy?'var(--down)':'var(--up)'));
     const tk=h.symbol.replace('.KS','').replace('.L','');
-    const qtyTxt=hold ? '균형' : `${buy?'+':'−'}${fmtQ(r.adjustShares)}${unit} ${buy?'매수':'매도'}`;
-    const subTxt=hold ? `이후 ${fmtQ(r.qtyAfter)}${unit}`
-      : `₩${fmtKRW(Math.abs(r.adjustVal))} · 이후 ${fmtQ(r.qtyAfter)}${unit}`;
+    const qtyAfter=h.qty+(heldReason?0:sh);
+    const qtyTxt = heldReason ? '보류' : (hold ? '균형' : `${buy?'+':'−'}${fmtQ(sh)}${unit} ${buy?'매수':'매도'}`);
+    const subTxt = heldReason ? '경고 중 — 매수 보류'
+      : hold ? `이후 ${fmtQ(qtyAfter)}${unit}`
+      : `₩${fmtKRW(Math.abs(val))} · 이후 ${fmtQ(qtyAfter)}${unit}`;
     const wtLine = rbMode==='within'
       ? `현재 ${fmtPct(r.curWtInCat,1)} → 목표 ${fmtPct(r.tw,1)}`
-      : `현재 ${fmtPct(r.curWtPort,1)} → 목표 ${fmtPct(r.tgtWtPort,1)} <span style="color:var(--text-3)">(전체 기준)</span>`;
+      : `현재 ${fmtPct(r.curWtPort,1)} → 목표 ${fmtPct(r.tgtWtPort,1)} <span style="color:var(--text-3)">(전체)</span>`;
+    const reasonBadge = (useUni && reasonTxt && !hold) ? `<div style="font-size:9.5px;color:var(--text-3);margin-top:2px">${esc(reasonTxt)}</div>` : '';
+    const conflictBadge = conflict ? `<div style="font-size:9.5px;color:var(--orange);margin-top:1px">⚠ ${esc(conflict)}</div>` : '';
     return `<div class="rbx-row" data-id="${h.id}">
       <div class="rbx-accent" style="background:${accent}"></div>
       <div class="rbx-main">
         <div class="rbx-l1"><span class="rbx-tk">${tk}</span><span class="rbx-nm">${esc(h.name)}</span></div>
         <div class="rbx-wt">${wtLine}</div>
+        ${conflictBadge}
       </div>
       <div class="rbx-right">
         <div class="rbx-qty ${cls}">${qtyTxt}</div>
         <div class="rbx-sub">${subTxt}</div>
+        ${reasonBadge}
       </div>
     </div>`;
   };
 
+  // 종합 모드: 보유 목록엔 없지만 종합엔 있는 종목(현물 전환 매수 등) 합성 행 생성
+  const synthFor = (k, shownSyms) => {
+    if(!useUni) return [];
+    return Object.values(_uniMap).filter(x=>x.cat===k && !shownSyms.has(x.sym)).map(x=>{
+      const h=state.holdings.find(hh=>hh.symbol===x.sym&&hh.cat===k)||{symbol:x.sym,name:x.sym,cat:k,qty:0,id:'u_'+x.sym,targetWt:0};
+      return {h,adjustShares:0,adjustVal:0,qtyAfter:h.qty||0,curWtInCat:0,curWtPort:0,tgtWtPort:0,tw:h.targetWt||0,priceKRW:0};
+    });
+  };
   let html='';
   let allRows=[];
   if(rbStockCat==='all'){
-    // 자산군별로 그룹 헤더 + 종목 행
     for(const k of cats){
       const rows=stockRebalance(k, rbMode);
-      if(!rows.length) continue;
-      allRows = allRows.concat(rows);
+      const shown=new Set(rows.map(r=>r.h.symbol));
+      const extras=synthFor(k, shown);
+      const groupRows=rows.concat(extras);
+      if(!groupRows.length) continue;
+      allRows = allRows.concat(groupRows);
       const wtSum=rows.reduce((s,r)=>s+r.tw,0);
       const wtWarn=Math.abs(wtSum-1)>0.001?` <span class="up" style="font-size:10px">⚠ ${fmtPct(wtSum,1)}</span>`:'';
       html+=`<div class="rbx-group">
         <div class="rbx-group-head"><span class="abar-dot" style="background:${CATEGORIES[k].color}"></span>${CATEGORIES[k].label}${wtWarn}</div>
-        ${rows.map(buildRow).join('')}
+        ${groupRows.map(buildRow).join('')}
       </div>`;
     }
   } else {
     const rows=stockRebalance(rbStockCat, rbMode);
-    allRows=rows;
-    html=rows.map(buildRow).join('');
+    const shown=new Set(rows.map(r=>r.h.symbol));
+    allRows=rows.concat(synthFor(rbStockCat, shown));
+    html=allRows.map(buildRow).join('');
   }
-  let _uni=''; try{ _uni=renderUnifiedCard(portfolioStats()); }catch(e){ _uni=''; }
-  listEl.innerHTML=_uni+html;
+  // 모드 배너 — 종합 결과임을 명시 (경고 시 방어 모드 강조)
+  let banner='';
+  if(useUni && _uniPlan){
+    const def=_uniPlan.defense;
+    banner=`<div style="padding:9px 12px;border-radius:9px;margin-bottom:12px;border:1px solid ${def?'var(--orange)':'var(--hairline)'};background:${def?'var(--orange-soft)':'transparent'};font-size:11px">
+      <b style="color:${def?'var(--orange)':'var(--up)'}">${def?'⚠ 방어 모드':'✅ 정상'}</b> · ${esc(_uniPlan.modeLabel)}
+      <div style="color:var(--text-3);font-size:10px;margin-top:2px">아래 수량 = 모든 로직(목표비중·켈리·추세·방어·청산액 재배분) 통합 최종값 · 그대로 실행</div></div>`;
+  }
+  listEl.innerHTML=banner+html;
   listEl.querySelectorAll('.rbx-row').forEach(el=>el.onclick=()=>openHoldingDetail(el.dataset.id));
 
-  const buyN=allRows.filter(r=>r.adjustShares>0).length;
-  const sellN=allRows.filter(r=>r.adjustShares<0).length;
+  const buyN=allRows.filter(r=>{ const u=useUni?_uniMap[r.h.symbol]:null; const sh=u?u.sh:r.adjustShares; return sh>0 && !(useUni&&_holdMap[r.h.symbol]); }).length;
+  const sellN=allRows.filter(r=>{ const u=useUni?_uniMap[r.h.symbol]:null; const sh=u?u.sh:r.adjustShares; return sh<0; }).length;
   const note=rbMode==='within'
     ? '자산군 내 보유 평가액만 재분배 — 매수와 매도가 상쇄됩니다'
     : '활성 자산을 목표 비중에 맞추도록 매수·매도 추천 — 매수 실행 시 예수금이 차감됩니다';
-  // 자산군별 + 통합 매수/매도 금액 합계
+  // 자산군별 + 통합 매수/매도 금액 합계 (종합 모드면 통합 결과 기준)
   const summary=cats.map(k=>{
     let b=0,s=0;
-    stockRebalance(k,rbMode).forEach(r=>{
-      const amt=r.adjustShares*r.priceKRW;
-      if(amt>0) b+=amt; else if(amt<0) s-=amt;
-    });
+    if(useUni && _uniPlan){
+      _uniPlan.buys.concat(_uniPlan.sells).forEach(x=>{ if(x.cat!==k) return; if(x.val>0) b+=x.val; else s-=x.val; });
+    } else {
+      stockRebalance(k,rbMode).forEach(r=>{ const amt=r.adjustShares*r.priceKRW; if(amt>0) b+=amt; else if(amt<0) s-=amt; });
+    }
     return {k,buy:b,sell:s};
   });
   let tb=0,ts=0; summary.forEach(x=>{ tb+=x.buy; ts+=x.sell; });
@@ -4304,7 +4372,7 @@ function computeUnifiedPlan(s){
   const rows=[];   // {sym,cat,sh,val,reason,dest,buySh}
   const holds=[];  // 보류 (경고로 매수 중단)
   // 1) 방어 모드: 레버리지 축소/전환을 먼저 확정
-  let levHandled=false;
+  let levHandled=false, cashFreed3x=0;
   if(defense){
     const cutAmt = r.level==='lev' ? r.reduceLev3 : r.levVal;   // lev=⅓분할, floor/trend=전량
     const bd=kellyCutBreakdown(cutAmt);
@@ -4313,6 +4381,7 @@ function computeUnifiedPlan(s){
       rows.push({sym:x.levSym,cat:x.cat,sh:-x.sellSh,val:-x.cutVal,reason});
       if(x.dest!=='현금화' && x.buySh!=null && x.buySh>0)
         rows.push({sym:x.dest,cat:'us_stock',sh:x.buySh,val:x.cutVal,reason:'현물 전환 매수',dest:true});
+      else if(x.dest==='현금화') cashFreed3x += x.cutVal;   // 3x 청산 현금 — 재배분 대상
     });
     levHandled=true;
   }
@@ -4330,6 +4399,32 @@ function computeUnifiedPlan(s){
         unit:rr.h.cat==='crypto'?'개':'주'});
     });
   });
+  // 2-1) 청산 현금 재배분 (A) 미달 순 — 아직 안 쓴 순현금만 배분(이중매수 방지, 순현금≈0)
+  const netSoFar = rows.reduce((a,x)=>a+x.val,0);   // +면 순매수(현금 필요), −면 순매도(현금 여유)
+  const pool = (defense && netSoFar<0) ? -netSoFar : 0;
+  if(pool>1000000){
+    const total=s.totalWithCash||1;
+    const nonLev=Object.keys(CATEGORIES).filter(k=>!isLevCat(k));
+    const defs=nonLev.map(k=>({k,deficit:Math.max(0, classTarget(k)*total - (s.totals[k]?s.totals[k].current:0))}));
+    let defSum=defs.reduce((a,x)=>a+x.deficit,0);
+    let alloc={};
+    if(defSum>0) defs.forEach(d=>{ alloc[d.k]=pool*(d.deficit/defSum); });
+    else { const tsum=nonLev.reduce((a,k)=>a+classTarget(k),0)||1; nonLev.forEach(k=>{ alloc[k]=pool*(classTarget(k)/tsum); }); }
+    nonLev.forEach(cat=>{
+      const catCash=alloc[cat]||0; if(catCash<=0) return;
+      const hs=state.holdings.filter(h=>h.cat===cat && !(h._convSpot&&(h.qty||0)===0));
+      const twSum=hs.reduce((a,h)=>a+(h.targetWt||0),0);
+      hs.forEach(h=>{
+        const w = twSum>0 ? (h.targetWt||0)/twSum : 1/hs.length;
+        const buyVal=catCash*w; if(buyVal<=0) return;
+        const priceKRW=isUSDcat(h.cat)?(h.curUSD||0)*fx:(h.curKRW||0);
+        if(priceKRW<=0) return;
+        const sh=h.cat==='crypto'?Math.round(buyVal/priceKRW*1e6)/1e6:Math.round(buyVal/priceKRW);
+        if(sh<=0) return;
+        rows.push({sym:h.symbol,cat:h.cat,sh,val:buyVal,reason:'청산액 재배분',unit:h.cat==='crypto'?'개':'주'});
+      });
+    });
+  }
   // 3) 동일 종목 매수/매도 병합(현물 전환 매수 + 목표비중 매수 등)
   const merged={};
   rows.forEach(x=>{

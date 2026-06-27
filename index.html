@@ -942,7 +942,7 @@ function levMult(h){
 const LEVTECH_SPOT_MAP = { NVDL:'NVDA', TSLL:'TSLA', GGLL:'GOOGL', PLTU:'PLTR' };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.6.1';
+const APP_VER = 'v2.6.4';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -3025,16 +3025,18 @@ function renderStrategyAlert(s){
 /* ===== 통합 할 일 알림 센터 — 모든 신호를 한 곳에 모아 "왜 + 무엇을 + 어떻게" 표시 ===== */
 function computeActionAlerts(s){
   const out=[];
+  let _r=null;
   try{
-    const r=computeRiskStatus(s);
+    const r=computeRiskStatus(s); _r=r;
     const reentry=(r.reentry&&r.level)?r.reentry[r.level]:'';
     if(r.level==='floor') out.push({tag:'방어',sev:'crit',why:'하방 플로어 붕괴 — 레버리지 전량 해제',sub:`NAV ₩${fmtKRW(r.nav)} ≤ 하한 ₩${fmtKRW(r.floor)} · 추가 손실 차단 최우선`,act:'risk'});
     else if(r.level==='trend') out.push({tag:'방어',sev:'crit',why:`추세 이탈(200일선+모멘텀${r.below?' · '+r.below.join('·'):''})`,sub:'레버리지 0 + 1배 자산 일부 현금화 · 분할 실행',act:'risk'});
     else if(r.level==='lev') out.push({tag:'방어',sev:'warn',why:`레버리지 과다 — 3x 우선 축소 (실효 ${r.eff?r.eff.toFixed(2):'?'}배 > 권장 ${r.kc&&r.kc.recMax?r.kc.recMax.toFixed(2):'?'}배)`,sub:(r.reduceLev>1000000?`이번 회차 ₩${fmtKRW(r.reduceLev3)} (페이지 반영) · 전체 ₩${fmtKRW(r.reduceLev)} 반복`:'사이즈 축소')+(reentry?` · 재진입: ${reentry}`:''),act:'risk'});
     else if(r.level==='near') out.push({tag:'방어',sev:'warn',why:'하방 플로어 근접 — 신규 매수·추가 레버리지 중단',sub:reentry||'',act:'risk'});
   }catch(_){}
+  // 전환 알림 — 방어(추세/플로어)가 이미 전환을 포함하므로 그 외 상황(NAV 마일스톤 등)에서만 별도 표시
   try{ const cv=computeLevConvertPlan(s);
-    if(cv&&cv.active){
+    if(cv&&cv.active && _r && _r.level!=='trend' && _r.level!=='floor'){
       const qty=(cv.rows||[]).filter(r=>r.sellSh>0).map(r=>`${r.levSym} −${Math.round(r.sellSh)}주 → ${r.spotSym} +${r.buySh!=null?Math.round(r.buySh):'?'}주`).join(' · ');
       out.push({tag:'전환',sev:'warn',why:`Lev Tech → 현물 전환 (${cv.trigger==='trend'?'추세 이탈 2일':cv.trigger==='nav'?'NAV 마일스톤':'신호'})`,sub:(qty?qty+' · ':'')+'매매 후 입력하면 목표 자동 이전',act:'alloc'});
     }
@@ -3042,8 +3044,9 @@ function computeActionAlerts(s){
   try{ const sp=computeStrategyPlan(s);
     if(sp&&sp.enabled&&sp.sellAmt>1000000) out.push({tag:'정착',sev:'warn',why:`청산 트리거 도달 — 바스켓 정착 ₩${fmtKRW(sp.sellAmt)}`,sub:'정착 입력에서 바스켓 종목별 분배 매수 ▸',act:'settle'});
   }catch(_){}
-  try{ let drift=0;
-    Object.keys(CATEGORIES).forEach(cat=>{ stockRebalance(cat,'portfolio').forEach(rr=>{ if((rr.h.qty||0)>0 && Math.abs((rr.curWtPort||0)-(rr.tgtWtPort||0))>=0.05) drift++; }); });
+  // 리밸런싱 드리프트 — 방어 중인 레버리지 종목은 방어 알림이 처리하므로 제외(중복 방지)
+  try{ let drift=0; const defenseOn=_r&&_r.level&&_r.level!=='near';
+    Object.keys(CATEGORIES).forEach(cat=>{ if(defenseOn&&isLevCat(cat)) return; stockRebalance(cat,'portfolio').forEach(rr=>{ if((rr.h.qty||0)>0 && Math.abs((rr.curWtPort||0)-(rr.tgtWtPort||0))>=0.05) drift++; }); });
     if(drift>0) out.push({tag:'리밸런싱',sev:'info',why:`목표비중 ±5%p 이탈 ${drift}종목`,sub:'배분에서 수량 확인 후 매매 → 입력',act:'alloc'});
   }catch(_){}
   return out;
@@ -4408,7 +4411,10 @@ function renderStockRebalance(){
     const subTxt = heldReason ? esc(heldReason)
       : hold ? `이후 ${fmtQ(qtyAfter)}${unit}`
       : `₩${fmtKRW(Math.abs(val))} · 이후 ${fmtQ(qtyAfter)}${unit}`;
-    const wtLine = rbMode==='within'
+    const isConv = !!(reasonTxt && reasonTxt.includes('전환'));
+    const wtLine = (isConv && (r.tgtWtPort||0) < 0.001)
+      ? `<span style="color:var(--text-3)">레버리지 전환 매수 · 목표비중 외(노출 유지)</span>`
+      : rbMode==='within'
       ? `현재 ${fmtPct(r.curWtInCat,1)} → 목표 ${fmtPct(r.tw,1)}`
       : `현재 ${fmtPct(r.curWtPort,1)} → 목표 ${fmtPct(r.tgtWtPort,1)} <span style="color:var(--text-3)">(전체)</span>`;
     const reasonBadge = (useUni && reasonTxt && !hold) ? `<div style="font-size:9.5px;color:var(--text-3);margin-top:2px">${esc(reasonTxt)}</div>` : '';
@@ -4528,6 +4534,9 @@ function renderStockRebalance(){
       <div class="rbsum-l1" style="font-weight:700">합계</div>
       <div class="rbsum-l2"><span class="down">매수 ₩${fmtKRW(tb)}</span> · <span class="up">매도 ₩${fmtKRW(ts)}</span></div>
       <div class="rbsum-net ${netT>=0?'down':'up'}">순 ${netT>=0?'매수':'매도'} ₩${fmtKRW(Math.abs(netT))}</div>
+      <div style="font-size:10px;color:var(--text-3);margin-top:3px;line-height:1.5">${netT>=0
+        ? '필요 현금 — 예수금에서 차감'
+        : '매도 잔액 — 예수금으로 남아 다음 회차 재배분 (정수 주 반올림·현금화 포함)'}</div>
     </div>
   </div>`;
 }
@@ -4541,13 +4550,12 @@ function computeUnifiedPlan(s){
   const defense = r.level && r.level!=='near';   // floor/trend/lev = 방어 모드
   const modeLabel = !r.level ? '정상 — 목표비중 리밸런싱'
     : r.level==='floor' ? '플로어 방어 — 레버리지 전량 축소'
-    : r.level==='trend' ? '추세 이탈 — Lev Tech 현물 전환'
+    : r.level==='trend' ? '추세 이탈 — 레버리지 청산(2x 현물 전환·3x 현금화)'
     : r.level==='lev'   ? '레버리지 과다 — 3x 우선 축소'
     : '플로어 근접 — 신규 레버리지 중단';
   const rows=[];   // {sym,cat,sh,val,reason,dest,buySh}
   const holds=[];  // 보류 (경고로 매수 중단)
   // 1) 방어 모드: 레버리지 축소/전환을 먼저 확정
-  let levHandled=false, cashFreed3x=0;
   if(defense){
     const cutAmt = r.level==='lev' ? r.reduceLev3 : r.levVal;   // lev=⅓분할, floor/trend=전량
     const bd=kellyCutBreakdown(cutAmt);
@@ -4558,10 +4566,8 @@ function computeUnifiedPlan(s){
       const reason = baseReason || `켈리 ${mult}x 축소`;
       rows.push({sym:x.levSym,cat:x.cat,sh:-x.sellSh,val:-x.cutVal,reason});
       if(x.dest!=='현금화' && x.buySh!=null && x.buySh>0)
-        rows.push({sym:x.dest,cat:'us_stock',sh:x.buySh,val:x.cutVal,reason:'현물 전환 매수',dest:true});
-      else if(x.dest==='현금화') cashFreed3x += x.cutVal;   // 3x 청산 현금 — 재배분 대상
+        rows.push({sym:x.dest,cat:'us_stock',sh:x.buySh,val:x.cutVal,reason:`${x.levSym} 전환 매수`,dest:true});
     });
-    levHandled=true;
   }
   // 2) 일반 목표비중 리밸런싱 — 방어로 처리한 레버리지는 제외/보류
   const step1Syms=new Set(rows.map(x=>x.sym));   // 방어 1단계에서 이미 축소한 종목

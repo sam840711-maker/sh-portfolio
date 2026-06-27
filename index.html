@@ -934,7 +934,7 @@ function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
 const LEVTECH_SPOT_MAP = { NVDL:'NVDA', TSLL:'TSLA', GGLL:'GOOGL', PLTU:'PLTR' };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.5.2';
+const APP_VER = 'v2.5.3';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -4549,8 +4549,9 @@ function computeUnifiedPlan(s){
       if(rr.adjustShares===0) return;
       const lev=isLevCat(rr.h.cat);
       if(defense && lev){
+        if(step1Syms.has(rr.h.symbol)) return;   // 1단계에서 이미 축소 확정 — 그 행을 그대로 사용(보류로 덮지 않음)
         if(rr.adjustShares>0) holds.push({sym:rr.h.symbol,reason:'레버리지 경고 — 매수 보류'});
-        else if(rr.adjustShares<0 && !step1Syms.has(rr.h.symbol)) holds.push({sym:rr.h.symbol,reason:'3x 우선 축소 — 이번 차례 보류'});
+        else if(rr.adjustShares<0) holds.push({sym:rr.h.symbol,reason:'3x 우선 축소 — 이번 차례 보류'});
         return;   // 매도는 방어 축소(1단계)가 처리, 미처리 2x는 보류
       }
       rows.push({sym:rr.h.symbol,cat:rr.h.cat,sh:rr.adjustShares,

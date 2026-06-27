@@ -662,8 +662,8 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div id="rpnl-list"></div>
     </div>
     <div class="card">
-      <div class="card-title">대기 자금 이자 <span class="action" id="add-ri">＋ 추가</span></div>
-      <p class="muted" style="font-size:11px;margin:-4px 0 10px">단기 예금 · MMF 이자 수령액 — 저장 시 대기 자금 잔액에 자동 가산됩니다</p>
+      <div class="card-title">현금 이자 <span class="action" id="add-ri">＋ 추가</span></div>
+      <p class="muted" style="font-size:11px;margin:-4px 0 10px">단기 예금 · MMF 이자 수령액 — 저장 시 현금 잔액에 자동 가산됩니다</p>
       <div id="ri-list"></div>
     </div>
     <div class="card">
@@ -824,7 +824,7 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div id="cash-list"></div>
     </div>
     <div class="card">
-      <div class="card-title">대기 자금 추가</div>
+      <div class="card-title">현금 추가</div>
       <div class="info-text" style="margin-bottom:10px">매도 회수금이나 이자 수령액을 입력 후 <b>전체 저장</b>을 누르면 더해집니다 · 차감은 예수금 편집에서</div>
       <input id="qe-reserve-add" type="number" step="1" min="0" inputmode="numeric" placeholder="+ 추가할 금액 (₩)" style="width:100%;background:var(--frame);border:1px solid var(--hairline);border-radius:9px;padding:11px 12px;font-size:15px;font-variant-numeric:tabular-nums;color:var(--text)">
       <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--hairline)">
@@ -837,7 +837,7 @@ input,select,textarea{font-family:inherit;color:inherit}
           <span class="num" id="qe-sum-cashacc" style="font-size:13px;color:var(--text)">₩0</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
-          <span style="font-size:12px;color:var(--text-2)"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#5A7A9A;margin-right:6px;vertical-align:middle"></span>대기 자금</span>
+          <span style="font-size:12px;color:var(--text-2)"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#5A7A9A;margin-right:6px;vertical-align:middle"></span>현금</span>
           <span class="num" id="qe-sum-reserve" style="font-size:13px;color:#8AA0BD">₩0</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:8px;border-top:1px solid var(--hairline)">
@@ -948,7 +948,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.7.3';
+const APP_VER = 'v2.7.5';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -1197,6 +1197,12 @@ function normalizeState(){
   // 현금 계정 — 자산군에 배정 안 된 순수 현금 (추가납입이 자동으로 들어옴)
   if (state.settings.cashAccount==null) state.settings.cashAccount=0;
   if (state.settings.reserveCash==null) state.settings.reserveCash=0;
+  if (state.settings.reserveTargetPct==null) state.settings.reserveTargetPct=0.15;   // 현금 목표 비중(NAV 대비)
+  // 대기자금(별도 버킷) 개념 폐지 → 현금 비중(%)으로 통합. 기존 reserveCash는 현금계정으로 흡수(총현금 보존).
+  if ((state.settings.reserveCash||0) > 0){
+    state.settings.cashAccount = (state.settings.cashAccount||0) + state.settings.reserveCash;
+    state.settings.reserveCash = 0;
+  }
   if (!state.reserveInterest) state.reserveInterest={};
   if (!state.settings.pickDate) state.settings.pickDate = '2025-08-15';
   // USD 보유 종목에 매입환율(avgFx)이 없으면 카테고리 기준값으로 보정
@@ -1369,7 +1375,7 @@ function categoryTotals(){
   for (const h of state.holdings){ if(!t[h.cat]) t[h.cat]={invested:0,current:0,target:0}; const v=holdingValue(h,fx); t[h.cat].invested+=v.invested; t[h.cat].current+=v.current; }
   return t;
 }
-/* 예수금 합계 — 자산군별 예수금(원화 환산) + 현금 계정 + 대기 자금 */
+/* 예수금 합계 — 자산군별 예수금(원화 환산) + 현금 계정 */
 function totalCash(){
   const fx=state.settings.fxRate, cb=state.settings.cashByClass||{};
   let sum=0;
@@ -2515,6 +2521,26 @@ function tickTrendConv(){
     tc.lastDate=today; tc.prevBroken=broken;
   } else { tc.prevBroken=broken; if(!broken) tc.days=0; }  // 같은 날 회복하면 리셋
 }
+// 현금 목표 비중 — 엔진이 굴림: 상승 확인 시 절반(투입), 방어/중립은 기본. 정적 현금 드래그 회피.
+function effectiveCashPct(s){
+  const base=state.settings.reserveTargetPct!=null?state.settings.reserveTargetPct:0.15;
+  try{
+    const r=computeRiskStatus(s);
+    if(r.level && r.level!=='near') return base;                 // 방어: 기본 유지(레버리지 축소가 현금을 별도로 늘림)
+    const ac=computeAccelRegime(s);
+    if(ac && ac.on && (ac.regime==='early'||ac.regime==='full')) return base/2;   // 상승 확인: 현금 절반 투입
+  }catch(_){}
+  return base;
+}
+// 대기자금 상태 — 목표(NAV×%) 대비 현재 reserveCash. 예수금(거쳐가는 돈)과 별개.
+function computeReserveStatus(s){
+  const nav=s.totalWithCash||0;
+  const pct=state.settings.reserveTargetPct!=null?state.settings.reserveTargetPct:0.15;
+  const target=Math.round(nav*pct);
+  const current=Math.round(state.settings.reserveCash||0);
+  const gap=target-current;   // +면 부족(적립 권장), −면 초과(투입 여력)
+  return {pct,target,current,gap,curPct:nav>0?current/nav:0};
+}
 /* ================================================================
    상승 가속 엔진 — 조기 진입(2단계) · 윈너라이딩
    - 방어(하방)의 대칭: 상승 추세 확인 시 노출↑, 하락 시 방어가 우선
@@ -2539,13 +2565,13 @@ function computeAccelRegime(s){
     why='추세 이탈(200일선 하향+모멘텀 음전) — 가속 중단, 방어 우선(축소는 빠르게)';
   } else if(bestGap>0.03 && bestMom>0.08){
     regime='full'; expo=1.10; label='풀가속'; color='#1E9E5A'; winnerRun=true; deploy=Math.round(reserve/2);
-    why='강한 상승 추세 확인 — 대기자금 ½ 분할 투입·풀노출(상승장 한정 +10%)·윈너 익절 보류';
+    why='강한 상승 추세 확인 — 현금 목표 절반↓ 자동 투입·풀노출(상승장 한정 +10%)·윈너 익절 보류';
   } else if(bestGap>-0.01){
     regime='early'; expo=1.00; label='조기가속'; color='#3FA796'; winnerRun=true; deploy=Math.round(reserve/2);
-    why='200일선 회복 — 조기 진입(대기자금 ½ 분할 투입·풀노출)';
+    why='200일선 회복 — 조기 진입(현금 목표 절반↓ 자동 투입·풀노출)';
   } else {
     regime='neutral'; expo=0.9; label='중립'; color='#7A8195'; winnerRun=false;
-    why='추세 미확인 — 기본 노출 유지(대기자금 보유)';
+    why='추세 미확인 — 기본 노출 유지(현금 목표대로 보유)';
   }
   return {on:true, regime, expo, label, color, why, deploy, deployFull:reserve, winnerRun, bestGap, bestMom, reserve};
 }
@@ -3126,15 +3152,12 @@ function computeActionAlerts(s){
   try{ const sp=computeStrategyPlan(s);
     if(sp&&sp.enabled&&sp.sellAmt>1000000) out.push({tag:'정착',sev:'warn',why:`청산 트리거 도달 — 바스켓 정착 ₩${fmtKRW(sp.sellAmt)}`,sub:'정착 입력에서 바스켓 종목별 분배 매수 ▸',act:'settle'});
   }catch(_){}
-  // 상승 가속 — 상승 추세 확인 시 대기자금 ½ 분할 투입·윈너라이딩 (방어의 대칭, 상방 극대화)
+  // 상승 가속 — 상승 추세 확인 시 현금 목표를 절반으로 낮춰 자동 투입·윈너라이딩 (방어의 대칭)
   try{ const ac=computeAccelRegime(s);
     if(ac.on && (ac.regime==='early'||ac.regime==='full')){
-      const parts=[];
-      if(ac.deploy>1000) parts.push(`대기자금 이번 회차 ₩${fmtKRW(ac.deploy)} 투입 (½ 분할 · 추세 지속 시 다음 회차)`);
-      parts.push('초과 종목 익절 보류(윈너라이딩 · 줄일 땐 ⅓ 천천히)');
       out.push({tag:'상승가속',sev:'info',
         why:`${ac.label} — ${ac.regime==='full'?'강한 상승 추세 확인':'200일선 회복(조기 진입)'} · 노출목표 ${Math.round(ac.expo*100)}%`,
-        sub:parts.join(' · ')+(ac.regime==='full'?' · 상승장 한정 +10%(추세게이트·상시 레버리지 아님)':''),act:'alloc'});
+        sub:'현금 목표 절반↓ → 남는 현금 슬리브에 자동 투입(½ 분할) · 초과 종목 익절 보류(윈너라이딩 ⅓)'+(ac.regime==='full'?' · 상승장 한정 +10%(추세게이트)':''),act:'alloc'});
     }
   }catch(_){}
   // 디레버리징 사다리 — 고배율(3x) 보유 시 한 칸 낮추는 전환 권장 (방어와 별개의 상시 전략)
@@ -3353,15 +3376,20 @@ function openRiskEditor(){
 
     <div class="info-text" style="margin-bottom:6px;font-weight:700">⑤ 상승 가속 (조기진입·윈너라이딩)</div>
     <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:13px">
-      <input type="checkbox" id="rk-accel" ${rk.accelOn?'checked':''}> 상승 추세 확인 시 대기자금 투입·노출 확대 권장
+      <input type="checkbox" id="rk-accel" ${rk.accelOn?'checked':''}> 상승 추세 확인 시 현금 투입·노출 확대 권장
     </label>
     <div style="font-size:11.5px;color:var(--text-2);padding:8px 10px;background:var(--bg-2);border-radius:8px;line-height:1.65;margin-bottom:14px">
       방어의 <b>대칭</b> 장치 — 하락엔 방어, 상승엔 가속.<br>
-      · <b style="color:#3FA796">조기가속</b>: 200일선 회복 시 대기자금 <b>½ 분할</b> 투입(노출 100%)<br>
+      · <b style="color:#3FA796">조기가속</b>: 200일선 회복 시 현금 목표 <b>절반↓</b> 자동 투입(노출 100%)<br>
       · <b style="color:#1E9E5A">풀가속</b>: 강한 추세 확인 시 풀노출 + 상승장 한정 +10%<br>
       · <b style="color:#E5663D">방어 우선</b>: 추세 이탈 시 가속 중단(0.5로 빠르게 축소)<br>
       <b>분할 규칙</b> — 매수(가속)는 ½ 천천히 · 위험 축소는 빠르게 · 윈너 트림은 ⅓ 느리게<br>
       <span style="color:var(--text-3);font-size:11px">상승장 +10%는 추세게이트 노출이며 상시 레버리지가 아님 · 플로어·백스톱은 가속 중에도 작동</span>
+    </div>
+    <div class="field" style="margin-bottom:6px"><label>현금 목표 비중 % (NAV 대비)</label><input id="rk-reservepct" type="number" step="1" value="${((state.settings.reserveTargetPct!=null?state.settings.reserveTargetPct:0.15)*100).toFixed(0)}" style="${inSt}"></div>
+    <div style="font-size:11px;color:var(--text-3);padding:6px 10px;background:var(--bg-2);border-radius:8px;line-height:1.6;margin-bottom:14px">
+      현금도 하나의 <b>목표 비중</b> \u2014 리밸런싱이 나머지(예: 85%)만 슬리브에 배분, 이만큼은 현금 유지.<br>
+      엔진이 굴림: 상승 확인 시 절반↓(자동 투입) · 하락 시 적립 · 별도 \u2018대기자금\u2019 버킷 없음. 권장 10~15%.
     </div>
 
     <div class="info-text" style="margin-bottom:6px;font-weight:700">④ 절대 플로어 (불가침 하한)</div>
@@ -3394,6 +3422,7 @@ function saveRisk(){
   const mu=parseFloat(document.getElementById('rk-mu').value||'10')||10; rk.muExcess=Math.max(0.01,mu/100);
   rk.trendOn=document.getElementById('rk-trend').checked;
   { const ae=document.getElementById('rk-accel'); if(ae) rk.accelOn=ae.checked; }
+  { const re=document.getElementById('rk-reservepct'); if(re){ const v=parseFloat(re.value); if(!isNaN(v)) state.settings.reserveTargetPct=Math.max(0,Math.min(0.5,v/100)); } }
   rk.floorMode=document.getElementById('rk-fm-peak').checked?'peakpct':'abs';
   rk.floorAbs=Math.max(0, Math.round(parseFloat(document.getElementById('rk-floorabs').value||'0')||0));
   const fp=parseFloat(document.getElementById('rk-floorpct').value||'25')||25; rk.floorPeakPct=Math.min(0.9,Math.max(0,fp/100));
@@ -4440,10 +4469,10 @@ function stockRebalance(cat, mode){
   const holdings=state.holdings.filter(h=>h.cat===cat);
   const catCurrent=holdings.reduce((s,h)=>s+holdingValue(h,fx).current,0);
   let basis=portfolioStats().totalWithCash;
-  const reserve=state.settings.reserveCash||0;
   if(mode!=='within'){
-    // 평소엔 대기 자금을 basis에서 제외 (별도 보관) — CAGR는 참고용으로 강등(목표비중 순수 계산)
-    basis -= reserve;
+    // 현금 목표 비중을 제외한 부분만 슬리브에 배분 — 엔진이 상승 시 현금%를 낮춰 자동 투입(가속)
+    const cashPct=effectiveCashPct(portfolioStats());
+    basis = basis*(1-cashPct);
   }
   const catTargetVal = mode==='within' ? catCurrent : basis*classTarget(cat);
   // 종목 목표비중을 자산군 합으로 정규화 — 합이 100%가 아니어도(반올림 등) 자산군 목표를 정확히 지킴
@@ -4742,29 +4771,9 @@ function computeUnifiedPlan(s){
         unit:rr.h.cat==='crypto'?'개':'주'});
     });
   });
-  // 2-0) 상승 가속 — 대기자금 ½ 분할 투입 (비방어·미달 비레버리지 종목에 분배). reserveCash는 리밸런싱 현금과 분리.
+  // 2-0) 상승 가속 — 현금 목표 비중을 엔진이 낮춰(effectiveCashPct) 슬리브 배분이 자동 증가(별도 주입 불필요)
   let accelInfo=null;
-  if(accelOn && ac.deploy>1000000){
-    const deploy=ac.deploy;   // 이미 ½ 분할 금액
-    const total=s.totalWithCash||1;
-    const nonLev=Object.keys(CATEGORIES).filter(k=>!isLevCat(k));
-    const defs=nonLev.map(k=>({k,deficit:Math.max(0, classTarget(k)*total-(s.totals[k]?s.totals[k].current:0))}));
-    let defSum=defs.reduce((a,x)=>a+x.deficit,0); let alloc={};
-    if(defSum>0) defs.forEach(d=>{alloc[d.k]=deploy*(d.deficit/defSum);});
-    else { const tsum=nonLev.reduce((a,k)=>a+classTarget(k),0)||1; nonLev.forEach(k=>{alloc[k]=deploy*(classTarget(k)/tsum);}); }
-    nonLev.forEach(cat=>{
-      const catCash=alloc[cat]||0; if(catCash<=0) return;
-      const hs=state.holdings.filter(h=>h.cat===cat);
-      const twSum=hs.reduce((a,h)=>a+(h.targetWt||0),0);
-      hs.forEach(h=>{
-        const w=twSum>0?(h.targetWt||0)/twSum:1/hs.length; const buyVal=catCash*w; if(buyVal<=0) return;
-        const priceKRW=isUSDcat(h.cat)?(h.curUSD||0)*fx:(h.curKRW||0); if(priceKRW<=0) return;
-        const sh=h.cat==='crypto'?Math.round(buyVal/priceKRW*1e6)/1e6:Math.round(buyVal/priceKRW); if(sh<=0) return;
-        rows.push({sym:h.symbol,cat:h.cat,sh,val:buyVal,reason:'상승가속 ½ 투입(대기자금)',unit:h.cat==='crypto'?'개':'주'});
-      });
-    });
-    accelInfo={regime:ac.regime,label:ac.label,deploy,reserve:ac.reserve};
-  }
+  if(accelOn){ accelInfo={regime:ac.regime,label:ac.label}; }
   // 2-1) 청산 현금 재배분 (A) 미달 순 — 아직 안 쓴 순현금만 배분(이중매수 방지, 순현금≈0)
   const netSoFar = rows.reduce((a,x)=>a+x.val,0);   // +면 순매수(현금 필요), −면 순매도(현금 여유)
   const pool = (defense && netSoFar<0) ? -netSoFar : 0;
@@ -4827,7 +4836,7 @@ function renderUnifiedCard(s){
     ${(()=>{ const chips=[];
       if(p.defense) chips.push(`<span style="background:rgba(229,102,61,0.15);color:#E5663D;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px">방어 우선 · 빠르게 축소</span>`);
       if(p.deleverInfo) chips.push(`<span style="background:rgba(183,121,31,0.15);color:#B7791F;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px">디레버리징 ⅓ · ${esc(p.deleverInfo.fromSym)}(${p.deleverInfo.fromMult}x)→${esc(p.deleverInfo.toSym)}(${p.deleverInfo.toMult}x)→${esc(p.deleverInfo.finalSpot)}</span>`);
-      if(p.accelInfo) chips.push(`<span style="background:rgba(30,158,90,0.15);color:#1E9E5A;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px">${esc(p.accelInfo.label)} · 대기자금 ½ ₩${fmtKRW(p.accelInfo.deploy)} 투입</span>`);
+      if(p.accelInfo) chips.push(`<span style="background:rgba(30,158,90,0.15);color:#1E9E5A;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px">${esc(p.accelInfo.label)} · 현금목표 절반↓ 자동 투입</span>`);
       if(p.accelOn) chips.push(`<span style="background:rgba(30,158,90,0.12);color:#1E9E5A;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px">윈너라이딩 · 초과분 ⅓만 트림</span>`);
       return chips.length?`<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px">${chips.join('')}</div>`:'';
     })()}
@@ -4837,6 +4846,18 @@ function renderUnifiedCard(s){
     <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;padding-top:8px;margin-top:8px;border-top:1px solid var(--hairline)">
       <span>순현금 흐름</span>
       <span class="${p.net>=0?'down':'up'}">${p.net>=0?'순매수':'순매도'} ₩${fmtKRW(Math.abs(p.net))}</span></div>
+    ${(()=>{ const avail=Math.max(0,Math.round(s.cash||0)); const buy=Math.round(p.buyTotal||0); const sell=Math.round(p.sellTotal||0);
+      if(buy<=0 && sell<=0) return '';
+      const enough = buy<=avail;
+      const bridge = Math.min(buy, sell);   // 매도 정산 전 현금이 메우는 부분
+      const color = enough?'#1E9E5A':'#B7791F';
+      return `<div style="margin-top:8px;padding:8px 10px;background:var(--bg-2);border-radius:8px;border-left:3px solid ${color}">
+        <div style="font-size:11px;font-weight:700;color:${color};margin-bottom:3px">정산 브리지 (T+2~3)</div>
+        <div style="font-size:11px;color:var(--text-2);line-height:1.6">
+          현금 가용 <b style="color:var(--text)">₩${fmtKRW(avail)}</b>${buy>0?` · 매수 ₩${fmtKRW(buy)} ${enough?'<b style="color:#1E9E5A">→ 현금으로 즉시 집행 가능</b>':'<b style="color:#B7791F">→ 현금 일부 집행 + 나머지 정산 후</b>'}`:''}<br>
+          ${sell>0?`매도 ₩${fmtKRW(sell)}는 정산(국장 T+2·미장 T+3) 후 현금 보충 — 같은 날 매수·매도 동시 집행 가능`:'매도 없음'}
+        </div></div>`;
+    })()}
   </div>`;
 }
 /* === 자산군 목표 비중 수정 === */
@@ -5125,13 +5146,10 @@ function openCashEditor(){
       <small>현재 잔액(절댓값)이 채워져 있음 · ＋/− 로 부호 선택 (미결제 시 달러는 −)</small></div>`;
   }).join('');
   openModal(`<h3>예수금 관리</h3>
-    <div class="modal-sub">현금 계정 + 대기 자금 + 각 자산군의 현금 잔액</div>
+    <div class="modal-sub">현금 계정 + 각 자산군의 현금 잔액 · 현금 목표 비중은 방어 설정에서</div>
     <div class="field"><label>현금 계정 (₩) — 추가납입이 자동으로 적립됨</label>
       <input id="cash-account" type="number" step="1" value="${state.settings.cashAccount||0}" placeholder="원화 ₩">
       <small>자산군에 배정 안 된 순수 현금 · 종목 매수에 쓰면 직접 줄여주세요</small></div>
-    <div class="field"><label>대기 자금 (₩) — 단기 예금·MMF 거치 자금</label>
-      <input id="cash-reserve" type="number" step="1" value="${state.settings.reserveCash||0}" placeholder="원화 ₩">
-      <small>예수금이 아닌 별도 현금 · 하락장 매수 대비용 (드라이파우더)</small></div>
     <div style="height:1px;background:var(--hairline);margin:14px 0"></div>
     ${rows}
     <div class="btn-row">
@@ -5150,7 +5168,6 @@ async function saveCashEditor(){
   }
   state.settings.cashByClass=cb;
   state.settings.cashAccount=Math.max(0,parseFloat(document.getElementById('cash-account').value)||0);
-  state.settings.reserveCash=Math.max(0,parseFloat(document.getElementById('cash-reserve').value)||0);
   await saveState(); closeModal(); toast('예수금 저장됨'); switchView('quickentry');
 }
 function cashSign(k,cur,s){
@@ -5424,18 +5441,18 @@ async function saveRiYear(origYear){
   state.reserveInterest[y]=arr;
   const totalAfter = riTotal();
   const delta = totalAfter - totalBefore;
-  state.settings.reserveCash = Math.max(0, (state.settings.reserveCash||0) + delta);
+  state.settings.cashAccount = Math.max(0, (state.settings.cashAccount||0) + delta);
   await saveState(); closeModal();
   const sign = delta>=0?'+':'−';
-  toast(`${y}년 대기 자금 이자 저장 · 대기 자금 ${sign}₩${fmtKRW(Math.abs(delta))}`);
+  toast(`${y}년 현금 이자 저장 · 현금 ${sign}₩${fmtKRW(Math.abs(delta))}`);
   switchView('transactions');
 }
 async function deleteRiYear(year){
   const yt=riYearTotal(year);
   if(state.reserveInterest) delete state.reserveInterest[year];
-  state.settings.reserveCash=Math.max(0,(state.settings.reserveCash||0)-yt);
+  state.settings.cashAccount=Math.max(0,(state.settings.cashAccount||0)-yt);
   await saveState(); closeModal();
-  toast(`${year}년 이자 기록 삭제 · 대기 자금 −₩${fmtKRW(yt)}`);
+  toast(`${year}년 이자 기록 삭제 · 현금 −₩${fmtKRW(yt)}`);
   switchView('transactions');
 }
 function renderRiList(){
@@ -5932,10 +5949,10 @@ async function saveQuickEntry(){
   const addEl=document.getElementById('qe-reserve-add');
   const addAmt=Math.max(0,Math.round(parseFloat(addEl?.value)||0));
   if(addAmt>0){
-    state.settings.reserveCash=(state.settings.reserveCash||0)+addAmt;
+    state.settings.cashAccount=(state.settings.cashAccount||0)+addAmt;
   }
   await saveState();
-  toast('저장 완료'+(addAmt>0?` · 대기 자금 +₩${fmtKRW(addAmt)}`:'')+convMsg);
+  toast('저장 완료'+(addAmt>0?` · 현금 +₩${fmtKRW(addAmt)}`:'')+convMsg);
   qeUnlocked={};   // 저장 후 다시 잠금 (실수 변경 방지)
   renderQuickEntry();
 }

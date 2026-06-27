@@ -935,7 +935,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.2';
+const APP_VER = 'v2.9.3';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -2807,7 +2807,7 @@ function ensureStepdownHoldings(){
   }
   return added;
 }
-// 바스켓 종목(133690·360750 등) 0주 자동 생성 — 숨기지 않음(항상 표시·시세 수신)
+// 레거시 바스켓 플레이스홀더(0주) 정리 — 정착 바스켓 제거([3]) 후 잔여 데이터 청소용(신규 생성 없음)
 function ensureBasketHoldings(){
   // [3] 정착 바스켓 제거 — 바스켓 플레이스홀더(0주) 전부 정리, 신규 생성 없음
   const before=state.holdings.length;
@@ -2818,7 +2818,7 @@ function ensureBasketHoldings(){
 function clearPlaceholderTargets(){
   let changed=false;
   state.holdings.forEach(h=>{
-    if((h._convSpot||h._basketSpot||h._stepSpot) && (h.qty||0)===0 && (h.targetWt||0)!==0){
+    if((h._convSpot||h._stepSpot) && (h.qty||0)===0 && (h.targetWt||0)!==0){
       h.targetWt=0; changed=true;
     }
   });
@@ -4463,8 +4463,6 @@ function renderStockRebalance(){
         activateHint = ((tc.days||0)>0)
           ? `Lev Tech 추세 이탈 ${tc.days}일째 · 2일 확인 시 전환 매수`
           : 'Lev Tech 추세 이탈 2일 확인 시 전환 매수';
-      } else if(h._basketSpot){
-        activateHint = '레버리지 청산 트리거 도달 시 정착 매수';
       } else if(h._stepSpot){
         activateHint = '디레버리징 — 상위 배율(3x) 전환 시 매수 (decay 절감)';
       }
@@ -4941,16 +4939,6 @@ async function saveClassTargetsNext(){
 }
 function openTargetProposalStep2(){
   const cats=Object.keys(CATEGORIES).filter(k=>state.holdings.some(h=>h.cat===k));
-  const basket=[];   // 정착 바스켓 제거([3]) — 청산은 목표 비중대로 자동 분배
-  const _bs=s=>(s||'').toUpperCase().replace(/\.(KS|KQ|L)$/,'');
-  const heldSyms=new Set(state.holdings.filter(h=>h.qty>0).map(h=>_bs(h.symbol)));
-  const basketHtml = basket.length ? `<div style="margin:6px 0 12px;padding:11px;border-radius:9px;border:1px solid var(--hairline);background:var(--surface)">
-    <div style="font-size:12px;font-weight:700;margin-bottom:6px">정착 바스켓 (청산 시 이동 목적지 · 비중)</div>
-    ${basket.map(b=>{ const held=b.symbol&&heldSyms.has(_bs(b.symbol));
-      const stat = !b.symbol ? `<span style="color:var(--text-3)">보유 종목에 비중 비례 분배</span>`
-        : (held?'<span class="up">✓ 보유</span>':'<span style="color:var(--orange)">미보유</span>');
-      return `<div style="display:flex;justify-content:space-between;font-size:11px;padding:2.5px 0"><span>${esc(b.name)}</span><span><b>${(b.weight*100).toFixed(0)}%</b> · ${stat}</span></div>`; }).join('')}
-    <div style="font-size:9.5px;color:var(--text-3);margin-top:5px">미보유 항목은 ＋ 버튼으로 종목 추가 후 아래에서 목표 비중을 설정하세요. (설명형 ETF는 해당 상품을 직접 등록)</div></div>` : '';
   const sections=cats.map(cat=>{
     const hs=state.holdings.filter(h=>h.cat===cat);
     if(!hs.length) return '';
@@ -4958,9 +4946,8 @@ function openTargetProposalStep2(){
       <input id="sw-${h.id}" type="number" step="0.1" value="${((h.targetWt||0)*100).toFixed(1)}" oninput="updateSwSumAll()"></div>`).join('');
     return `<div style="display:flex;align-items:center;gap:7px;margin:14px 0 6px"><span style="width:9px;height:9px;border-radius:2px;background:${CATEGORIES[cat].color}"></span><b style="font-size:13px">${CATEGORIES[cat].label}</b><span id="swa-sum-${cat}" style="margin-left:auto;font-size:11px;color:var(--text-2)"></span></div>`+rows;
   }).join('');
-  openModal(`<h3>2단계 · 종목 비중 + 바스켓</h3>
-    <div class="modal-sub">자산군 내 종목 비중 · 합이 100%가 아니어도 비율대로 자동 정규화 · 바스켓 점검</div>
-    ${basketHtml}
+  openModal(`<h3>2단계 · 종목 비중</h3>
+    <div class="modal-sub">자산군 내 종목 비중 · 합이 100%가 아니어도 비율대로 자동 정규화</div>
     ${sections}
     <div class="btn-row">
       <button class="btn btn-secondary" onclick="closeModal()">닫기</button>
@@ -5688,10 +5675,9 @@ function commitQuickEntry(){
 function reconcileConversions(oldQty){
   const fx=state.settings.fxRate||1;
   const total=portfolioStats().totalWithCash||1;
-  const _bs=s=>(s||'').toUpperCase().replace(/\.(KS|KQ|L)$/,'');
   const TV=new Map();
   state.holdings.forEach(h=>TV.set(h, total*classTarget(h.cat)*(h.targetWt||0)));
-  let any=false, conv=[], settle=[];
+  let any=false, conv=[];
   // 1) 전환: Lev Tech 감소 + 대응 현물 증가 → lev TV를 현물로 이전
   Object.keys(LEVTECH_SPOT_MAP).forEach(levSym=>{
     const spotSym=LEVTECH_SPOT_MAP[levSym];
@@ -5723,23 +5709,6 @@ function reconcileConversions(oldQty){
       dst._stepSpot=false; any=true; conv.push(`${fromSym}→${m.to}`);
     }
   });
-  // 2) 정착: 바스켓 플레이스홀더(_basketSpot)가 매수되면 → 레버리지 풀에서 목표가치 이전
-  const levPool=state.holdings.filter(h=>isLevCat(h.cat));
-  let levTVsum=levPool.reduce((s,h)=>s+(TV.get(h)||0),0);
-  state.holdings.filter(h=>h._basketSpot).forEach(h=>{
-    const d=(h.qty||0)-(oldQty.get(h.id)||0);
-    if(d>0.0001){
-      const price=isUSDcat(h.cat)?(h.curUSD||0)*fx:(h.curKRW||0);
-      const buyVal=d*price;
-      if(buyVal>0 && levTVsum>0){
-        const move=Math.min(buyVal, levTVsum);
-        levPool.forEach(lh=>{ const cur=TV.get(lh)||0; const cut=levTVsum>0?move*(cur/levTVsum):0; TV.set(lh, Math.max(0,cur-cut)); });
-        levTVsum=Math.max(0, levTVsum-move);
-        TV.set(h, (TV.get(h)||0)+move);
-        any=true; settle.push(_bs(h.symbol));
-      }
-    }
-  });
   if(!any) return '';
   const cats={};
   state.holdings.forEach(h=>{ cats[h.cat]=(cats[h.cat]||0)+(TV.get(h)||0); });
@@ -5748,7 +5717,6 @@ function reconcileConversions(oldQty){
   state.holdings.forEach(h=>{ const cv=cats[h.cat]||0; h.targetWt= cv>0?(TV.get(h)||0)/cv:0; });
   let msg='';
   if(conv.length) msg+=` · 전환 감지(${conv.join(', ')})`;
-  if(settle.length) msg+=` · 정착 감지(${settle.join(', ')})`;
   return msg+' → 목표 자동 이전';
 }
 async function saveQuickEntry(){

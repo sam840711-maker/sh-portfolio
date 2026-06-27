@@ -927,7 +927,7 @@ function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
 const LEVTECH_SPOT_MAP = { NVDL:'NVDA', TSLL:'TSLA', GGLL:'GOOGL', PLTU:'PLTR' };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.0.2';
+const APP_VER = 'v2.0.3';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -996,16 +996,16 @@ const SEED = {
 /* === 레버리지 청산(전환) 전략 기본값 === */
 const STRATEGY_DEFAULT = {
   enabled:true,
-  ver:5,                         // 바스켓 스키마/기본값 버전
+  ver:6,                         // 바스켓 스키마/기본값 버전
   stepFrac:0.25,                 // 단계별 ¼씩 해제
   backstop:0.20,                 // 트레일링 백스톱 — 고점 대비 −20% 시 방어적 디리스크
   milestones:[560000000,700000000,880000000,1100000000],  // 1~4차 NAV 트리거(원) · 25% 시간페이스
   peakNav:null,                  // 트레일링 고점(백스톱 기준, 전진식)
-  basket:[                        // 정착 바스켓: 나스닥 코어 50% + S&P500 20% + 방어섹터 20% + 실물 BTC 10%
-    {name:'미국 나스닥100 (광범위 코어)', weight:0.50, cat:'global_etf'},
-    {name:'미국 S&P500 (광범위)', weight:0.20, cat:'global_etf'},
-    {name:'KODEX S&P500 헬스케어', weight:0.10, cat:'global_etf'},
-    {name:'KODEX S&P500 필수소비재', weight:0.10, cat:'global_etf'},
+  basket:[                        // 정착 바스켓: 나스닥100 50% + S&P500 20% + 방어섹터 20% + 실물 BTC 10% (실제 티커)
+    {name:'TIGER 미국나스닥100', weight:0.50, cat:'global_etf', symbol:'133690'},
+    {name:'TIGER 미국S&P500', weight:0.20, cat:'global_etf', symbol:'360750'},
+    {name:'KODEX S&P500 헬스케어', weight:0.10, cat:'global_etf', symbol:'453640'},
+    {name:'KODEX S&P500 필수소비재', weight:0.10, cat:'global_etf', symbol:'453630'},
     {name:'비트코인(실물)', weight:0.10, cat:'crypto', symbol:'BTC'},
   ],
 };
@@ -2691,6 +2691,23 @@ function ensureLevTechSpots(){
         cat:'us_stock', symbol:spot, name:spot, qty:0, avgUSD:0, curUSD:0, targetWt:0, _convSpot:true});
       have.add(spot); added=true;
     }
+  }
+  return added;
+}
+// 바스켓 종목(133690·360750 등) 0주 자동 생성 — 숨기지 않음(항상 표시·시세 수신)
+function ensureBasketHoldings(){
+  const basket=(state.settings.strategy&&state.settings.strategy.basket)||[];
+  let added=false;
+  const have=new Set(state.holdings.map(h=>(h.symbol||'').toUpperCase()));
+  for(const b of basket){
+    if(!b.symbol) continue;
+    const sym=b.symbol.toUpperCase();
+    if(have.has(sym)) continue;
+    const cat=b.cat||'global_etf';
+    const h={id:'basket_'+sym+'_'+Date.now().toString(36)+Math.floor(Math.random()*1e3),
+      cat, symbol:b.symbol, name:b.name, qty:0, targetWt:0, _basketSpot:true};
+    if(isUSDcat(cat)){ h.avgUSD=0; h.curUSD=0; } else { h.avgKRW=0; h.curKRW=0; }
+    state.holdings.push(h); have.add(sym); added=true;
   }
   return added;
 }
@@ -7303,6 +7320,7 @@ function renderCloudUI(){
 (async function(){
   await loadState();
   try{ if(ensureLevTechSpots()) await saveState(); }catch(_){}   // Lev Tech 대응 현물(NVDA 등) 0주 자동 생성
+  try{ if(ensureBasketHoldings()) await saveState(); }catch(_){}  // 정착 바스켓 종목(133690·360750 등) 0주 자동 생성·표시
   try{ updateVolBaseline(); }catch(_){}   // 변동성 기준선(EMA) 갱신 — 목표 비중 제안용
   // 저장소 영속성 요청 — 브라우저 저장소 압박 시 데이터 보존(설치형 PWA에서 효과)
   try{ if(navigator.storage&&navigator.storage.persist){ navigator.storage.persisted().then(p=>{ if(!p) navigator.storage.persist().catch(()=>{}); }); } }catch(_){}

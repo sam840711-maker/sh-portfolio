@@ -934,7 +934,7 @@ function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
 const LEVTECH_SPOT_MAP = { NVDL:'NVDA', TSLL:'TSLA', GGLL:'GOOGL', PLTU:'PLTR' };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.2.0';
+const APP_VER = 'v2.4.0';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -2781,6 +2781,7 @@ function computeLevConvertPlan(s){
 }
 function renderLevConvAlert(s){
   const el=document.getElementById('levconv-alert'); if(!el) return;
+  el.style.display='none'; el.onclick=null; return;   // 전환은 할 일 알림 + 입력 자동적용으로 대체(중복 카드 제거)
   const p=computeLevConvertPlan(s);
   if(!p.active){ el.style.display='none'; el.onclick=null; return; }
   const trigTxt = p.trigger==='trend'
@@ -3007,7 +3008,7 @@ function computeActionAlerts(s){
     else if(r.level==='near') out.push({tag:'방어',sev:'warn',why:'하방 플로어 근접 — 신규 매수·추가 레버리지 중단',go:'allocation'});
   }catch(_){}
   try{ const cv=computeLevConvertPlan(s);
-    if(cv&&cv.active) out.push({tag:'전환',sev:'warn',why:`Lev Tech → 현물 전환 신호 (${cv.trigger==='trend'?'추세 이탈 2일 확인':cv.trigger==='nav'?'NAV 마일스톤':'신호'}) — 대시보드 전환 카드에서 실행`,go:'dashboard'});
+    if(cv&&cv.active) out.push({tag:'전환',sev:'warn',why:`Lev Tech → 현물 전환 신호 (${cv.trigger==='trend'?'추세 이탈 2일 확인':cv.trigger==='nav'?'NAV 마일스톤':'신호'}) — NVDL 매도·NVDA 매수 후 입력하면 목표 자동 이전`,go:'allocation'});
   }catch(_){}
   try{ const sp=computeStrategyPlan(s);
     if(sp&&sp.enabled&&sp.sellAmt>1000000) out.push({tag:'정착',sev:'warn',why:`청산 트리거 도달 — 바스켓 정착 ₩${fmtKRW(sp.sellAmt)} (정착 입력에서 실행)`,go:'dashboard'});
@@ -5613,8 +5614,61 @@ function commitQuickEntry(){
     }
   }
 }
+// 입력 기반 자동 반영 — 전환(Lev Tech→현물) + 정착(바스켓 플레이스홀더 매수) 감지 → 목표비중 자동 이전(A 방식)
+function reconcileConversions(oldQty){
+  const fx=state.settings.fxRate||1;
+  const total=portfolioStats().totalWithCash||1;
+  const _bs=s=>(s||'').toUpperCase().replace(/\.(KS|KQ|L)$/,'');
+  const TV=new Map();
+  state.holdings.forEach(h=>TV.set(h, total*classTarget(h.cat)*(h.targetWt||0)));
+  let any=false, conv=[], settle=[];
+  // 1) 전환: Lev Tech 감소 + 대응 현물 증가 → lev TV를 현물로 이전
+  Object.keys(LEVTECH_SPOT_MAP).forEach(levSym=>{
+    const spotSym=LEVTECH_SPOT_MAP[levSym];
+    const lev=state.holdings.find(h=>h.cat==='lev_tech'&&(h.symbol||'').toUpperCase()===levSym);
+    const spot=state.holdings.find(h=>h.cat==='us_stock'&&(h.symbol||'').toUpperCase()===spotSym);
+    if(!lev||!spot) return;
+    const dLev=(oldQty.get(lev.id)||0)-(lev.qty||0);
+    const dSpot=(spot.qty||0)-(oldQty.get(spot.id)||0);
+    if(dLev>0.0001 && dSpot>0.0001){
+      const convVal=dLev*(lev.curUSD||0)*fx;
+      TV.set(lev, Math.max(0,(TV.get(lev)||0)-convVal));
+      TV.set(spot, (TV.get(spot)||0)+convVal);
+      spot._convSpot=false; any=true; conv.push(`${levSym}→${spotSym}`);
+    }
+  });
+  // 2) 정착: 바스켓 플레이스홀더(_basketSpot)가 매수되면 → 레버리지 풀에서 목표가치 이전
+  const levPool=state.holdings.filter(h=>isLevCat(h.cat));
+  let levTVsum=levPool.reduce((s,h)=>s+(TV.get(h)||0),0);
+  state.holdings.filter(h=>h._basketSpot).forEach(h=>{
+    const d=(h.qty||0)-(oldQty.get(h.id)||0);
+    if(d>0.0001){
+      const price=isUSDcat(h.cat)?(h.curUSD||0)*fx:(h.curKRW||0);
+      const buyVal=d*price;
+      if(buyVal>0 && levTVsum>0){
+        const move=Math.min(buyVal, levTVsum);
+        levPool.forEach(lh=>{ const cur=TV.get(lh)||0; const cut=levTVsum>0?move*(cur/levTVsum):0; TV.set(lh, Math.max(0,cur-cut)); });
+        levTVsum=Math.max(0, levTVsum-move);
+        TV.set(h, (TV.get(h)||0)+move);
+        any=true; settle.push(_bs(h.symbol));
+      }
+    }
+  });
+  if(!any) return '';
+  const cats={};
+  state.holdings.forEach(h=>{ cats[h.cat]=(cats[h.cat]||0)+(TV.get(h)||0); });
+  const ct={}; Object.keys(CATEGORIES).forEach(c=>{ ct[c]= total>0?(cats[c]||0)/total:0; });
+  state.settings.classTargets=ct;
+  state.holdings.forEach(h=>{ const cv=cats[h.cat]||0; h.targetWt= cv>0?(TV.get(h)||0)/cv:0; });
+  let msg='';
+  if(conv.length) msg+=` · 전환 감지(${conv.join(', ')})`;
+  if(settle.length) msg+=` · 정착 감지(${settle.join(', ')})`;
+  return msg+' → 목표 자동 이전';
+}
 async function saveQuickEntry(){
+  const oldQty=new Map(); state.holdings.forEach(h=>oldQty.set(h.id, h.qty||0));
   commitQuickEntry();
+  const convMsg=reconcileConversions(oldQty);   // 전환 자동 적용(체결량 기준)
   // 대기 자금 추가분 처리
   const addEl=document.getElementById('qe-reserve-add');
   const addAmt=Math.max(0,Math.round(parseFloat(addEl?.value)||0));
@@ -5622,7 +5676,7 @@ async function saveQuickEntry(){
     state.settings.reserveCash=(state.settings.reserveCash||0)+addAmt;
   }
   await saveState();
-  toast('저장 완료'+(addAmt>0?` · 대기 자금 +₩${fmtKRW(addAmt)}`:''));
+  toast('저장 완료'+(addAmt>0?` · 대기 자금 +₩${fmtKRW(addAmt)}`:'')+convMsg);
   qeUnlocked={};   // 저장 후 다시 잠금 (실수 변경 방지)
   renderQuickEntry();
 }

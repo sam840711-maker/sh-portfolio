@@ -3,7 +3,7 @@
    - 외부 CDN/폰트(버전 고정 URL): 캐시 우선 → 최초 1회만 네트워크 (콜드 스타트 가속)
    - sw.js: 항상 네트워크 (SW 갱신 보장)
    - 시세 프록시 등 그 외 교차출처: 미개입 */
-const CACHE = 'sh-portfolio-v66';
+const CACHE = 'sh-portfolio-v68';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-192-maskable.png', './icon-512-maskable.png'];
 const CDN_HOSTS = ['cdnjs.cloudflare.com', 'cdn.jsdelivr.net'];
 

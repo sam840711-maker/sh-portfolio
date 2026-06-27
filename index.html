@@ -940,7 +940,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.7.18';
+const APP_VER = 'v2.7.19';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -4263,17 +4263,18 @@ function renderHoldingsSummary(){
       ${usd?`<div class="sum-usd">달러 매입 $${Math.round(invUSD).toLocaleString()} · 평가 $${Math.round(curUSD).toLocaleString()}</div>`:''}
     </div>`;
   }
-  // 예수금 — 자산군별 현금 + 현금 계정 (KRW 환산), 대기 자금은 분리 표시
+  // 현금 — 하나의 자산군처럼 표시: 합계(증권사 예수금 + 현금 계정), 안에서 구분
   const cb=state.settings.cashByClass||{};
   let cashUSD=0;
   for (const k in cb){ if(cb[k]) cashUSD += (cb[k].usd||0); }
-  const cashKRW=totalCash();
-  const brokerCash=cashKRW;
+  const cashKRW=totalCash();                          // 총 현금 = 배분 페이지 '현금'과 동일
+  const cashAcc=state.settings.cashAccount||0;        // 현금 계정 (증권사 밖)
+  const brokerCash=Math.max(0, cashKRW-cashAcc);      // 증권사 예수금만 (현금 계정 분리)
+  const dot=c=>`<span class="abar-dot" style="background:${c};display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle"></span>`;
   html+=`<div class="sum-row">
-    <div class="sum-top"><span class="sum-name">예수금</span><span class="sum-cash">₩${fmtKRW(cashKRW)}</span></div>
-    <div class="sum-line">
-      <span class="abar-dot" style="background:#565967;display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle"></span>증권사 <b>₩${fmtKRW(brokerCash)}</b>
-    </div>
+    <div class="sum-top"><span class="sum-name">현금</span><span class="sum-cash">₩${fmtKRW(cashKRW)}</span></div>
+    <div class="sum-line">${dot('#565967')}증권사 예수금 <b>₩${fmtKRW(brokerCash)}</b></div>
+    ${cashAcc>0?`<div class="sum-line">${dot('#5A7A9A')}현금 계정 <b>₩${fmtKRW(cashAcc)}</b></div>`:''}
     ${cashUSD>0?`<div class="sum-usd">달러 예수금 $${Math.round(cashUSD).toLocaleString()}</div>`:''}
   </div>`;
 
@@ -4282,7 +4283,7 @@ function renderHoldingsSummary(){
     <div class="sum-top"><span class="sum-name">합계</span><span class="sum-ret ${tcls}">${fmtPctSigned(tRet)}</span></div>
     <div class="sum-line">손익 <b class="${tcls}">${tPnl>=0?'+':'-'}₩${fmtKRW(Math.abs(tPnl))}</b></div>
     <div class="sum-line">매입 <b>₩${fmtKRW(tInv)}</b> · 평가 <b>₩${fmtKRW(tCur)}</b></div>
-    <div class="sum-line sum-grand">총자산 (예수금 포함) <b>₩${fmtKRW(tCur+cashKRW)}</b></div>
+    <div class="sum-line sum-grand">총자산 (현금 포함) <b>₩${fmtKRW(tCur+cashKRW)}</b></div>
   </div></div>`;
   el.innerHTML = (tInv>0||tCur>0||cashKRW>0) ? html : '';
 }

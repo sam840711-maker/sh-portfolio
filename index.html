@@ -921,7 +921,7 @@ function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
 const LEVTECH_SPOT_MAP = { NVDL:'NVDA', TSLL:'TSLA', GGLL:'GOOGL', PLTU:'PLTR' };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v1.9.3';
+const APP_VER = 'v1.9.4';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -3887,7 +3887,7 @@ function renderHoldings(){
   chips.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{activeCategory=c.dataset.cat;renderHoldings();});
   document.querySelectorAll('#holding-sort button').forEach(b=>b.classList.toggle('active',b.dataset.hs===holdingSort));
 
-  const filtered=state.holdings.filter(h=>(activeCategory==='all'||h.cat===activeCategory));
+  const filtered=state.holdings.filter(h=>(activeCategory==='all'||h.cat===activeCategory) && !(h._convSpot && (h.qty||0)===0));
   const el=document.getElementById('holdings-list');
   if (!filtered.length){ el.innerHTML='<div class="empty">보유 종목이 없습니다.<br>＋ 버튼으로 추가하세요.</div>'; return; }
 
@@ -4086,7 +4086,7 @@ function computeCagrGap(){
    within   : 그 자산군의 보유 평가액만 기준 → 예수금 제외, 자산군 내 재분배만 */
 function stockRebalance(cat, mode){
   const fx=state.settings.fxRate;
-  const holdings=state.holdings.filter(h=>h.cat===cat);
+  const holdings=state.holdings.filter(h=>h.cat===cat && !(h._convSpot && (h.qty||0)===0));
   const catCurrent=holdings.reduce((s,h)=>s+holdingValue(h,fx).current,0);
   let basis=portfolioStats().totalWithCash;
   const reserve=state.settings.reserveCash||0;

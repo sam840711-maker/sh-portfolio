@@ -761,9 +761,9 @@ input,select,textarea{font-family:inherit;color:inherit}
     </div>
 
     <div class="card">
-      <div class="card-title">추천 비중 적용</div>
-      <div class="info-text" style="margin-bottom:10px">2x 테크를 Lev Tech로 이동하고, 합의한 자산군·종목 목표비중을 한 번에 적용합니다(현재 종목 그대로·비중만). 기존 목표비중은 덮어써집니다.</div>
-      <button class="btn btn-secondary" style="width:100%" onclick="applyRecommendedTargets()">추천 자산군·종목 비중 적용</button>
+      <div class="card-title">⏩ 공격 다이얼 점진 전환</div>
+      <div class="info-text" style="margin-bottom:10px">현재 비중에서 공격 목표(크립토 BTC+ETH 55 / US 35 / Lev Tech 5 / ETF 5 · 현금 10→5% · 가속 1.25)까지 <b>6단계로 나눠</b> 점진 전환을 시작합니다. 배분 페이지에 단계별 진행 카드가 뜨고, 그 수량대로 매매·"다음 단계"를 반복하면 됩니다. 한 번에 갈아엎지 않아 타이밍·세금이 분산됩니다.</div>
+      <button class="btn btn-secondary" style="width:100%" onclick="applyRecommendedTargets()">공격 다이얼 점진 전환 시작</button>
     </div>
 
     <div class="card">
@@ -949,7 +949,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.7.9';
+const APP_VER = 'v2.7.10';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {

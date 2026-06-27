@@ -335,8 +335,6 @@ input,select,textarea{font-family:inherit;color:inherit}
 .qe-cell.qe-changed{border-color:var(--gold);background:var(--gold-soft)}
 .rebal-alert{cursor:pointer;border:1px solid var(--orange);background:var(--orange-soft)}
 .rebal-alert .ra-dot{width:9px;height:9px;border-radius:50%;background:var(--orange);flex-shrink:0}
-.strategy-alert{cursor:pointer;border:1px solid #4A8A90;background:rgba(74,138,144,0.12)}
-.strategy-alert .sa-dot{width:9px;height:9px;border-radius:50%;background:#5AA0A6;flex-shrink:0}
 .mini-tbl{width:100%;border-collapse:collapse;font-size:12px}
 .mini-tbl th{font-size:10.5px;color:var(--text-3);font-weight:600;text-align:left;padding:4px 6px;border-bottom:1px solid var(--hairline)}
 .mini-tbl td{padding:5px 6px;border-bottom:1px solid var(--hairline);color:var(--text-2)}
@@ -444,7 +442,6 @@ input,select,textarea{font-family:inherit;color:inherit}
     <div class="card cagr-alert" id="cagr-alert" style="display:none"></div>
     <div class="card park-alert" id="park-alert" style="display:none"></div>
     <div class="card risk-alert" id="levconv-alert" style="display:none"></div>
-    <div class="card strategy-alert" id="strategy-alert" style="display:none"></div>
     <div id="market-banner" class="mkt-banner" style="display:none"></div>
     <div class="freshness" id="freshness">
       <span>USD/KRW <span class="fx-val" id="fx-val">—</span></span>
@@ -746,11 +743,6 @@ input,select,textarea{font-family:inherit;color:inherit}
     </div>
 
     <div class="card">
-      <div class="card-title">레버리지 청산 전략 <span class="action" id="edit-strategy">수정</span></div>
-      <div class="info-text" id="strategy-summary" style="margin-bottom:4px"></div>
-    </div>
-
-    <div class="card">
       <div class="card-title">하방 보호 규칙 <span class="action" id="edit-risk">수정</span></div>
       <div class="info-text" id="risk-summary" style="margin-bottom:4px"></div>
     </div>
@@ -940,7 +932,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.7.24';
+const APP_VER = 'v2.8.0';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -1006,17 +998,7 @@ const SEED = {
   prices: { proxyMode:'public', proxyUrl:'', lastFetch:null, autoMin:0 },
 };
 
-/* === 레버리지 청산(전환) 전략 기본값 === */
-const STRATEGY_DEFAULT = {
-  enabled:true,
-  ver:9,                         // 바스켓 스키마/기본값 버전
-  stepFrac:0.25,                 // 단계별 ¼씩 해제
-  backstop:0.20,                 // 트레일링 백스톱 — 고점 대비 −20% 시 방어적 디리스크
-  navSettleOff:true,             // NAV 마일스톤 청산 OFF — 디레버리징은 글라이드·방어·백스톱이 담당(중복·왔다갔다 방지)
-  milestones:[560000000,700000000,880000000,1100000000],  // 1~4차 NAV 트리거(원) · 25% 시간페이스
-  peakNav:null,                  // 트레일링 고점(백스톱 기준, 전진식)
-  basket:[],                     // [3] 별도 정착 바스켓 제거 — 청산은 현재 목표 비중(classTargets)대로 자동 분배
-};
+/* === NAV 마일스톤 청산 전략 제거(A) — 백스톱은 하방 보호 규칙(risk)으로 이전 === */
 function eokFmt(n){ return (n==null||isNaN(n))?'—':(n/1e8).toFixed(1)+'억'; }
 
 let state = null;
@@ -1036,31 +1018,12 @@ async function loadState(){
 /* 구버전·외부 백업 데이터 보정 — loadState 및 데이터 가져오기에서 공용 사용 */
 function normalizeState(){
   if (!state.settings) state.settings = JSON.parse(JSON.stringify(SEED.settings));
-  // 레버리지 청산 전략 — 기본값 주입/보정
-  if (!state.settings.strategy) state.settings.strategy = JSON.parse(JSON.stringify(STRATEGY_DEFAULT));
-  else {
-    const sd=state.settings.strategy;
-    if(!Array.isArray(sd.milestones)||sd.milestones.length!==4) sd.milestones=STRATEGY_DEFAULT.milestones.slice();
-    sd.basket=[];   // [3] 정착 바스켓 제거 — 청산은 현재 목표 비중대로 자동 분배
-    if(sd.navSettleOff==null) sd.navSettleOff=true;   // [C] NAV 마일스톤 청산 OFF (글라이드·방어·백스톱이 담당)
-    if(sd.stepFrac==null) sd.stepFrac=0.25;
-    if(sd.enabled==null) sd.enabled=true;
-    if(sd.backstop===undefined) sd.backstop=null;
-    if(sd.peakNav===undefined) sd.peakNav=null;
-    // 구버전 → 최신 기본값(사다리·백스톱·목표 25%)으로 1회 갱신 (사용자 편집본은 ver로 보존)
-    if(!sd.ver || sd.ver < STRATEGY_DEFAULT.ver){
-      sd.milestones = STRATEGY_DEFAULT.milestones.slice();
-      sd.backstop = STRATEGY_DEFAULT.backstop;
-      sd.peakNav = null;                       // 백스톱 고점 전진식 재시작
-      state.settings.targetCAGR = 0.25;         // 연 목표 수익률 25%
-      sd.ver = STRATEGY_DEFAULT.ver;
-    }
-  }
+  // NAV 마일스톤 청산 전략 제거(A) — 백스톱·고점은 하방 보호 규칙으로 이전(아래 risk 블록에서 마이그레이션)
   if (!state.prices) state.prices = { proxyMode:'public', proxyUrl:'', lastFetch:null, autoMin:0 };
   // 하방 보호 규칙 — 기본값 주입/보정
   if (!state.settings.risk) {
     const pr=(state.settings.principal||400000000);
-    state.settings.risk = { floorMode:'abs', floorAbs:Math.round(pr*0.8), floorPeakPct:0.25, muExcess:0.10, levMult:2.5, trendOn:true, accelOn:true, rebalBand:0.05, overshootPct:0.15, cashoutFrac:0.50, trend:{} };
+    state.settings.risk = { floorMode:'abs', floorAbs:Math.round(pr*0.8), floorPeakPct:0.25, muExcess:0.10, levMult:2.5, trendOn:true, accelOn:true, rebalBand:0.05, overshootPct:0.15, cashoutFrac:0.50, backstop:0.20, peakNav:null, trend:{} };
   } else {
     const rk=state.settings.risk;
     if(rk.floorMode==null) rk.floorMode='abs';
@@ -1076,8 +1039,13 @@ function normalizeState(){
     if(rk.rebalBand==null) rk.rebalBand=0.05;
     if(rk.overshootPct==null) rk.overshootPct=0.15;
     if(rk.cashoutFrac==null) rk.cashoutFrac=0.50;
+    // 백스톱(트레일링 −%) + 고점 — 구 strategy에서 이전(A)
+    const _os=state.settings.strategy;
+    if(rk.backstop==null) rk.backstop=(_os&&_os.backstop!=null)?_os.backstop:0.20;
+    if(rk.peakNav==null) rk.peakNav=(_os&&_os.peakNav!=null)?_os.peakNav:null;
     if(!rk.trend) rk.trend={};
   }
+  if(state.settings.strategy) delete state.settings.strategy;   // A: NAV 마일스톤 청산 전략 완전 제거
   if(!Array.isArray(state.riskLog)) state.riskLog=[];   // 하방 신호 전환 로그(영속)
   if(!state.riskState) state.riskState={};               // 직전 신호 상태(전환 감지용)
   if(!Array.isArray(state.parkPool)) state.parkPool=[];  // 오버슛 현금 버퍼 — 파킹 로트(파킹시 NAV 기록)
@@ -2396,7 +2364,7 @@ function renderDashboard(){
   renderTopbar();
   renderRebalAlert(s);
   renderCagrAlert();
-  renderStrategyAlert(s);
+  // renderStrategyAlert 제거(A) — 백스톱은 하방 보호/할일로 통합
   renderActionCenter(s);
   renderRiskAlert(s);
   renderParkAlert(s);
@@ -2418,8 +2386,8 @@ function renderCagrAlert(){
   if(gap>0 && pct>=overshootPct){
     // 초과 (골드) — 목표보다 임계% 이상 초과 시 현금화 권장 (초과분의 일정%만 분할 현금화)
     const cashoutAmt=Math.round(gap*cashoutFrac);
-    const sp=computeStrategyPlan(portfolioStats());
-    const stratActive = sp && sp.enabled && sp.step>=1 && sp.sellAmt>1000000;
+    const sp=computeBackstop(portfolioStats());
+    const stratActive = sp && sp.hit && sp.sellAmt>1000000;
     el.style.borderColor='var(--gold)';
     el.style.background='var(--gold-soft)';
     el.innerHTML=`<div style="display:flex;align-items:center;gap:11px">
@@ -2428,7 +2396,7 @@ function renderCagrAlert(){
         <div style="font-weight:700;font-size:13px">CAGR 목표 초과 달성</div>
         <div style="font-size:11.5px;color:var(--text-2);margin-top:2px">목표보다 +${(pct*100).toFixed(1)}% 초과(임계 ${(overshootPct*100).toFixed(0)}%) · 초과분 ₩${fmtKRW(gap)} 중 <b style="color:var(--text)">권장 현금화 ₩${fmtKRW(cashoutAmt)}</b>(${(cashoutFrac*100).toFixed(0)}%)</div>
         <div style="font-size:10.5px;color:var(--text-3);margin-top:3px">→ 현금화 후 '오버슛 현금 버퍼'에 파킹 기록하면 하락 시 자동 재투입 래더</div>
-        ${stratActive?`<div style="font-size:11px;color:var(--orange);margin-top:4px">⚠ 레버리지 청산 전략 활성 중 — 중복 디리스크 방지 위해 현금화는 보류 권장</div>`:''}
+        ${stratActive?`<div style="font-size:11px;color:var(--orange);margin-top:4px">⚠ 백스톱 방어 발동 중 — 중복 디리스크 방지 위해 현금화는 보류 권장</div>`:''}
       </div>
       <span style="color:var(--gold);font-size:12px;font-weight:600;white-space:nowrap">현금화 ▸</span>
     </div>`;
@@ -2453,7 +2421,7 @@ function ytdOverseasRealized(){
   return s;
 }
 /* ================================================================
-   하방 보호 엔진 — ① 변동성/켈리 상한 ② 추세필터(200일선) ③ 백스톱(전략) ④ 절대 플로어
+   하방 보호 엔진 — ① 변동성/켈리 상한 ② 추세필터(200일선) ③ 백스톱 ④ 절대 플로어
    계산·알림 전용(자동매매 아님)
    ================================================================ */
 function peakNavAll(){
@@ -2656,7 +2624,7 @@ function logRiskTransitions(r){
 function backtestRules(){
   const h=(state.history||[]).filter(x=>x.d && x.total>0).slice().sort((a,b)=>a.d.localeCompare(b.d));
   if(h.length<10) return null;
-  const band=(state.settings.strategy&&state.settings.strategy.backstop!=null)?state.settings.strategy.backstop:0.20;
+  const band=(state.settings.risk&&state.settings.risk.backstop!=null)?state.settings.risk.backstop:0.20;
   const ret=[];
   for(let i=1;i<h.length;i++){
     const flow=(h[i].cumDep!=null&&h[i-1].cumDep!=null)?(h[i].cumDep-h[i-1].cumDep):0;
@@ -2879,7 +2847,7 @@ function computeLevConvertPlan(s){
   const brokenNow=(t['^GSPC']&&t['^GSPC'].below)||(t['^NDX']&&t['^NDX'].below);
   const trendConfirmed = brokenNow && (tc.days||0)>=2;
   // NAV 마일스톤(보조) — 단계당 ¼ 누적
-  const ms=(state.settings.strategy&&state.settings.strategy.milestones)||[];
+  const ms=[];   // NAV 마일스톤 제거(A) — 전환은 추세 트리거만
   const nav=s.totalWithCash;
   const navStep=ms.filter(m=>nav>=m).length;
   const fracTrend = trendConfirmed ? (1/3) : 0;       // 추세: ⅓ 분할
@@ -2927,7 +2895,7 @@ function renderLevConvAlert(s){
 }
 function openLevConvPlan(){
   const s=portfolioStats(); const p=computeLevConvertPlan(s);
-  if(!p.active){ openModal('<h3 style="margin-bottom:8px">Lev Tech 현물 전환</h3><div class="info-text">현재 전환 트리거가 없습니다. 추세가 200일선 아래로 2거래일 이상 이탈하거나 NAV 마일스톤 도달 시 전환을 권장합니다.</div>'); return; }
+  if(!p.active){ openModal('<h3 style="margin-bottom:8px">Lev Tech 현물 전환</h3><div class="info-text">현재 전환 트리거가 없습니다. 추세가 200일선 아래로 2거래일 이상 이탈 시 전환을 권장합니다.</div>'); return; }
   const trigTxt = p.trigger==='trend'
     ? `추세 이탈 ${p.confirmDays}거래일 확인 — ⅓ 분할 전환`
     : `NAV ${p.navStep}단계 도달 — ${(p.frac*100).toFixed(0)}% 전환`;
@@ -3064,86 +3032,28 @@ function applyRecommendedTargets(){
 }
 window.applyRecommendedTargets=applyRecommendedTargets;
 window.advanceGlide=advanceGlide; window.cancelGlide=cancelGlide; window.tryAdvanceGlide=tryAdvanceGlide;
-function computeStrategyPlan(s){
-  const st=state.settings.strategy;
-  if(!st||!st.enabled) return {enabled:false};
+function computeBackstop(s){
+  // 트레일링 백스톱 — 고점(전진식) 대비 낙폭이 backstop 이상이면 레버리지 절반 방어 매도(현금 디리스크)
+  const rk=state.settings.risk||{};
   const total=s.totalWithCash||0;
-  const ms=st.milestones.slice().sort((a,b)=>a-b);
-  let step=0; for(const m of ms){ if(total>=m) step++; }
-  const phase = step>=4?'안정':(step>=1?'전환':'리스크온');
-  const levTgt = (classTarget('lev_tech')>0||classTarget('lev_crypto')>0) ? (classTarget('lev_tech')+classTarget('lev_crypto')) : 0.30;   // 글라이드 보간 반영
-  const recLevWeight = Math.max(0, levTgt*(1-step*(st.stepFrac||0.25)));
-  const recLevValue = recLevWeight*total;
   const lt=s.totals.lev_tech||{current:0,invested:0}, lc=s.totals.lev_crypto||{current:0,invested:0};
-  const lev = {current:(lt.current||0)+(lc.current||0), invested:(lt.invested||0)+(lc.invested||0)};
-  const actualLev = lev.current||0;
-  const sellAmt0 = Math.max(0, actualLev-recLevValue);
-  let next=null, toNext=0; for(const m of ms){ if(total<m){ next=m; toNext=m-total; break; } }
-  // 트레일링 백스톱 — 고점(전진식) 대비 낙폭이 backstop 이상이면 레버리지 절반 방어 청산
-  const peak=Math.max(st.peakNav||total, total); st.peakNav=peak;
-  let backstopHit=false, ddFromPeak=0, bsSell=0;
-  if(st.backstop!=null && peak>0 && step<4){
-    ddFromPeak=(peak-total)/peak;
-    if(ddFromPeak>=st.backstop){ backstopHit=true; bsSell=Math.max(0, actualLev-actualLev*0.5); }
-  }
-  let sellAmt = backstopHit ? Math.max(sellAmt0, bsSell) : sellAmt0;
-  if(st.navSettleOff && !backstopHit) sellAmt = 0;   // NAV 마일스톤 청산 끔 — 백스톱(위기)·글라이드·방어만 레버리지 축소 담당
-  // [3] 정착처 = 현재 목표 비중(레버리지·현금 제외)으로 자동 분배 — 별도 바스켓 없이 목표와 항상 일치
-  // 카테고리 슬롯(symbol 없음)으로 만들면 청산 입력 흐름이 실보유 종목에 targetWt 비례로 분배
-  const settleCats=['us_stock','global_etf','crypto'];
-  let cwSum=0; const cw={};
-  settleCats.forEach(k=>{ cw[k]=Math.max(0,classTarget(k)); cwSum+=cw[k]; });
-  const basket = (cwSum>0?settleCats.filter(k=>cw[k]>0):[]).map(k=>({
-    name:CATEGORIES[k].label, weight:cw[k]/cwSum, cat:k, symbol:'',
-    amount: sellAmt*(cw[k]/cwSum) }));
-  const sleeveRatio = actualLev>0 ? (actualLev-(lev.invested||0))/actualLev : 0;   // 음수 = 평가손
-  const realized = sellAmt*sleeveRatio;
+  const actualLev=(lt.current||0)+(lc.current||0);
+  const inv=(lt.invested||0)+(lc.invested||0);
+  if(rk.backstop==null || total<=0) return {on:false,hit:false,backstop:rk.backstop,actualLev,sellAmt:0,ddFromPeak:0,peak:total,realized:0,ytd:0,tax:0};
+  const peak=Math.max(rk.peakNav||total, total); rk.peakNav=peak;
+  const ddFromPeak=(peak-total)/peak;
+  const hit=ddFromPeak>=rk.backstop;
+  const sellAmt=hit?Math.max(0, actualLev*0.5):0;   // 절반 디리스크 → 현금 보유
+  const sleeveRatio=actualLev>0?(actualLev-inv)/actualLev:0;
+  const realized=sellAmt*sleeveRatio;
   const ded=state.settings.overseasDeduction||0;
   const ytd=ytdOverseasRealized();
   const taxable=Math.max(0,(ytd+realized)-ded);
   const tax=taxable*((state.settings.taxRates&&state.settings.taxRates.overseas)||0.22);
-  return {enabled:true,total,step,phase,next,toNext,sellAmt,recLevWeight,actualLev,recLevValue,basket,realized,ytd,tax,backstopHit,ddFromPeak,peak,backstop:st.backstop};
+  return {on:true,hit,backstop:rk.backstop,actualLev,sellAmt,ddFromPeak,peak,realized,ytd,tax};
 }
-function renderStrategyAlert(s){
-  const el=document.getElementById('strategy-alert'); if(!el) return;
-  const p=computeStrategyPlan(s);
-  if(!p.enabled){ el.style.display='none'; el.innerHTML=''; return; }
-  if(p.sellAmt>1000000){ el.style.display='none'; el.innerHTML=''; return; }  // 정착 트리거는 할 일 알림으로 통합 — 평상시 상태만 카드로
-  let title, body, right='상세 ▸';
-  if(p.backstopHit && p.sellAmt>1000000){
-    title=`⚠ 백스톱 발동 · 고점 −${fmtPct(p.ddFromPeak,0)}`;
-    body=`방어 청산 — 레버리지 ₩${fmtKRW(p.sellAmt)} 매도 권장(절반 디리스크)`;
-    right='플랜 ▸';
-  } else if(p.step>=4){
-    title='전략 완료 · 안정 단계';
-    body='레버리지 전량 청산 목표 도달 — 정착 ETF 운용 단계';
-  } else if(p.step>=1 && p.sellAmt>1000000){
-    title=`전환 ${p.step}단계 도달 — 레버리지 청산 권장`;
-    const taxTxt=p.realized<0?'실현손실 → 과세 0':`예상세 ₩${fmtKRW(p.tax)}`;
-    body=`레버리지 ₩${fmtKRW(p.sellAmt)} 매도 → 정착 ETF 매수 · ${taxTxt}`;
-    right='플랜 ▸';
-  } else {
-    const navOff=state.settings.strategy&&state.settings.strategy.navSettleOff;
-    if(navOff){
-      title='전략 · 백스톱 대기';
-      const bs=p.backstop!=null?('고점 −'+(p.backstop*100).toFixed(0)+'%'):'미사용';
-      body=`NAV 마일스톤 청산 OFF (참고용) · 백스톱 ${bs} 활성`;
-    } else {
-      title=`전략 대기 · ${p.phase}`;
-      body=p.next?`다음 단계 ${eokFmt(p.next)}까지 +₩${fmtKRW(p.toNext)} (${fmtPct(p.toNext/(p.total||1),0)})`:'—';
-    }
-  }
-  el.innerHTML=`<div style="display:flex;align-items:center;gap:11px">
-    <span class="sa-dot"></span>
-    <div style="flex:1">
-      <div style="font-weight:700;font-size:13px">${esc(title)}</div>
-      <div style="font-size:11.5px;color:var(--text-2);margin-top:2px">${body}</div>
-    </div>
-    <span style="color:#5AA0A6;font-size:12px;font-weight:600;white-space:nowrap">${right}</span>
-  </div>`;
-  el.style.display='block';
-  el.onclick=()=>openStrategyPlan();
-}
+
+/* renderStrategyAlert 제거(A) — 백스톱 상태는 하방 보호 규칙 카드/할일 알림으로 통합 */
 /* ===== 통합 할 일 알림 센터 — 모든 신호를 한 곳에 모아 "왜 + 무엇을 + 어떻게" 표시 ===== */
 function computeActionAlerts(s){
   const out=[];
@@ -3160,11 +3070,15 @@ function computeActionAlerts(s){
   try{ const cv=computeLevConvertPlan(s);
     if(cv&&cv.active && _r && _r.level!=='trend' && _r.level!=='floor'){
       const qty=(cv.rows||[]).filter(r=>r.sellSh>0).map(r=>`${r.levSym} −${Math.round(r.sellSh)}주 → ${r.spotSym} +${r.buySh!=null?Math.round(r.buySh):'?'}주`).join(' · ');
-      out.push({tag:'전환',sev:'warn',why:`Lev Tech → 현물 전환 (${cv.trigger==='trend'?'추세 이탈 2일':cv.trigger==='nav'?'NAV 마일스톤':'신호'})`,sub:(qty?qty+' · ':'')+'매매 후 입력하면 목표 자동 이전',act:'alloc'});
+      out.push({tag:'전환',sev:'warn',why:`Lev Tech → 현물 전환 (${cv.trigger==='trend'?'추세 이탈 2일':'신호'})`,sub:(qty?qty+' · ':'')+'매매 후 입력하면 목표 자동 이전',act:'alloc'});
     }
   }catch(_){}
-  try{ const sp=computeStrategyPlan(s);
-    if(sp&&sp.enabled&&sp.sellAmt>1000000) out.push({tag:'정착',sev:'warn',why:`청산 트리거 도달 — 바스켓 정착 ₩${fmtKRW(sp.sellAmt)}`,sub:'정착 입력에서 바스켓 종목별 분배 매수 ▸',act:'settle'});
+  // 백스톱 — 고점 대비 −% 도달 시 레버리지 절반 방어 매도(현금 디리스크). 방어(lev/trend/floor) 활성 시엔 방어가 더 크게 축소하므로 숨김(중복 방지)
+  try{ const bsp=computeBackstop(s);
+    const defLevOn=_r&&_r.level&&_r.level!=='near';
+    if(bsp.hit && bsp.sellAmt>1000000 && !defLevOn){
+      out.push({tag:'백스톱',sev:'warn',why:`백스톱 발동 — 고점 −${fmtPct(bsp.ddFromPeak,0)} · 레버리지 절반 방어 매도 ₩${fmtKRW(bsp.sellAmt)}`,sub:'위기 디리스크 — 레버리지 절반 매도 후 현금 보유(반등 시 목표대로 재배분) ▸',act:'risk'});
+    }
   }catch(_){}
   // 상승 가속 — 상승 추세 확인 시 현금 목표를 절반으로 낮춰 자동 투입·윈너라이딩 (방어의 대칭)
   try{ const ac=computeAccelRegime(s);
@@ -3197,7 +3111,6 @@ function computeActionAlerts(s){
 function acDispatch(act){
   try{
     if(act==='risk') openRiskPlan();
-    else if(act==='settle') startDestEntry();
     else switchView('allocation');
   }catch(_){ switchView('allocation'); }
 }
@@ -3208,7 +3121,7 @@ function renderActionCenter(s){
   if(!acts.length){ el.style.display='none'; el.onclick=null; return; }
   const sev = acts.some(a=>a.sev==='crit')?'crit':(acts.some(a=>a.sev==='warn')?'warn':'');
   el.className='card action-center'+(sev?' '+sev:'');
-  const tagColor={방어:'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A'};
+  const tagColor={방어:'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A'};
   const rows=acts.map(a=>`<div class="ac-row" onclick="event.stopPropagation();acDispatch('${a.act}')" style="cursor:pointer">
     <span class="ac-tag" style="background:${tagColor[a.tag]||'#666'}22;color:${tagColor[a.tag]||'#aaa'}">${a.tag}</span>
     <span style="flex:1;min-width:0"><span style="font-size:11.5px;line-height:1.4;font-weight:600">${esc(a.why)}</span>${a.sub?`<br><span style="font-size:10px;color:var(--text-3);line-height:1.35">${esc(a.sub)}</span>`:''}</span>
@@ -3277,10 +3190,10 @@ function openRiskPlan(){
   const floorTxt = risk.floorMode==='peakpct' ? `전고점 −${((risk.floorPeakPct||0.25)*100).toFixed(0)}%` : `절대 ₩${fmtKRW(risk.floorAbs||0)}`;
   const dist = r.floor>0 ? (r.nav/r.floor-1) : null;
   const row4 = `하한 ${floorTxt} = <b>₩${fmtKRW(r.floor)}</b> · 현재 ${yn(r.floorBreach,'여유','붕괴')} ${dist!=null?`<span style="color:var(--text-3)">(${fmtPctSigned(dist,1)})</span>`:''}`;
-  // ③ 백스톱(전략)
-  const sp=computeStrategyPlan(s);
-  const row3 = (state.settings.strategy&&state.settings.strategy.backstop!=null)
-    ? `고점 −${((state.settings.strategy.backstop)*100).toFixed(0)}% · ${yn(sp.backstopHit,'정상','발동')}`
+  // ③ 백스톱(하방 보호)
+  const sp=computeBackstop(s);
+  const row3 = (risk.backstop!=null)
+    ? `고점 −${(risk.backstop*100).toFixed(0)}% · ${yn(sp.hit,'정상','발동')}${sp.peak?` <span style="color:var(--text-3)">(고점 대비 ${fmtPctSigned(-sp.ddFromPeak,1)})</span>`:''}`
     : `<span style="color:var(--text-3)">미사용</span>`;
   // 현재 활성 경고의 권장 조치 + 재진입 조건
   let actionBlock='';
@@ -3345,37 +3258,6 @@ function openRiskPlan(){
     <div class="info-text" style="margin-top:14px;font-size:10.5px;color:var(--text-3)">※ 계산·알림 전용(자동매매 아님). 변동성·추세는 추정이며 체결·세무는 직접 확인. 설정 → 하방 보호에서 수정.</div>`;
   openModal(html);
 }
-function openStrategyPlan(){
-  const s=portfolioStats(); const p=computeStrategyPlan(s); const st=state.settings.strategy;
-  if(!p.enabled){ openModal('<div class="info-text">전략이 꺼져 있습니다. 설정에서 켤 수 있어요.</div><button class="btn btn-secondary" style="width:100%;margin-top:12px" onclick="closeModal()">닫기</button>'); return; }
-  const ms=st.milestones.slice().sort((a,b)=>a-b);
-  const navOff=!!st.navSettleOff;
-  let steps='';
-  ms.forEach((m,i)=>{
-    const done=p.total>=m, cum=((i+1)*(st.stepFrac||0.25)*100).toFixed(0);
-    steps+=`<tr style="opacity:${done?1:.5}">
-      <td>${i+1}차</td><td>${eokFmt(m)}</td><td>레버리지 ¼ 청산</td>
-      <td style="text-align:right">누적 ${cum}%</td>
-      <td style="text-align:right">${navOff?'참고용':(done?'✅':'대기')}</td></tr>`;
-  });
-  const basketRows=p.basket.map(b=>`<tr><td>${esc(b.name)}</td><td style="text-align:right">${(b.weight*100).toFixed(0)}%</td><td style="text-align:right">₩${fmtKRW(b.amount)}</td></tr>`).join('');
-  const action=((p.step>=1||p.backstopHit) && p.sellAmt>1000000)
-    ? `${p.backstopHit?`<div class="info-text" style="margin:10px 0 0;color:var(--down);font-weight:700">⚠ 백스톱 발동 · 고점 −${fmtPct(p.ddFromPeak,0)} — 레버리지 절반 방어 청산</div>`:''}
-       <div class="info-text" style="margin:12px 0 8px">지금 실행 — 레버리지 <b style="color:var(--text)">₩${fmtKRW(p.sellAmt)}</b> 매도 후 아래 비중대로 매수:</div>
-       <table class="mini-tbl"><thead><tr><th>정착 ETF</th><th style="text-align:right">비중</th><th style="text-align:right">매수액</th></tr></thead><tbody>${basketRows}</tbody></table>
-       <div class="info-text" style="margin-top:10px">실현손익(추정) <b style="color:${p.realized<0?'var(--down)':'var(--up)'}">${p.realized<0?'−':'+'}₩${fmtKRW(Math.abs(p.realized))}</b> · 올해 해외 통산 ₩${fmtKRW(p.ytd)} · <b>예상 양도세 ₩${fmtKRW(p.tax)}</b>${p.realized<0?' — 손실이라 과세 없음(올해 통산만, 이월 불가)':''}</div>
-       <button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="startDestEntry()">정착 ETF 입력 ▸ (체결 후 확정)</button>`
-    : `<div class="info-text" style="margin:12px 0">${navOff?'백스톱(−'+((st.backstop||0.2)*100).toFixed(0)+'%) 미발동 · NAV 마일스톤은 참고용(자동 청산 OFF)':'아직 청산 트리거 미도달.'+(p.next?` 다음 단계 ${eokFmt(p.next)}까지 +₩${fmtKRW(p.toNext)}.`:'')}</div>`;
-  openModal(`
-    <h3 style="font-size:18px;font-weight:700;margin-bottom:4px">레버리지 청산 전략 · ${p.phase}</h3>
-    <div class="info-text" style="margin-bottom:12px">현재 NAV <b style="color:var(--text)">${fmtKRWFull(p.total)}</b> · 도달 <b>${p.step}/4</b>단계 · 권장 레버리지 비중 ${(p.recLevWeight*100).toFixed(1)}%</div>
-    ${navOff?`<div class="info-text" style="margin:-4px 0 12px;padding:9px 11px;border-radius:8px;border:1px solid var(--hairline);background:var(--surface);font-size:11px;color:var(--text-2);line-height:1.55">⚠ NAV 마일스톤 청산 <b style="color:var(--text)">OFF</b> — 아래 표는 <b>참고용</b>이며 NAV가 닿아도 자동 청산하지 않습니다. 레버리지 축소는 글라이드(목표까지)·방어·백스톱(−${((st.backstop||0.2)*100).toFixed(0)}%)이 담당합니다.</div>`:''}
-    <table class="mini-tbl"><thead><tr><th>단계</th><th>NAV</th><th>동작</th><th style="text-align:right">누적</th><th style="text-align:right">상태</th></tr></thead><tbody>${steps}</tbody></table>
-    ${action}
-    <div class="info-text" style="margin-top:12px;font-size:10.5px;color:var(--text-3)">백스톱: ${st.backstop!=null?('고점 −'+(st.backstop*100).toFixed(0)+'%'):'미사용'} · 정착처: 현재 목표 비중대로 (US·ETF·크립토)<br>※ 추정치이며 체결·세금은 증권사·세무 확인 권장. 계산·알림 전용(자동매매 아님).</div>
-    <button class="btn btn-secondary" style="width:100%;margin-top:14px" onclick="closeModal()">닫기</button>`);
-}
-
 function openRiskEditor(){
   const rk=state.settings.risk||{};
   const inSt="background:var(--surface);color:var(--text);border:1px solid var(--hairline);border-radius:8px;padding:10px 12px;font-size:14px;min-width:0;width:100%";
@@ -3412,6 +3294,10 @@ function openRiskEditor(){
       현금도 하나의 <b>목표 비중</b> \u2014 리밸런싱이 나머지(예: 85%)만 슬리브에 배분, 이만큼은 현금 유지.<br>
       엔진이 굴림: 상승 확인 시 절반↓(자동 투입) · 하락 시 적립 · 별도 \u2018대기자금\u2019 버킷 없음. 권장 10~15%.
     </div>
+
+    <div class="info-text" style="margin-bottom:6px;font-weight:700">③ 트레일링 백스톱 (고점 대비 낙폭 방어)</div>
+    <div class="info-text" style="margin-bottom:6px">전고점 대비 이 % 이상 하락 시 <b>레버리지 절반</b>을 방어적으로 매도(현금 디리스크) 권장. 0 = 미사용</div>
+    <div class="field" style="margin-bottom:16px"><label>백스톱 −% (낙폭)</label><input id="rk-backstop" type="number" step="1" value="${rk.backstop!=null?(rk.backstop*100).toFixed(0):'0'}" style="${inSt}"></div>
 
     <div class="info-text" style="margin-bottom:6px;font-weight:700">④ 절대 플로어 (불가침 하한)</div>
     <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px">
@@ -3451,6 +3337,7 @@ function saveRisk(){
   const bd=parseFloat(document.getElementById('rk-band').value||'5')||5; rk.rebalBand=Math.min(0.5,Math.max(0,bd/100));
   const ov=parseFloat(document.getElementById('rk-over').value||'15')||15; rk.overshootPct=Math.min(1,Math.max(0.01,ov/100));
   const cf=parseFloat(document.getElementById('rk-cashfrac').value||'50')||50; rk.cashoutFrac=Math.min(1,Math.max(0.05,cf/100));
+  { const bs=document.getElementById('rk-backstop'); if(bs){ const v=parseFloat(bs.value||'0')||0; const newBs=v>0?Math.min(0.9,v/100):null; if(newBs!==rk.backstop) rk.peakNav=null; rk.backstop=newBs; } }
   saveState();
   closeModal();
   try{ renderSettings(); }catch(_){}
@@ -3458,90 +3345,6 @@ function saveRisk(){
   if(rk.trendOn) fetchTrend200(true).then(()=>{ try{ if(currentView==='dashboard'){ const _s=portfolioStats(); renderRiskAlert(_s); renderLevConvAlert(_s); renderActionCenter(_s); } }catch(_){} }).catch(()=>{});
   toast('하방 보호 규칙 저장됨');
 }
-function openStrategyEditor(){
-  const st=state.settings.strategy||JSON.parse(JSON.stringify(STRATEGY_DEFAULT));
-  const ms=st.milestones.slice().sort((a,b)=>a-b);
-  const navInputs=[0,1,2,3].map(i=>`<div class="field" style="flex:1;min-width:0"><label>${i+1}차</label><input id="strat-m${i}" type="number" step="0.1" value="${((ms[i]||0)/1e8).toFixed(1)}"></div>`).join('');
-  const inSt="background:var(--surface);color:var(--text);border:1px solid var(--hairline);border-radius:8px;padding:10px 12px;font-size:14px;min-width:0";
-  openModal(`
-    <h3 style="font-size:18px;font-weight:700;margin-bottom:10px">레버리지 청산 전략</h3>
-    <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:13px">
-      <input type="checkbox" id="strat-enabled" ${st.enabled?'checked':''}> 전략 사용
-    </label>
-    <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:13px">
-      <input type="checkbox" id="strat-navoff" ${st.navSettleOff?'checked':''}> NAV 마일스톤 청산 끄기 (백스톱·글라이드·방어는 유지)
-    </label>
-    <div class="info-text" style="margin-bottom:6px">단계별 트리거 NAV (억원) · 각 단계 도달 시 레버리지 ¼ 청산 (마일스톱 끄면 표시만)</div>
-    <div style="display:flex;gap:8px;margin-bottom:14px">${navInputs}</div>
-    <div class="info-text" style="margin-bottom:6px">트레일링 백스톱 — 고점 대비 낙폭 % 도달 시 레버리지 절반 방어 청산 (0 = 미사용)</div>
-    <div style="display:flex;gap:8px;margin-bottom:14px"><div class="field" style="flex:1;min-width:0"><label>백스톱 −%</label><input id="strat-backstop" type="number" step="1" value="${st.backstop!=null?(st.backstop*100).toFixed(0):'0'}" style="${inSt}"></div></div>
-    <div class="info-text" style="margin-bottom:14px;padding:9px 11px;border-radius:8px;border:1px solid var(--hairline);background:var(--surface);font-size:11px">정착처: <b>현재 목표 비중대로 자동 분배</b> (별도 바스켓 없음) — 청산 시 US·ETF·크립토 목표 비중대로 실보유 종목에 배분됩니다.</div>
-    <div class="info-text" id="strat-warn" style="color:var(--down);min-height:14px"></div>
-    <button class="btn btn-primary" style="width:100%;margin-top:10px" id="strategy-save">저장</button>
-    <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="closeModal()">취소</button>`);
-  document.getElementById('strategy-save').onclick=saveStrategy;
-}
-async function saveStrategy(){
-  const st=state.settings.strategy||(state.settings.strategy=JSON.parse(JSON.stringify(STRATEGY_DEFAULT)));
-  const warn=document.getElementById('strat-warn');
-  const ms=[0,1,2,3].map(i=>Math.round(parseFloat(document.getElementById('strat-m'+i).value||'0')*1e8));
-  if(ms.some(v=>!(v>0))){ warn.textContent='NAV 값을 모두 입력해줘 (억 단위).'; return; }
-  st.enabled=document.getElementById('strat-enabled').checked;
-  st.navSettleOff=document.getElementById('strat-navoff').checked;
-  st.milestones=ms.sort((a,b)=>a-b);
-  st.basket=[];   // [3] 별도 바스켓 없음 — 청산은 현재 목표 비중대로 자동 분배
-  const bsPct=parseFloat(document.getElementById('strat-backstop').value||'0')||0;
-  const newBs=bsPct>0?bsPct/100:null;
-  if(newBs!==st.backstop) st.peakNav=null;   // 백스톱 변경 시 고점 재시작
-  st.backstop=newBs;
-  st.ver=STRATEGY_DEFAULT.ver;
-  await saveState(); closeModal(); toast('전략 저장됨'); renderSettings();
-  if(currentView==='dashboard') renderDashboard();
-}
-
-/* === 정착 ETF 순차 입력(미리채움 후 확정) === */
-let destFlow=null;
-function startDestEntry(){
-  const p=computeStrategyPlan(portfolioStats());
-  if(!p.enabled || !(p.sellAmt>1000000)){ toast('지금은 청산 트리거 미도달'); return; }
-  const items=[];
-  (p.basket||[]).filter(b=>b.amount>0).forEach(b=>{
-    if(!b.symbol && b.cat){
-      // 카테고리 슬롯(US 개별주 등) → 해당 자산군 실보유 종목으로 목표비중 비례 분배 (0주 전환현물·바스켓 슬롯 제외)
-      const hs=state.holdings.filter(h=>h.cat===b.cat && !(h._convSpot&&(h.qty||0)===0) && !h._basketSpot);
-      const twSum=hs.reduce((s,h)=>s+(h.targetWt||0),0);
-      if(hs.length && twSum>0){
-        hs.forEach(h=>{ const w=(h.targetWt||0)/twSum; if(w>0) items.push({name:h.name,amount:b.amount*w,cat:b.cat,symbol:(h.symbol||'').replace('.KS','').replace('.L','')}); });
-        return;
-      }
-      if(hs.length){ hs.forEach(h=>items.push({name:h.name,amount:b.amount/hs.length,cat:b.cat,symbol:(h.symbol||'').replace('.KS','').replace('.L','')})); return; }
-      items.push({name:b.name,amount:b.amount,cat:b.cat,symbol:''});   // 보유 없으면 단일 슬롯
-    } else {
-      items.push({name:b.name,amount:b.amount,cat:b.cat||'global_etf',symbol:b.symbol||''});
-    }
-  });
-  if(!items.length){ toast('바스켓이 비어있어'); return; }
-  destFlow={items, idx:0};
-  openDestEntry();
-}
-function openDestEntry(){
-  if(!destFlow){ return; }
-  const it=destFlow.items[destFlow.idx];
-  const n=destFlow.items.length, last=destFlow.idx>=n-1;
-  fabCat=it.cat||'global_etf'; fabSym=it.symbol||'';
-  openModal(`<h3>정착 자산 입력 (${destFlow.idx+1}/${n})</h3>
-    <div class="modal-sub">${esc(it.name)} · 목표 매수액 <b>₩${fmtKRW(it.amount)}</b> — 체결 후 실제 수량·단가 입력${it.cat==='crypto'?' (BTC 자동 분류·업비트 시세)':' (티커는 조회)'}</div>
-    <div id="m-dynamic"></div>
-    <div class="btn-row">
-      <button class="btn btn-secondary" onclick="cancelDestFlow()">중단</button>
-      <button class="btn btn-primary" onclick="submitFab()">${last?'저장':'저장 후 다음 ▸'}</button>
-    </div>`);
-  renderFabFields();
-  const nm=document.getElementById('m-name'); if(nm) nm.value=it.name;
-  const sy=document.getElementById('m-symbol'); if(sy&&it.symbol) sy.value=it.symbol;
-}
-function cancelDestFlow(){ destFlow=null; closeModal(); }
-window.startDestEntry=startDestEntry; window.cancelDestFlow=cancelDestFlow;
 
 function renderRebalAlert(s){
   const el=document.getElementById('rebal-alert');
@@ -4631,7 +4434,7 @@ function renderStockRebalance(){
         const tc=(state.settings.risk&&state.settings.risk.trendConv)||{};
         activateHint = ((tc.days||0)>0)
           ? `Lev Tech 추세 이탈 ${tc.days}일째 · 2일 확인 시 전환 매수`
-          : 'Lev Tech 추세 이탈 2일 확인(또는 NAV 마일스톤) 시 전환 매수';
+          : 'Lev Tech 추세 이탈 2일 확인 시 전환 매수';
       } else if(h._basketSpot){
         activateHint = '레버리지 청산 트리거 도달 시 정착 매수';
       } else if(h._stepSpot){
@@ -5110,7 +4913,7 @@ async function saveClassTargetsNext(){
 }
 function openTargetProposalStep2(){
   const cats=Object.keys(CATEGORIES).filter(k=>state.holdings.some(h=>h.cat===k));
-  const basket=(state.settings.strategy&&state.settings.strategy.basket)||[];
+  const basket=[];   // 정착 바스켓 제거([3]) — 청산은 목표 비중대로 자동 분배
   const _bs=s=>(s||'').toUpperCase().replace(/\.(KS|KQ|L)$/,'');
   const heldSyms=new Set(state.holdings.filter(h=>h.qty>0).map(h=>_bs(h.symbol)));
   const basketHtml = basket.length ? `<div style="margin:6px 0 12px;padding:11px;border-radius:9px;border:1px solid var(--hairline);background:var(--surface)">
@@ -6394,12 +6197,6 @@ async function submitFab(){
     } else { h.avgKRW=avg; h.curKRW=cur; }
     state.holdings.push(h);
     await saveState();
-    if(destFlow){
-      toast('정착 ETF 추가됨 ('+(destFlow.idx+1)+'/'+destFlow.items.length+')');
-      destFlow.idx++;
-      if(destFlow.idx<destFlow.items.length){ openDestEntry(); return; }
-      destFlow=null; closeModal(); switchView('holdings'); return;
-    }
     closeModal(); toast(qty>0?'종목 추가됨':'종목 추가됨 (수량 0 · 목표 비중 설정용)'); switchView('holdings');
     return;
   }
@@ -7300,18 +7097,7 @@ function renderSettings(){
   const meta=document.getElementById('last-fetch-meta');
   meta.textContent=state.prices.lastFetch?'최근 시세 갱신: '+new Date(state.prices.lastFetch).toLocaleString('ko-KR'):'시세를 아직 갱신하지 않았습니다';
   renderBackupMeta();
-  // 레버리지 청산 전략 요약
-  const ss=document.getElementById('strategy-summary');
-  if(ss){
-    const st=state.settings.strategy||STRATEGY_DEFAULT;
-    const ms=st.milestones.slice().sort((a,b)=>a-b).map(eokFmt).join(' · ');
-    const navTxt=st.navSettleOff?'NAV 마일스톤 청산 OFF · 백스톱 ':'단계별 ¼ 청산 · 백스톱 ';
-    ss.innerHTML = st.enabled
-      ? `상태: <b style="color:var(--text)">사용 중</b> · ${navTxt}${st.backstop!=null?('고점 −'+(st.backstop*100).toFixed(0)+'%'):'미사용'}<br>트리거 NAV: <b style="color:var(--text)">${ms}</b><br>정착처: <b style="color:var(--text)">현재 목표 비중대로 자동 분배</b> (별도 바스켓 없음)`
-      : '상태: <b style="color:var(--text-3)">꺼짐</b>';
-  }
-  const esb=document.getElementById('edit-strategy');
-  if(esb) esb.onclick=openStrategyEditor;
+  // 레버리지 청산 전략 제거(A) — 백스톱은 하방 보호 규칙 카드로 이전
   // 하방 보호 규칙 요약
   const rs=document.getElementById('risk-summary');
   if(rs){
@@ -7322,7 +7108,7 @@ function renderSettings(){
       const vol=r.kc.vol!=null?fmtPct(r.kc.vol,0):'—';
       const cap=r.kc.recMax!=null?r.kc.recMax.toFixed(2)+'배':'—';
       st=`① 사이징: 실효 ${r.eff.toFixed(2)}배 / 권장 ≤${cap} <span style="color:var(--text-3)">(변동성 ${vol})</span><br>`
-        +`② 추세 200일선 ${rk.trendOn?'사용':'끔'} · ③ 백스톱 ${state.settings.strategy&&state.settings.strategy.backstop!=null?('−'+(state.settings.strategy.backstop*100).toFixed(0)+'%'):'미사용'} · ④ 플로어 <b style="color:var(--text)">${floorTxt}</b><br>`
+        +`② 추세 200일선 ${rk.trendOn?'사용':'끔'} · ③ 백스톱 ${state.settings.risk&&state.settings.risk.backstop!=null?('−'+(state.settings.risk.backstop*100).toFixed(0)+'%'):'미사용'} · ④ 플로어 <b style="color:var(--text)">${floorTxt}</b><br>`
         +`⑤ 리밸런싱 노터치 밴드 ±${((rk.rebalBand!=null?rk.rebalBand:0.05)*100).toFixed(0)}%p<br>`
         +`⑥ 오버슛 현금화: 목표 +${((rk.overshootPct!=null?rk.overshootPct:0.15)*100).toFixed(0)}% 초과 시 초과분의 ${((rk.cashoutFrac!=null?rk.cashoutFrac:0.50)*100).toFixed(0)}% 분할`;
       try{ const ac=computeAccelRegime(portfolioStats()); if(ac.on&&ac.regime&&ac.regime!=='unknown'){

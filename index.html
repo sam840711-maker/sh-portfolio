@@ -934,7 +934,7 @@ function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
 const LEVTECH_SPOT_MAP = { NVDL:'NVDA', TSLL:'TSLA', GGLL:'GOOGL', PLTU:'PLTR' };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.5.1';
+const APP_VER = 'v2.5.2';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -4375,6 +4375,7 @@ function renderStockRebalance(){
     if(heldReason){
       sh=0; val=0; reasonTxt=heldReason;
       if(normalSh>0) conflict='목표비중 매수 → 경고로 보류';
+      else if(normalSh<0) conflict='목표비중 매도 → 방어 우선 보류';
     } else if(u){
       sh=u.sh; val=u.val; reasonTxt=u.reason||'';
       if(normalSh!==0 && Math.sign(normalSh)!==Math.sign(sh)) conflict=`목표비중 ${normalSh>0?'매수':'매도'} ↔ 종합 ${sh>0?'매수':'매도'}`;
@@ -4386,7 +4387,7 @@ function renderStockRebalance(){
     const tk=h.symbol.replace('.KS','').replace('.L','');
     const qtyAfter=h.qty+(heldReason?0:sh);
     const qtyTxt = heldReason ? '보류' : (hold ? '균형' : `${buy?'+':'−'}${fmtQ(sh)}${unit} ${buy?'매수':'매도'}`);
-    const subTxt = heldReason ? '경고 중 — 매수 보류'
+    const subTxt = heldReason ? esc(heldReason)
       : hold ? `이후 ${fmtQ(qtyAfter)}${unit}`
       : `₩${fmtKRW(Math.abs(val))} · 이후 ${fmtQ(qtyAfter)}${unit}`;
     const wtLine = rbMode==='within'
@@ -4542,13 +4543,15 @@ function computeUnifiedPlan(s){
     levHandled=true;
   }
   // 2) 일반 목표비중 리밸런싱 — 방어로 처리한 레버리지는 제외/보류
+  const step1Syms=new Set(rows.map(x=>x.sym));   // 방어 1단계에서 이미 축소한 종목
   Object.keys(CATEGORIES).forEach(cat=>{
     stockRebalance(cat,'portfolio').forEach(rr=>{
       if(rr.adjustShares===0) return;
       const lev=isLevCat(rr.h.cat);
       if(defense && lev){
         if(rr.adjustShares>0) holds.push({sym:rr.h.symbol,reason:'레버리지 경고 — 매수 보류'});
-        return;   // 매도는 방어 축소가 이미 처리
+        else if(rr.adjustShares<0 && !step1Syms.has(rr.h.symbol)) holds.push({sym:rr.h.symbol,reason:'3x 우선 축소 — 이번 차례 보류'});
+        return;   // 매도는 방어 축소(1단계)가 처리, 미처리 2x는 보류
       }
       rows.push({sym:rr.h.symbol,cat:rr.h.cat,sh:rr.adjustShares,
         val:rr.adjustVal,reason:'목표비중',

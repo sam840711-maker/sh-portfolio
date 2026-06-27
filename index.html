@@ -940,7 +940,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.7.23';
+const APP_VER = 'v2.7.24';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -3123,8 +3123,15 @@ function renderStrategyAlert(s){
     body=`레버리지 ₩${fmtKRW(p.sellAmt)} 매도 → 정착 ETF 매수 · ${taxTxt}`;
     right='플랜 ▸';
   } else {
-    title=`전략 대기 · ${p.phase}`;
-    body=p.next?`다음 단계 ${eokFmt(p.next)}까지 +₩${fmtKRW(p.toNext)} (${fmtPct(p.toNext/(p.total||1),0)})`:'—';
+    const navOff=state.settings.strategy&&state.settings.strategy.navSettleOff;
+    if(navOff){
+      title='전략 · 백스톱 대기';
+      const bs=p.backstop!=null?('고점 −'+(p.backstop*100).toFixed(0)+'%'):'미사용';
+      body=`NAV 마일스톤 청산 OFF (참고용) · 백스톱 ${bs} 활성`;
+    } else {
+      title=`전략 대기 · ${p.phase}`;
+      body=p.next?`다음 단계 ${eokFmt(p.next)}까지 +₩${fmtKRW(p.toNext)} (${fmtPct(p.toNext/(p.total||1),0)})`:'—';
+    }
   }
   el.innerHTML=`<div style="display:flex;align-items:center;gap:11px">
     <span class="sa-dot"></span>
@@ -3342,13 +3349,14 @@ function openStrategyPlan(){
   const s=portfolioStats(); const p=computeStrategyPlan(s); const st=state.settings.strategy;
   if(!p.enabled){ openModal('<div class="info-text">전략이 꺼져 있습니다. 설정에서 켤 수 있어요.</div><button class="btn btn-secondary" style="width:100%;margin-top:12px" onclick="closeModal()">닫기</button>'); return; }
   const ms=st.milestones.slice().sort((a,b)=>a-b);
+  const navOff=!!st.navSettleOff;
   let steps='';
   ms.forEach((m,i)=>{
     const done=p.total>=m, cum=((i+1)*(st.stepFrac||0.25)*100).toFixed(0);
     steps+=`<tr style="opacity:${done?1:.5}">
       <td>${i+1}차</td><td>${eokFmt(m)}</td><td>레버리지 ¼ 청산</td>
       <td style="text-align:right">누적 ${cum}%</td>
-      <td style="text-align:right">${done?'✅':'대기'}</td></tr>`;
+      <td style="text-align:right">${navOff?'참고용':(done?'✅':'대기')}</td></tr>`;
   });
   const basketRows=p.basket.map(b=>`<tr><td>${esc(b.name)}</td><td style="text-align:right">${(b.weight*100).toFixed(0)}%</td><td style="text-align:right">₩${fmtKRW(b.amount)}</td></tr>`).join('');
   const action=((p.step>=1||p.backstopHit) && p.sellAmt>1000000)
@@ -3357,10 +3365,11 @@ function openStrategyPlan(){
        <table class="mini-tbl"><thead><tr><th>정착 ETF</th><th style="text-align:right">비중</th><th style="text-align:right">매수액</th></tr></thead><tbody>${basketRows}</tbody></table>
        <div class="info-text" style="margin-top:10px">실현손익(추정) <b style="color:${p.realized<0?'var(--down)':'var(--up)'}">${p.realized<0?'−':'+'}₩${fmtKRW(Math.abs(p.realized))}</b> · 올해 해외 통산 ₩${fmtKRW(p.ytd)} · <b>예상 양도세 ₩${fmtKRW(p.tax)}</b>${p.realized<0?' — 손실이라 과세 없음(올해 통산만, 이월 불가)':''}</div>
        <button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="startDestEntry()">정착 ETF 입력 ▸ (체결 후 확정)</button>`
-    : `<div class="info-text" style="margin:12px 0">아직 청산 트리거 미도달.${p.next?` 다음 단계 ${eokFmt(p.next)}까지 +₩${fmtKRW(p.toNext)}.`:''}</div>`;
+    : `<div class="info-text" style="margin:12px 0">${navOff?'백스톱(−'+((st.backstop||0.2)*100).toFixed(0)+'%) 미발동 · NAV 마일스톤은 참고용(자동 청산 OFF)':'아직 청산 트리거 미도달.'+(p.next?` 다음 단계 ${eokFmt(p.next)}까지 +₩${fmtKRW(p.toNext)}.`:'')}</div>`;
   openModal(`
     <h3 style="font-size:18px;font-weight:700;margin-bottom:4px">레버리지 청산 전략 · ${p.phase}</h3>
     <div class="info-text" style="margin-bottom:12px">현재 NAV <b style="color:var(--text)">${fmtKRWFull(p.total)}</b> · 도달 <b>${p.step}/4</b>단계 · 권장 레버리지 비중 ${(p.recLevWeight*100).toFixed(1)}%</div>
+    ${navOff?`<div class="info-text" style="margin:-4px 0 12px;padding:9px 11px;border-radius:8px;border:1px solid var(--hairline);background:var(--surface);font-size:11px;color:var(--text-2);line-height:1.55">⚠ NAV 마일스톤 청산 <b style="color:var(--text)">OFF</b> — 아래 표는 <b>참고용</b>이며 NAV가 닿아도 자동 청산하지 않습니다. 레버리지 축소는 글라이드(목표까지)·방어·백스톱(−${((st.backstop||0.2)*100).toFixed(0)}%)이 담당합니다.</div>`:''}
     <table class="mini-tbl"><thead><tr><th>단계</th><th>NAV</th><th>동작</th><th style="text-align:right">누적</th><th style="text-align:right">상태</th></tr></thead><tbody>${steps}</tbody></table>
     ${action}
     <div class="info-text" style="margin-top:12px;font-size:10.5px;color:var(--text-3)">백스톱: ${st.backstop!=null?('고점 −'+(st.backstop*100).toFixed(0)+'%'):'미사용'} · 정착처: 현재 목표 비중대로 (US·ETF·크립토)<br>※ 추정치이며 체결·세금은 증권사·세무 확인 권장. 계산·알림 전용(자동매매 아님).</div>

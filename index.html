@@ -663,11 +663,6 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div id="rpnl-list"></div>
     </div>
     <div class="card">
-      <div class="card-title">현금 이자 <span class="action" id="add-ri">＋ 추가</span></div>
-      <p class="muted" style="font-size:11px;margin:-4px 0 10px">단기 예금 · MMF 이자 수령액 — 저장 시 현금 잔액에 자동 가산됩니다</p>
-      <div id="ri-list"></div>
-    </div>
-    <div class="card">
       <div class="card-title">납입 · 출금 기록
         <span style="display:flex;gap:14px">
           <span class="action" id="add-withdraw" style="color:var(--down)">− 출금</span>
@@ -945,7 +940,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.7.17';
+const APP_VER = 'v2.7.18';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -1201,7 +1196,6 @@ function normalizeState(){
     state.settings.cashAccount = (state.settings.cashAccount||0) + state.settings.reserveCash;
     state.settings.reserveCash = 0;
   }
-  if (!state.reserveInterest) state.reserveInterest={};
   if (!state.settings.pickDate) state.settings.pickDate = '2025-08-15';
   // USD 보유 종목에 매입환율(avgFx)이 없으면 카테고리 기준값으로 보정
   for (const h of state.holdings){
@@ -5460,94 +5454,6 @@ async function deleteRpnl(year,id){
 window.openRpnlEntry=openRpnlEntry; window.rpnlSetMkt=rpnlSetMkt; window.rpnlSetAcct=rpnlSetAcct; window.rpnlSetSign=rpnlSetSign;
 window.saveRpnl=saveRpnl; window.deleteRpnl=deleteRpnl;
 
-/* === 대기 자금 이자 — 연도별 월별 입력 (이자 수령 → 대기 자금에 자동 가산) === */
-function riYearTotal(y){
-  const a=(state.reserveInterest||{})[y]||[];
-  return a.reduce((s,v)=>s+(v||0),0);
-}
-function riTotal(){
-  let s=0;
-  for (const y in (state.reserveInterest||{})) s+=riYearTotal(y);
-  return s;
-}
-function openRiYear(year){
-  const y=String(year||new Date().getFullYear());
-  const exists=!!(state.reserveInterest&&state.reserveInterest[y]);
-  const arr=exists?state.reserveInterest[y].slice():new Array(12).fill(0);
-  let grid='';
-  for (let m=0;m<12;m++){
-    grid+=`<div class="itax-m"><label>${m+1}월</label>
-      <input id="ri-m${m}" type="number" step="1" inputmode="numeric" min="0" value="${arr[m]||''}" placeholder="0" oninput="riRecalc()"></div>`;
-  }
-  const delBtn=exists?`<button class="btn btn-danger btn-sm" onclick="deleteRiYear('${y}')">삭제</button>`:'';
-  openModal(`<h3>대기 자금 이자 — 월별 입력</h3>
-    <div class="modal-sub">단기 예금·MMF에서 발생한 이자를 월별로 입력하세요 · 저장 시 대기 자금 잔액에 차액만큼 자동 반영됩니다</div>
-    <div class="field"><label>연도</label><input id="ri-year" type="number" step="1" value="${y}"></div>
-    <div class="itax-grid">${grid}</div>
-    <div class="itax-sum">연 합계 <b id="ri-total" class="num">₩0</b></div>
-    <div class="btn-row">
-      ${delBtn}
-      <button class="btn btn-secondary" onclick="closeModal()">취소</button>
-      <button class="btn btn-primary" onclick="saveRiYear('${exists?y:''}')">저장</button>
-    </div>`);
-  riRecalc();
-}
-function riRecalc(){
-  let s=0;
-  for (let m=0;m<12;m++){ const e=document.getElementById('ri-m'+m); if(e) s+=parseFloat(e.value)||0; }
-  const t=document.getElementById('ri-total');
-  if(t) t.textContent='₩'+Math.round(s).toLocaleString('ko-KR');
-}
-async function saveRiYear(origYear){
-  const y=String(parseInt(document.getElementById('ri-year').value,10)||0);
-  if(y.length!==4){ toast('연도를 4자리로 입력하세요'); return; }
-  const arr=new Array(12).fill(0);
-  for (let m=0;m<12;m++){ const e=document.getElementById('ri-m'+m); arr[m]=Math.max(0,Math.round(parseFloat(e.value)||0)); }
-  if(!state.reserveInterest) state.reserveInterest={};
-  // 변경 전 누적 합계 → 변경 후 누적 합계의 차액만큼 대기 자금에 반영
-  const totalBefore = riTotal();
-  if(origYear && origYear!==y) delete state.reserveInterest[origYear];
-  state.reserveInterest[y]=arr;
-  const totalAfter = riTotal();
-  const delta = totalAfter - totalBefore;
-  state.settings.cashAccount = Math.max(0, (state.settings.cashAccount||0) + delta);
-  await saveState(); closeModal();
-  const sign = delta>=0?'+':'−';
-  toast(`${y}년 현금 이자 저장 · 현금 ${sign}₩${fmtKRW(Math.abs(delta))}`);
-  switchView('transactions');
-}
-async function deleteRiYear(year){
-  const yt=riYearTotal(year);
-  if(state.reserveInterest) delete state.reserveInterest[year];
-  state.settings.cashAccount=Math.max(0,(state.settings.cashAccount||0)-yt);
-  await saveState(); closeModal();
-  toast(`${year}년 이자 기록 삭제 · 현금 −₩${fmtKRW(yt)}`);
-  switchView('transactions');
-}
-function renderRiList(){
-  const el=document.getElementById('ri-list');
-  if(!el) return;
-  const years=Object.keys(state.reserveInterest||{}).filter(y=>(state.reserveInterest[y]||[]).length).sort((a,b)=>b.localeCompare(a));
-  const cum=riTotal();
-  const sum=`<div style="background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:13px 14px;margin-bottom:10px">
-    <div style="display:flex;justify-content:space-between;align-items:baseline">
-      <span style="font-size:11px;color:var(--text-2)">누적 대기 자금 이자</span>
-      <span class="num" style="font-size:19px;font-weight:700;color:#5A7A9A">${fmtKRWFull(cum)}</span>
-    </div>
-    <div style="font-size:10.5px;color:var(--text-3);margin-top:5px">${years.length}개 연도 · 연도를 눌러 월별로 입력</div>
-  </div>`;
-  if(!years.length){ el.innerHTML=sum+'<div class="empty">이자 수령 기록이 없습니다. ＋ 추가로 입력하세요.</div>'; return; }
-  el.innerHTML=sum+years.map(y=>{
-    const yt=riYearTotal(y);
-    const months=(state.reserveInterest[y]||[]).filter(v=>v>0).length;
-    return `<div class="txn" onclick="openRiYear('${y}')" style="cursor:pointer">
-      <div class="txn-icon" style="background:rgba(90,122,154,0.15);color:#8AA0BD">${y.slice(2)}</div>
-      <div class="txn-info"><div class="txn-title">${y}년 이자</div><div class="txn-date">${months}개월 입력 · 탭하여 월별 수정</div></div>
-      <div class="txn-amount num">${fmtKRW(yt)}</div></div>`;
-  }).join('');
-}
-window.openRiYear=openRiYear; window.riRecalc=riRecalc;
-window.saveRiYear=saveRiYear; window.deleteRiYear=deleteRiYear;
 
 /* === 납입 — 연도별 월별 입력 === */
 function depositYearTotal(y){
@@ -5687,7 +5593,6 @@ window.saveDepositYear=saveDepositYear; window.deleteDepositYear=deleteDepositYe
 function renderTransactions(){
   renderItaxList();
   renderRealizedList();
-  renderRiList();
   renderDepositList();
 }
 /* 자산군별 예수금 */
@@ -6293,7 +6198,6 @@ document.querySelectorAll('#holding-sort button').forEach(b=>b.onclick=()=>{
 document.getElementById('edit-cash').onclick=openCashEditor;
 document.getElementById('add-itax').onclick=()=>openItaxYear();
 document.getElementById('add-rpnl').onclick=()=>openRpnlEntry();
-document.getElementById('add-ri').onclick=()=>openRiYear();
 document.getElementById('add-deposit').onclick=()=>openDepositYear();
 document.getElementById('add-withdraw').onclick=()=>openWithdrawModal();
 

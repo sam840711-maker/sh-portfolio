@@ -934,7 +934,7 @@ function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
 const LEVTECH_SPOT_MAP = { NVDL:'NVDA', TSLL:'TSLA', GGLL:'GOOGL', PLTU:'PLTR' };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.4.0';
+const APP_VER = 'v2.5.0';
 const APP_BUILD = '2026-06-27';
 
 const SEED = {
@@ -2969,6 +2969,7 @@ function renderStrategyAlert(s){
   const el=document.getElementById('strategy-alert'); if(!el) return;
   const p=computeStrategyPlan(s);
   if(!p.enabled){ el.style.display='none'; el.innerHTML=''; return; }
+  if(p.sellAmt>1000000){ el.style.display='none'; el.innerHTML=''; return; }  // 정착 트리거는 할 일 알림으로 통합 — 평상시 상태만 카드로
   let title, body, right='상세 ▸';
   if(p.backstopHit && p.sellAmt>1000000){
     title=`⚠ 백스톱 발동 · 고점 −${fmtPct(p.ddFromPeak,0)}`;
@@ -2997,49 +2998,63 @@ function renderStrategyAlert(s){
   el.style.display='block';
   el.onclick=()=>openStrategyPlan();
 }
-/* ===== 통합 할 일 알림 센터 — 모든 신호를 한 곳에 모아 "왜" 표시 ===== */
+/* ===== 통합 할 일 알림 센터 — 모든 신호를 한 곳에 모아 "왜 + 무엇을 + 어떻게" 표시 ===== */
 function computeActionAlerts(s){
   const out=[];
   try{
     const r=computeRiskStatus(s);
-    if(r.level==='floor') out.push({tag:'방어',sev:'crit',why:`하방 플로어 붕괴 — 레버리지 전량 해제 (NAV ₩${fmtKRW(r.nav)} ≤ 하한 ₩${fmtKRW(r.floor)})`,go:'allocation'});
-    else if(r.level==='trend') out.push({tag:'방어',sev:'crit',why:`추세 이탈(200일선+모멘텀${r.below?' · '+r.below.join('·'):''}) — 레버리지 0 + 분할 현금화`,go:'allocation'});
-    else if(r.level==='lev') out.push({tag:'방어',sev:'warn',why:`레버리지 과다 — 3x 우선 축소 (실효 ${r.eff?r.eff.toFixed(2):'?'}배 > 권장 ${r.kc&&r.kc.recMax?r.kc.recMax.toFixed(2):'?'}배)`,go:'allocation'});
-    else if(r.level==='near') out.push({tag:'방어',sev:'warn',why:'하방 플로어 근접 — 신규 매수·추가 레버리지 중단',go:'allocation'});
+    const reentry=(r.reentry&&r.level)?r.reentry[r.level]:'';
+    if(r.level==='floor') out.push({tag:'방어',sev:'crit',why:'하방 플로어 붕괴 — 레버리지 전량 해제',sub:`NAV ₩${fmtKRW(r.nav)} ≤ 하한 ₩${fmtKRW(r.floor)} · 추가 손실 차단 최우선`,act:'risk'});
+    else if(r.level==='trend') out.push({tag:'방어',sev:'crit',why:`추세 이탈(200일선+모멘텀${r.below?' · '+r.below.join('·'):''})`,sub:'레버리지 0 + 1배 자산 일부 현금화 · 분할 실행',act:'risk'});
+    else if(r.level==='lev') out.push({tag:'방어',sev:'warn',why:`레버리지 과다 — 3x 우선 축소 (실효 ${r.eff?r.eff.toFixed(2):'?'}배 > 권장 ${r.kc&&r.kc.recMax?r.kc.recMax.toFixed(2):'?'}배)`,sub:(r.reduceLev>1000000?`슬리브 ₩${fmtKRW(r.reduceLev)} 축소 · 3회 분할 ₩${fmtKRW(r.reduceLev3)}씩`:'사이즈 축소')+(reentry?` · 재진입: ${reentry}`:''),act:'risk'});
+    else if(r.level==='near') out.push({tag:'방어',sev:'warn',why:'하방 플로어 근접 — 신규 매수·추가 레버리지 중단',sub:reentry||'',act:'risk'});
   }catch(_){}
   try{ const cv=computeLevConvertPlan(s);
-    if(cv&&cv.active) out.push({tag:'전환',sev:'warn',why:`Lev Tech → 현물 전환 신호 (${cv.trigger==='trend'?'추세 이탈 2일 확인':cv.trigger==='nav'?'NAV 마일스톤':'신호'}) — NVDL 매도·NVDA 매수 후 입력하면 목표 자동 이전`,go:'allocation'});
+    if(cv&&cv.active){
+      const qty=(cv.rows||[]).filter(r=>r.sellSh>0).map(r=>`${r.levSym} −${Math.round(r.sellSh)}주 → ${r.spotSym} +${r.buySh!=null?Math.round(r.buySh):'?'}주`).join(' · ');
+      out.push({tag:'전환',sev:'warn',why:`Lev Tech → 현물 전환 (${cv.trigger==='trend'?'추세 이탈 2일':cv.trigger==='nav'?'NAV 마일스톤':'신호'})`,sub:(qty?qty+' · ':'')+'매매 후 입력하면 목표 자동 이전',act:'alloc'});
+    }
   }catch(_){}
   try{ const sp=computeStrategyPlan(s);
-    if(sp&&sp.enabled&&sp.sellAmt>1000000) out.push({tag:'정착',sev:'warn',why:`청산 트리거 도달 — 바스켓 정착 ₩${fmtKRW(sp.sellAmt)} (정착 입력에서 실행)`,go:'dashboard'});
+    if(sp&&sp.enabled&&sp.sellAmt>1000000) out.push({tag:'정착',sev:'warn',why:`청산 트리거 도달 — 바스켓 정착 ₩${fmtKRW(sp.sellAmt)}`,sub:'정착 입력에서 바스켓 종목별 분배 매수 ▸',act:'settle'});
   }catch(_){}
   try{ let drift=0;
     Object.keys(CATEGORIES).forEach(cat=>{ stockRebalance(cat,'portfolio').forEach(rr=>{ if((rr.h.qty||0)>0 && Math.abs((rr.curWtPort||0)-(rr.tgtWtPort||0))>=0.05) drift++; }); });
-    if(drift>0) out.push({tag:'리밸런싱',sev:'info',why:`목표비중 ±5%p 이탈 ${drift}종목 — 배분에서 수량 확인 후 매매`,go:'allocation'});
+    if(drift>0) out.push({tag:'리밸런싱',sev:'info',why:`목표비중 ±5%p 이탈 ${drift}종목`,sub:'배분에서 수량 확인 후 매매 → 입력',act:'alloc'});
   }catch(_){}
   return out;
 }
+function acDispatch(act){
+  try{
+    if(act==='risk') openRiskPlan();
+    else if(act==='settle') startDestEntry();
+    else switchView('allocation');
+  }catch(_){ switchView('allocation'); }
+}
+window.acDispatch=acDispatch;
 function renderActionCenter(s){
   const el=document.getElementById('action-center'); if(!el) return;
   const acts=computeActionAlerts(s);
   if(!acts.length){ el.style.display='none'; el.onclick=null; return; }
   const sev = acts.some(a=>a.sev==='crit')?'crit':(acts.some(a=>a.sev==='warn')?'warn':'');
   el.className='card action-center'+(sev?' '+sev:'');
-  const tagColor={방어:'var(--orange)',전환:'#C44ED9',정착:'#5AA0A6',리밸런싱:'#4FB6C4'};
-  const rows=acts.map(a=>`<div class="ac-row">
+  const tagColor={방어:'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',리밸런싱:'#4FB6C4'};
+  const rows=acts.map(a=>`<div class="ac-row" onclick="event.stopPropagation();acDispatch('${a.act}')" style="cursor:pointer">
     <span class="ac-tag" style="background:${tagColor[a.tag]||'#666'}22;color:${tagColor[a.tag]||'#aaa'}">${a.tag}</span>
-    <span style="font-size:11.5px;line-height:1.45">${esc(a.why)}</span></div>`).join('');
+    <span style="flex:1;min-width:0"><span style="font-size:11.5px;line-height:1.4;font-weight:600">${esc(a.why)}</span>${a.sub?`<br><span style="font-size:10px;color:var(--text-3);line-height:1.35">${esc(a.sub)}</span>`:''}</span>
+    <span style="font-size:11px;color:var(--text-3);align-self:center">▸</span></div>`).join('');
   el.innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
       <span style="font-size:13px;font-weight:700">🔔 할 일 ${acts.length}건</span>
-      <span style="margin-left:auto;font-size:10px;color:var(--text-3)">배분에서 수량 확인 ▸</span></div>
+      <span style="margin-left:auto;font-size:10px;color:var(--text-3)">각 항목 탭 ▸</span></div>
     ${rows}`;
-  el.onclick=()=>switchView('allocation');
+  el.onclick=null;
   el.style.display='block';
 }
 function renderRiskAlert(s){
   const el=document.getElementById('risk-alert'); if(!el) return;
   const r=computeRiskStatus(s);
   try{ logRiskTransitions(r); }catch(_){}
+  el.style.display='none'; el.onclick=null; return;   // 할 일 알림(action center)으로 통합 — 중복 카드 제거
   if(!r.level){ el.style.display='none'; el.onclick=null; return; }
   let title, action, crit=false;
   if(r.level==='floor'){ crit=true;
@@ -3343,6 +3358,7 @@ window.startDestEntry=startDestEntry; window.cancelDestFlow=cancelDestFlow;
 function renderRebalAlert(s){
   const el=document.getElementById('rebal-alert');
   if(!el) return;
+  el.style.display='none'; el.onclick=null; return;   // 할 일 알림(action center)으로 통합 — 중복 제거
   const total=s.totalWithCash||0;
   let maxDev=0, maxK=null;
   if(total>0){

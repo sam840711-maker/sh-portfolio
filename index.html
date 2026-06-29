@@ -938,7 +938,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.18';
+const APP_VER = 'v2.9.19';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -5229,35 +5229,52 @@ function rpnlOverseasTax(y){
   const rate=(state.settings.taxRates&&state.settings.taxRates.overseas)||0.22;
   return Math.round(Math.max(0, ov-ded)*rate);
 }
+let rpnlExpanded=null;   // 펼친 연도 집합 (null=미초기화 → 최근 연도 기본 펼침)
+function toggleRpnlYear(y){
+  if(!rpnlExpanded) rpnlExpanded=new Set();
+  if(rpnlExpanded.has(y)) rpnlExpanded.delete(y); else rpnlExpanded.add(y);
+  renderRealizedList();
+}
+window.toggleRpnlYear=toggleRpnlYear;
 function renderRealizedList(){
   const el=document.getElementById('rpnl-list'); if(!el) return;
   const years=rpnlYears();
   if(!years.length){ el.innerHTML='<div class="empty">실현손익 기록이 없습니다. ＋ 기록으로 추가하세요.</div>'; return; }
+  if(rpnlExpanded===null) rpnlExpanded=new Set([years[0]]);   // 최근 연도만 기본 펼침
   el.innerHTML=years.map(y=>{
     const ov=rpnlYearMarket(y,'overseas'), dm=rpnlYearMarket(y,'domestic');
     const tot=ov+dm;
-    const rows=rpnlYear(y).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(r=>{
-      const cls=r.amount>=0?'up':'down';
-      const mk=r.market==='overseas'?'해외':'국내';
-      const cat=CATEGORIES[r.account];
-      const acctLabel=cat?cat.label:(r.account||'기타');
-      const color=cat?cat.color:'#888';
-      const fxTxt=(r.market==='overseas'&&r.amountFx)?` · $${r.amountFx>=0?'+':'-'}${Math.abs(r.amountFx).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`:'';
-      return `<div class="txn" onclick="openRpnlEntry('${y}','${r.id}')" style="cursor:pointer;padding:8px 0">
-        <div class="txn-icon" style="background:${color}22;color:${color};font-size:10px">${mk}</div>
-        <div class="txn-info"><div class="txn-title" style="font-size:13px">${acctLabel} <span style="font-size:10px;color:var(--text-3);font-weight:400">${mk}</span></div><div class="txn-date">${r.date}${fxTxt}</div></div>
-        <div class="txn-amount num ${cls}">${r.amount>=0?'+':'-'}${fmtKRW(Math.abs(r.amount))}</div></div>`;
-    }).join('');
+    const cnt=rpnlYear(y).length;
+    const open=rpnlExpanded.has(y);
     const tax=rpnlOverseasTax(y);
+    let detail='';
+    if(open){
+      const rows=rpnlYear(y).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(r=>{
+        const cls=r.amount>=0?'up':'down';
+        const mk=r.market==='overseas'?'해외':'국내';
+        const cat=CATEGORIES[r.account];
+        const acctLabel=cat?cat.label:(r.account||'기타');
+        const color=cat?cat.color:'#888';
+        const fxTxt=(r.market==='overseas'&&r.amountFx)?` · $${r.amountFx>=0?'+':'-'}${Math.abs(r.amountFx).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`:'';
+        return `<div class="txn" onclick="openRpnlEntry('${y}','${r.id}')" style="cursor:pointer;padding:8px 0">
+          <div class="txn-icon" style="background:${color}22;color:${color};font-size:10px">${mk}</div>
+          <div class="txn-info"><div class="txn-title" style="font-size:13px">${acctLabel} <span style="font-size:10px;color:var(--text-3);font-weight:400">${mk}</span></div><div class="txn-date">${r.date}${fxTxt}</div></div>
+          <div class="txn-amount num ${cls}">${r.amount>=0?'+':'-'}${fmtKRW(Math.abs(r.amount))}</div></div>`;
+      }).join('');
+      detail=`<div class="tax-line"><span>해외 실현손익</span><span class="num ${ov>=0?'up':'down'}">${ov>=0?'+':'-'}${fmtKRW(Math.abs(ov))}</span></div>
+        <div class="tax-line"><span>국내 실현손익</span><span class="num ${dm>=0?'up':'down'}">${dm>=0?'+':'-'}${fmtKRW(Math.abs(dm))}</span></div>
+        <div class="tax-line"><span>해외 양도세 추정</span><span class="num down">${tax>0?'-'+fmtKRW(tax):'0'}</span></div>
+        <div style="margin-top:8px;border-top:1px solid var(--hairline);padding-top:6px">${rows}</div>`;
+    }
     return `<div style="background:var(--surface);border:1px solid var(--hairline);border-radius:12px;padding:13px 14px;margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
-        <span style="font-size:15px;font-weight:700">${y}년</span>
+      <div onclick="toggleRpnlYear('${y}')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:baseline${open?';margin-bottom:8px':''}">
+        <span style="font-size:15px;font-weight:700;display:flex;align-items:center;gap:7px">
+          <span style="color:var(--text-3);font-size:11px;width:9px;display:inline-block">${open?'▾':'▸'}</span>
+          ${y}년 <span style="font-size:11px;color:var(--text-3);font-weight:500">${cnt}건</span>
+        </span>
         <span class="num ${tot>=0?'up':'down'}" style="font-size:17px;font-weight:700">${tot>=0?'+':'-'}${fmtKRW(Math.abs(tot))}</span>
       </div>
-      <div class="tax-line"><span>해외 실현손익</span><span class="num ${ov>=0?'up':'down'}">${ov>=0?'+':'-'}${fmtKRW(Math.abs(ov))}</span></div>
-      <div class="tax-line"><span>국내 실현손익</span><span class="num ${dm>=0?'up':'down'}">${dm>=0?'+':'-'}${fmtKRW(Math.abs(dm))}</span></div>
-      <div class="tax-line"><span>해외 양도세 추정</span><span class="num down">${tax>0?'-'+fmtKRW(tax):'0'}</span></div>
-      <div style="margin-top:8px;border-top:1px solid var(--hairline);padding-top:6px">${rows}</div>
+      ${detail}
     </div>`;
   }).join('');
 }

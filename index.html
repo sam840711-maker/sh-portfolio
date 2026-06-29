@@ -937,7 +937,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.16';
+const APP_VER = 'v2.9.17';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -7608,10 +7608,22 @@ function renderCloudUI(){
   renderTopbar();
   renderDashboard();
   applyAutoRefresh();       // 자동 갱신 주기 적용
-  refreshAllPrices(false).then(()=>{   // 첫 진입 시 무조건 시세 갱신(수동 탭과 동일)
-    // 콜드 부팅 보정: 프록시·네트워크 워밍 전이라 일부 실패했으면 잠시 후 1회 조용히 재시도
-    if(lastFailed && lastFailed.size>0){ setTimeout(()=>{ if(!isFetching) refreshAllPrices(true); }, 2500); }
-  }).catch(()=>{});
+  // 부팅 갱신 — 환율(FX) 1건을 먼저 가볍게: ① fx-val 즉시 표시 ② 프록시·연결 예열(워밍) → 그 뒤 본 갱신
+  // (수동으로 환율 탭 후 새로고침하면 빠른 이유 = 두 번째 호출이 데워진 연결을 타기 때문 — 그 예열을 부팅에 내장)
+  (async()=>{
+    try{
+      // 예열은 최대 2.5초만 대기 — FX가 콜드로 늦어도 본 갱신을 막지 않음
+      await Promise.race([
+        (async()=>{ const v=await fetchFx(); if(v>0){ state.settings.fxRate=v;
+          try{ document.getElementById('fx-val').textContent=v.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2}); }catch(_){} } })(),
+        new Promise(r=>setTimeout(r,2500))
+      ]);
+    }catch(_){}
+    refreshAllPrices(false).then(()=>{   // 첫 진입 시 무조건 시세 갱신(수동 탭과 동일) — 예열 후라 더 빠르고 덜 실패
+      // 콜드 부팅 보정: 그래도 일부 실패했으면 잠시 후 1회 조용히 재시도
+      if(lastFailed && lastFailed.size>0){ setTimeout(()=>{ if(!isFetching) refreshAllPrices(true); }, 2500); }
+    }).catch(()=>{});
+  })();
   // 구글 드라이브 동기화 — 버튼 이벤트 + 무인 재연결
   (function(){
     const byId=id=>document.getElementById(id);

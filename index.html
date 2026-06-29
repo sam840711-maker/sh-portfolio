@@ -937,8 +937,13 @@ const LEV_STEPDOWN_MAP = {
   'MSTU':   { to:'BTC',  toMult:1, cat:'crypto',     name:'비트코인(현물)',      finalSpot:'BTC' },
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
+// 방어 디레버리징 제외 종목 — 켈리/3x 우선 전량 축소에서 빼고 1단계 글라이드(점진)만 적용.
+// (현재 보유 레버리지 전량: 이미 깊은 손실로 잔여 노출이 작아, 바닥 전량매도보다 점진 청산 선택.
+//  새로 추가하는 레버리지는 목록에 없으므로 방어가 정상 작동함)
+const DEFENSE_EXEMPT = new Set(['MST3','BMNU','NVDL','TSLL','GGLL','PLTU']);
+function isDefenseExempt(h){ return DEFENSE_EXEMPT.has((h&&h.symbol||'').replace('.KS','').replace('.L','').toUpperCase()); }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.23';
+const APP_VER = 'v2.9.25';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -3035,7 +3040,7 @@ window.executeLevConversion=executeLevConversion;
 function kellyCutBreakdown(cutAmt){
   const fx=state.settings.fxRate||1;
   if(!(cutAmt>0)) return [];
-  const levHoldings=state.holdings.filter(h=>isLevCat(h.cat)&&h.qty>0);
+  const levHoldings=state.holdings.filter(h=>isLevCat(h.cat)&&h.qty>0&&!isDefenseExempt(h));   // 방어 제외 종목(MST3·BMNU)은 글라이드로만 처리
   const tiers=[
     levHoldings.filter(h=>levMult(h)>=3),   // 3x 우선 (실제 배율 기준 — 카테고리 아님)
     levHoldings.filter(h=>levMult(h)<3)      // 2x 다음 (Tech 2x + Crypto 2x 동등)
@@ -4710,7 +4715,7 @@ function computeUnifiedPlan(s){
       if(rr.adjustShares===0) return;
       if(ladderSrc.has((rr.h.symbol||'').toUpperCase())) return;   // 디레버리징이 이미 처리
       const lev=isLevCat(rr.h.cat);
-      if(defense && lev){
+      if(defense && lev && !isDefenseExempt(rr.h)){   // 방어 제외 종목(MST3·BMNU)은 아래 목표비중(글라이드)으로 흐름
         if(step1Syms.has(rr.h.symbol)) return;   // 1단계에서 이미 축소 확정 — 그 행을 그대로 사용(보류로 덮지 않음)
         if(rr.adjustShares>0) holds.push({sym:rr.h.symbol,reason:'레버리지 경고 — 매수 보류'});
         else if(rr.adjustShares<0) holds.push({sym:rr.h.symbol,reason:'3x 우선 축소 — 이번 차례 보류'});

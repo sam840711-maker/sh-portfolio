@@ -937,7 +937,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.9';
+const APP_VER = 'v2.9.10';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -1315,9 +1315,27 @@ function startGlide(toTargets, steps, cashTo){
   const invested=Object.keys(CATEGORIES).reduce((a,k)=>a+((s.totals[k]&&s.totals[k].current)||0),0);
   const from={};
   Object.keys(CATEGORIES).forEach(k=>{ from[k]= invested>0 ? ((s.totals[k]&&s.totals[k].current)||0)/invested : (CATEGORIES[k].target); });
-  state.settings.glide={ from, to:{...toTargets}, steps:steps||6, step:1, active:true,
+  // 종목별 현재 자산군내 비중 스냅샷 — 종목 가중도 6단계 보간(드롭 매도·신규 매수를 단계 분산)
+  const fx=state.settings.fxRate||1;
+  const byCatG={}; state.holdings.forEach(h=>{ (byCatG[h.cat]=byCatG[h.cat]||[]).push(h); });
+  const fromWt={};
+  Object.keys(byCatG).forEach(cat=>{
+    const arr=byCatG[cat]; let tot=0; const cur={};
+    arr.forEach(h=>{ const v=holdingValue(h,fx).current||0; cur[h.id]=v; tot+=v; });
+    arr.forEach(h=>{ fromWt[h.id]= tot>0 ? cur[h.id]/tot : (h.targetWt||0); });
+  });
+  state.settings.glide={ from, fromWt, to:{...toTargets}, steps:steps||6, step:1, active:true,
     cashFrom:(state.settings.reserveTargetPct!=null?state.settings.reserveTargetPct:0.10), cashTo:(cashTo!=null?cashTo:0.05),
     started:Date.now(), lastStepAt:Date.now(), intervalDays:14 };
+}
+/* 종목 목표비중(자산군내) — 글라이드 중이면 현재→최종을 단계 보간, 아니면 최종값 */
+function effectiveTargetWt(h){
+  const g=state.settings.glide;
+  const toW=h.targetWt||0;
+  if(!(g&&g.active&&g.fromWt)) return toW;
+  const p=(g.steps>0)?Math.min(1,(g.step||1)/g.steps):1;
+  const fromW=(g.fromWt[h.id]!=null)?g.fromWt[h.id]:toW;
+  return fromW+(toW-fromW)*p;
 }
 function glideCashPct(){
   const g=state.settings.glide;
@@ -1358,6 +1376,7 @@ async function cancelGlide(){
   const ct={}; Object.keys(CATEGORIES).forEach(k=>{ ct[k]=classTarget(k); });
   state.settings.classTargets=ct;
   state.settings.reserveTargetPct=glideCashPct();
+  state.holdings.forEach(h=>{ h.targetWt=effectiveTargetWt(h); });   // 종목 가중도 현재 보간값으로 고정
   g.active=false; await saveState();
   toast('전환 취소 — 현재 보간 목표로 고정'); try{ if(currentView) switchView(currentView); }catch(_){}
 }
@@ -4199,7 +4218,7 @@ function computeWithdrawalPlan(amount){
     const postTotal=Math.max(1,total-amount);
     const list=state.holdings.filter(h=>h.qty>0).map(h=>{
       const v=holdingValue(h,fx).current;
-      const targetVal=postTotal*classTarget(h.cat)*(h.targetWt||0);
+      const targetVal=postTotal*classTarget(h.cat)*effectiveTargetWt(h);
       const priceKRW=isUSDcat(h.cat)?h.curUSD*fx:h.curKRW;
       return {h,v,over:v-targetVal,priceKRW};
     });
@@ -4338,10 +4357,10 @@ function stockRebalance(cat, mode){
   }
   const catTargetVal = mode==='within' ? catCurrent : basis*classTarget(cat);
   // 종목 목표비중을 자산군 합으로 정규화 — 합이 100%가 아니어도(반올림 등) 자산군 목표를 정확히 지킴
-  const twSumCat = holdings.reduce((s,h)=>s+(h.targetWt||0),0);
+  const twSumCat = holdings.reduce((s,h)=>s+effectiveTargetWt(h),0);
   return holdings.map(h=>{
     const v=holdingValue(h,fx);
-    const tw=twSumCat>0 ? (h.targetWt||0)/twSumCat : 0;
+    const tw=twSumCat>0 ? effectiveTargetWt(h)/twSumCat : 0;
     const targetVal=catTargetVal*tw;
     const adjustVal=targetVal-v.current;
     const priceKRW=isUSDcat(h.cat)?h.curUSD*fx:h.curKRW;

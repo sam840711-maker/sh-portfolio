@@ -938,7 +938,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.21';
+const APP_VER = 'v2.9.22';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -4387,9 +4387,7 @@ function computeCagrGap(){
    portfolio: '활성 자산' 기준 (보유 + 예수금 + 현금계정, 대기 자금 제외)
               · CAGR 초과 시 그만큼 차감 (총자산을 페이스 목표선까지 끌어내림)
               · CAGR 미달 + 대기 자금 보유 시 부족분만큼 대기 자금 투입 (매수에 자동 반영)
-   within   : 그 자산군의 보유 평가액만 기준 → 예수금 제외, 자산군 내 재분배만
-   ※ C안: portfolio 모드에서도 그 자산군의 예수금을 목표액에서 차감 → 매도로 생긴 예수금이
-            같은 자산군 재매수를 부르지 않음(예수금은 현금·NAV엔 그대로 포함, 종목 매수 계산서만 제외) */
+   within   : 그 자산군의 보유 평가액만 기준 → 예수금 제외, 자산군 내 재분배만 */
 function stockRebalance(cat, mode){
   const fx=state.settings.fxRate;
   const holdings=state.holdings.filter(h=>h.cat===cat);
@@ -4400,9 +4398,7 @@ function stockRebalance(cat, mode){
     const cashPct=effectiveCashPct(portfolioStats());
     basis = basis*(1-cashPct);
   }
-  let catTargetVal = mode==='within' ? catCurrent : basis*classTarget(cat);
-  // C안 — 그 자산군의 예수금만큼 목표액에서 차감(예수금은 그 자산군 몫의 현금 → 보유로 채울 필요 없음)
-  if(mode!=='within') catTargetVal = Math.max(0, catTargetVal - classDepositKRW(cat));
+  const catTargetVal = mode==='within' ? catCurrent : basis*classTarget(cat);
   // 종목 목표비중을 자산군 합으로 정규화 — 합이 100%가 아니어도(반올림 등) 자산군 목표를 정확히 지킴
   const twSumCat = holdings.reduce((s,h)=>s+effectiveTargetWt(h),0);
   return holdings.map(h=>{
@@ -4741,7 +4737,7 @@ function computeUnifiedPlan(s){
   if(pool>1000000){
     const total=s.totalWithCash||1;
     const nonLev=Object.keys(CATEGORIES).filter(k=>!isLevCat(k));
-    const defs=nonLev.map(k=>({k,deficit:Math.max(0, classTarget(k)*total - (s.totals[k]?s.totals[k].current:0) - classDepositKRW(k))}));
+    const defs=nonLev.map(k=>({k,deficit:Math.max(0, classTarget(k)*total - (s.totals[k]?s.totals[k].current:0))}));
     let defSum=defs.reduce((a,x)=>a+x.deficit,0);
     let alloc={};
     if(defSum>0) defs.forEach(d=>{ alloc[d.k]=pool*(d.deficit/defSum); });

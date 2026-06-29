@@ -750,7 +750,7 @@ input,select,textarea{font-family:inherit;color:inherit}
 
     <div class="card">
       <div class="card-title">⏩ 공격 다이얼 점진 전환</div>
-      <div class="info-text" style="margin-bottom:10px">현재 비중에서 공격 목표(크립토 BTC+ETH 55 / US 35 / Lev Tech 5 / ETF 5 · 현금 5%(가속 시 ½) · 가속 1.25)까지 <b>6단계로 나눠</b> 점진 전환을 시작합니다. 배분 페이지에 단계별 진행 카드가 뜨고, 그 수량대로 매매·"다음 단계"를 반복하면 됩니다. 한 번에 갈아엎지 않아 타이밍·세금이 분산됩니다.</div>
+      <div class="info-text" style="margin-bottom:10px">현재 비중에서 공격 목표(크립토 BTC+ETH 55 / US 주식 40 [MAGS·ARKK+단일4] / 금(IAUM) 5 · 레버리지 0 · 현금 5%(가속 시 ½) · 가속 1.25)까지 <b>6단계로 나눠</b> 점진 전환을 시작합니다. 배분 페이지에 단계별 진행 카드가 뜨고, 그 수량대로 매매·"다음 단계"를 반복하면 됩니다. 한 번에 갈아엎지 않아 타이밍·세금이 분산됩니다.</div>
       <button class="btn btn-secondary" style="width:100%" onclick="applyRecommendedTargets()">공격 다이얼 점진 전환 시작</button>
     </div>
 
@@ -910,11 +910,12 @@ input,select,textarea{font-family:inherit;color:inherit}
    CONSTANTS & SEED  (SH_Investment 시트 기반)
    ================================================================ */
 const CATEGORIES = {
-  us_stock:   {label:'US Stock',   color:'#4FB6C4', currency:'USD', target:0.35},
-  lev_tech:   {label:'Lev Tech 2x',   color:'#E5663D', currency:'USD', target:0.05},
+  us_stock:   {label:'US Stock',   color:'#4FB6C4', currency:'USD', target:0.40},
+  lev_tech:   {label:'Lev Tech 2x',   color:'#E5663D', currency:'USD', target:0.00},
   lev_crypto: {label:'Lev Crypto', color:'#C44ED9', currency:'USD', target:0.00},
-  global_etf: {label:'Global ETF', color:'#4A90E2', currency:'KRW', target:0.05},
+  global_etf: {label:'Global ETF', color:'#4A90E2', currency:'KRW', target:0.00},
   crypto:     {label:'Crypto',     color:'#9B7BD8', currency:'KRW', target:0.55},
+  gold:       {label:'Gold (금)',  color:'#D4AF37', currency:'USD', target:0.05},
 };
 const LEV_CATS = ['lev_tech','lev_crypto'];
 function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
@@ -936,7 +937,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.4';
+const APP_VER = 'v2.9.9';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -952,7 +953,7 @@ const SEED = {
       global_etf:{krw:138656,usd:0},
       crypto:{krw:0,usd:0},
     },
-    classTargets:{us_stock:0.35,lev_tech:0.05,lev_crypto:0.00,global_etf:0.05,crypto:0.55},
+    classTargets:{us_stock:0.40,lev_tech:0.00,lev_crypto:0.00,global_etf:0.00,crypto:0.55,gold:0.05},
     taxRates:{overseas:0.22,global_etf:0.154,crypto:0,bond:0},
     overseasDeduction:2500000,
   },
@@ -1294,7 +1295,7 @@ function relTime(ts){
   if(s<86400) return Math.floor(s/3600)+'시간 전';
   return Math.floor(s/86400)+'일 전';
 }
-function isUSDcat(cat){ return cat==='us_stock'||cat==='lev_tech'||cat==='lev_crypto'; }
+function isUSDcat(cat){ return cat==='us_stock'||cat==='lev_tech'||cat==='lev_crypto'||cat==='gold'; }
 
 /* 자산군 목표 비중 (사용자 수정값 우선) */
 function classTarget(k){
@@ -1345,6 +1346,8 @@ async function advanceGlide(){
   } else {
     toast(`전환 ${g.step}/${g.steps} 단계 진행 — 목표 보간 갱신됨`);
   }
+  const _pr=pruneEmptyHoldings();   // 매도 완료(0주)된 미사용 종목 정리
+  if(_pr>0) setTimeout(()=>toast(`${_pr}개 미사용 종목(0주) 정리됨`),450);
   await saveState();
   try{ if(currentView) switchView(currentView); }catch(_){}
 }
@@ -1434,7 +1437,7 @@ function taxEstimate(){
   }
   const rows=[];
   // 해외주식 — US Stock + Lev Tech + Lev Crypto 합산, 연 기본공제 후 과세
-  const ovGain=gain.us_stock+gain.lev_tech+gain.lev_crypto;
+  const ovGain=gain.us_stock+gain.lev_tech+gain.lev_crypto+(gain.gold||0);
   const ovRate=r.overseas||0;
   const ovTaxable=Math.max(0, ovGain-ded);
   rows.push({key:'overseas',label:'해외주식',sub:'US Stock · Leverage',
@@ -3014,7 +3017,7 @@ function kellyCutBreakdown(cutAmt){
 }
 /* 추천 자산군·종목 목표비중 1회 적용 — 2x 테크 이동 + 자산군 타깃 + 종목 타깃(자산군별 정규화) */
 function applyRecommendedTargets(){
-  if(!confirm('공격 다이얼로 점진 전환을 시작합니다 (6단계 글라이드).\n· 목표: 크립토(BTC+ETH) 55 / US 35 / Lev Tech 5 / ETF 5 / Lev Crypto 0\n· 크립토 분할 BTC 90 : ETH 10 · 현금 5%(가속 시 ½) · 가속 1.25\n· 한 번에 안 옮기고 6단계로 나눠 이동 (타이밍·세금 분산)\n· 매 단계 리밸런싱대로 매매 후 "다음 단계" 진행\n계속할까요?')) return;
+  if(!confirm('공격 다이얼로 점진 전환을 시작합니다 (6단계 글라이드).\n· 목표: 크립토(BTC+ETH) 55 / US 주식 40 (MAGS·ARKK+단일4) / 금 IAUM 5 / 레버리지 0\n· 크립토 분할 BTC 90 : ETH 10 · 현금 5%(가속 시 ½) · 가속 1.25\n· 한 번에 안 옮기고 6단계로 나눠 이동 (타이밍·세금 분산)\n· 매 단계 리밸런싱대로 매매 후 "다음 단계" 진행\n계속할까요?')) return;
   const base=h=>(h.symbol||'').replace('.KS','').replace('.L','').toUpperCase();
   // 1) 2x 테크 이동
   const TECH=['NVDL','TSLL','GGLL','PLTU'];
@@ -3023,7 +3026,7 @@ function applyRecommendedTargets(){
     if(isUSDcat(h.cat)&&(h.avgFx==null||isNaN(h.avgFx))) h.avgFx=isLevCat(h.cat)?1486.95:1465.57;
   }
   // 2) 자산군 목표비중 (합 100%) — 공격 다이얼. 점진 전환은 글라이드가 처리.
-  const AGG={us_stock:0.35,lev_tech:0.05,lev_crypto:0.00,global_etf:0.05,crypto:0.55};
+  const AGG={us_stock:0.40,lev_tech:0.00,lev_crypto:0.00,global_etf:0.00,crypto:0.55,gold:0.05};
   state.settings.classTargets={...AGG};   // 최종(글라이드 완료 시 도달)
   if(state.settings.risk) state.settings.risk.accelMax=1.25;   // 가속 상한 1.25
   // 2-1) 현물 코인 자리 종목 자동 생성(없으면 수량 0으로) — 리밸런싱에 BTC/ETH 매수액이 뜨도록
@@ -3034,11 +3037,25 @@ function applyRecommendedTargets(){
         cat:'crypto', symbol:sym, name:sym, qty:0, avgKRW:0, curKRW:0, targetWt:0});
     }
   });
+  // 2-2) US 코어 ETF 자리(MAGS·ARKK) 자동 생성(없으면 수량 0) — 글라이드에 매수액이 뜨도록
+  const haveUS=state.holdings.filter(h=>h.cat==='us_stock').map(h=>base(h));
+  [['MAGS','Roundhill Magnificent Seven ETF'],['ARKK','ARK Innovation ETF']].forEach(([sym,nm])=>{
+    if(!haveUS.includes(sym)){
+      state.holdings.push({id:'us_'+sym+'_'+Date.now().toString(36)+Math.floor(Math.random()*1e3),
+        cat:'us_stock', symbol:sym, name:nm, qty:0, avgUSD:0, curUSD:0, avgFx:1465.57, targetWt:0});
+    }
+  });
+  // 2-3) 금 자리(IAUM) 자동 생성(없으면 수량 0) — 닻/분산용 골드 슬리브
+  const haveGold=state.holdings.filter(h=>h.cat==='gold').map(h=>base(h));
+  if(!haveGold.includes('IAUM')){
+    state.holdings.push({id:'gold_IAUM_'+Date.now().toString(36)+Math.floor(Math.random()*1e3),
+      cat:'gold', symbol:'IAUM', name:'iShares Gold Trust Micro', qty:0, avgUSD:0, curUSD:0, avgFx:1465.57, targetWt:0});
+  }
   // 3) 종목 목표비중 — 원시 가중치 → 자산군별 정규화(누락/추가 종목 있어도 합 100% 보장)
-  const RAW={ NVDL:30,GGLL:30,TSLL:20,PLTU:20, BMNU:60,MST3:25,MSTU:15,
-    IONQ:10,MU:10,CRWD:10,RKLB:10, SMR:8,RGTI:8,JOBY:8,
-    CRSP:6,RBLX:6,ARQQ:6,PLUG:6,BWXT:6,SPCX:6,
-    '453630':25,'453640':25,'390390':20,'494840':15,'218420':15,
+  const RAW={ MAGS:18,ARKK:10, RKLB:3,IONQ:3,SMR:3,JOBY:3, IAUM:5,
+    MU:0,CRWD:0,CRSP:0,RBLX:0,RGTI:0,ARQQ:0,PLUG:0,BWXT:0,SPCX:0,NVDA:0,TSLA:0,GOOGL:0,PLTR:0,
+    NVDL:0,GGLL:0,TSLL:0,PLTU:0, BMNU:0,MST3:0,MSTU:0,
+    '453630':0,'453640':0,'390390':0,'494840':0,'218420':0,
     BTC:90,ETH:10 };
   const byCat={};
   for(const h of state.holdings){ (byCat[h.cat]=byCat[h.cat]||[]).push(h); }
@@ -3047,6 +3064,7 @@ function applyRecommendedTargets(){
     const raw=arr.map(h=>{ const w=RAW[base(h)]!=null?RAW[base(h)]:1; sum+=w; return w; });
     arr.forEach((h,i)=>{ h.targetWt = sum>0 ? raw[i]/sum : (1/arr.length); });
   }
+  pruneEmptyHoldings();   // 새 목표 적용 직후 — 0주+실효목표0% 미사용 종목(옛 0주 placeholder 등) 제거
   // 4) 점진 전환 시작 — 현재 비중에서 공격 목표까지 6단계 글라이드 (현금 →5%)
   startGlide(AGG, 6, 0.05);
   saveState();
@@ -6361,6 +6379,21 @@ async function deleteHolding(id){
   await saveState(); closeModal(); toast(h.symbol+' 삭제됨'); switchView(currentView);
 }
 window.openHoldingDetail=openHoldingDetail; window.saveHoldingDetail=saveHoldingDetail; window.deleteHolding=deleteHolding;
+
+/* 미사용 종목 자동 정리 — 0주 + 실효 최종목표 0%(targetWt×최종 클래스목표)면 목록에서 제거.
+   MAGS·ARKK·BTC·ETH는 목표>0이라 0주여도 보존, 매도 진행 중(주수>0)인 종목도 보존. */
+function pruneEmptyHoldings(){
+  const g=state.settings.glide;
+  const finalCT=(g&&g.active&&g.to)?g.to:(state.settings.classTargets||{});   // 보간 아닌 최종 목적지 기준
+  const before=state.holdings.length;
+  state.holdings=state.holdings.filter(h=>{
+    const q=Number(h.qty)||0;
+    const eff=(Number(h.targetWt)||0)*(Number(finalCT[h.cat])||0);
+    return !(q<=0 && eff<=0);
+  });
+  return before-state.holdings.length;
+}
+window.pruneEmptyHoldings=pruneEmptyHoldings;
 
 /* ================================================================
    TREND — 과거 자산 기록 추가

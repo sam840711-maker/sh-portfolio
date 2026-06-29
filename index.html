@@ -938,7 +938,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.22';
+const APP_VER = 'v2.9.23';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -4735,13 +4735,15 @@ function computeUnifiedPlan(s){
   const netSoFar = rows.reduce((a,x)=>a+x.val,0);   // +면 순매수(현금 필요), −면 순매도(현금 여유)
   const pool = (defense && netSoFar<0) ? -netSoFar : 0;
   if(pool>1000000){
-    const total=s.totalWithCash||1;
+    // 결손 기준을 목표비중 블록과 동일하게 — basis = NAV×(1−현금%) (현금% 미적용 시 균형 자산군이 가짜 결손으로 잡혀 청산현금이 흘러감)
+    const cashPct=(typeof effectiveCashPct==='function')?effectiveCashPct(s):(state.settings.reserveTargetPct||0);
+    const basis=(s.totalWithCash||1)*(1-cashPct);
     const nonLev=Object.keys(CATEGORIES).filter(k=>!isLevCat(k));
-    const defs=nonLev.map(k=>({k,deficit:Math.max(0, classTarget(k)*total - (s.totals[k]?s.totals[k].current:0))}));
+    const defs=nonLev.map(k=>({k,deficit:Math.max(0, classTarget(k)*basis - (s.totals[k]?s.totals[k].current:0))}));
     let defSum=defs.reduce((a,x)=>a+x.deficit,0);
     let alloc={};
-    if(defSum>0) defs.forEach(d=>{ alloc[d.k]=pool*(d.deficit/defSum); });
-    else { const tsum=nonLev.reduce((a,k)=>a+classTarget(k),0)||1; nonLev.forEach(k=>{ alloc[k]=pool*(classTarget(k)/tsum); }); }
+    // A안 — 결손(목표−현재>0)인 자산군에만 비례 배분. 모두 목표 이상이면 재배분 안 하고 현금으로 남김(균형·초과 자산군 강제매수 방지)
+    if(defSum>0) defs.forEach(d=>{ if(d.deficit>0) alloc[d.k]=pool*(d.deficit/defSum); });
     nonLev.forEach(cat=>{
       const catCash=alloc[cat]||0; if(catCash<=0) return;
       const hs=state.holdings.filter(h=>h.cat===cat);

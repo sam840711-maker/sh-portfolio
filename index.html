@@ -937,7 +937,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.15';
+const APP_VER = 'v2.9.16';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -1435,13 +1435,12 @@ function addCashAccountKRW(delta){
   else drawFromCashAccount(-delta);
 }
 /* 예수금 합계 — 자산군별 예수금(원화 환산) + 현금 계정(원화 환산) */
-function totalCash(){
+function cashByClassKRW(){
   const fx=state.settings.fxRate, cb=state.settings.cashByClass||{};
-  let sum=0;
-  for (const k in cb){ sum += (cb[k].krw||0) + (cb[k].usd||0)*fx; }
-  sum += cashAccountKRW();
-  return sum;
+  let s=0; for (const k in cb){ s += (cb[k].krw||0) + (cb[k].usd||0)*fx; }
+  return s;
 }
+function totalCash(){ return cashByClassKRW() + cashAccountKRW(); }
 function portfolioStats(){
   const totals=categoryTotals(), cash=totalCash();
   let invested=0,current=0;
@@ -3472,7 +3471,8 @@ function renderAllocChart(s){
   }
   items.sort((a,b)=>b.val-a.val);                  // 자산군만 평가액 내림차순
   // 현금 — 하나의 자산군처럼 목표(cashPct) 표시. 별도 대기자금 버킷 없음.
-  items.push({label:'현금',val:Math.max(0,s.cash),color:'#565967',target:cashPct,isCash:true});
+  items.push({label:'현금',val:Math.max(0,s.cash),color:'#565967',target:cashPct,isCash:true,
+              cashDep:cashByClassKRW(), cashAcct:cashAccountKRW()});
   if(!items.length){ el.innerHTML='<div class="empty">자산이 없습니다.</div>'; return; }
   const legend=`<div class="abar-legend"><span class="abar-lg-bar"></span>현재 비중<span class="abar-lg-tick"></span>목표 비중</div>`;
   el.innerHTML=legend+items.map(it=>{
@@ -3507,6 +3507,7 @@ function renderAllocChart(s){
         <span class="abar-cur" style="color:${it.color}">${pct.toFixed(2)}%</span>
         ${statsRight}
       </div>
+      ${it.isCash?`<div style="font-size:10.5px;color:var(--text-3);margin:1px 0 4px;letter-spacing:-0.2px">예수금 ₩${fmtKRW(it.cashDep)} · 현금계정 ₩${fmtKRW(it.cashAcct)}</div>`:''}
       <div class="abar-track">
         <div class="abar-fill" style="width:${Math.min(pct,100)}%;background:${it.color}"></div>
         ${(hasTgt && dev>0.01)?`<div class="abar-over" style="left:${Math.min(tgtPct,100)}%;width:${Math.min(pct,100)-Math.min(tgtPct,100)}%"></div>`:''}
@@ -5484,9 +5485,18 @@ function renderCashList(){
         <div class="txn-date">원화 ${fmtKRWFull(c.krw||0)} · 달러 ${fmtUSD(c.usd||0)}</div></div>
       <div class="txn-amount num" style="color:var(--text)">${fmtKRW(krwEq)}</div></div>`;
   }).join('');
-  el.innerHTML=rows+`<div class="txn" style="border-top:1px solid var(--hairline);margin-top:4px">
-    <div class="txn-info"><div class="txn-title">예수금 합계</div></div>
-    <div class="txn-amount num" style="color:var(--gold)">${fmtKRW(total)}</div></div>`;
+  const acct=cashAccountKRW(), grand=total+acct;
+  el.innerHTML=rows
+    +`<div class="txn" style="border-top:1px solid var(--hairline);margin-top:4px">
+      <div class="txn-info"><div class="txn-title">예수금 합계 <span style="font-size:10.5px;color:var(--text-3);font-weight:400">자산군별</span></div></div>
+      <div class="txn-amount num" style="color:var(--text)">${fmtKRW(total)}</div></div>`
+    +`<div class="txn">
+      <div class="txn-icon" style="background:var(--gold-soft);color:var(--gold)">현</div>
+      <div class="txn-info"><div class="txn-title">현금 계정</div><div class="txn-date">직접 입력 · 자산군 미배정 현금</div></div>
+      <div class="txn-amount num" style="color:var(--text)">${fmtKRW(acct)}</div></div>`
+    +`<div class="txn" style="border-top:2px solid var(--hairline);margin-top:2px">
+      <div class="txn-info"><div class="txn-title" style="font-weight:700">총 현금 합계</div><div class="txn-date">예수금 + 현금 계정 · 배분 '현금'과 동일</div></div>
+      <div class="txn-amount num" style="color:var(--gold);font-weight:700">${fmtKRW(grand)}</div></div>`;
 }
 /* 이자 · 세금 */
 function renderItaxList(){

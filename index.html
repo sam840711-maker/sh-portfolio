@@ -937,7 +937,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.11';
+const APP_VER = 'v2.9.12';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -1336,6 +1336,12 @@ function effectiveTargetWt(h){
   const p=(g.steps>0)?Math.min(1,(g.step||1)/g.steps):1;
   const fromW=(g.fromWt[h.id]!=null)?g.fromWt[h.id]:toW;
   return fromW+(toW-fromW)*p;
+}
+/* 최종 자산군 목표(보간 아님) — 글라이드 중이면 glide.to, 아니면 classTargets */
+function finalClassTarget(cat){
+  const g=state.settings.glide;
+  const ct=(g&&g.active&&g.to)?g.to:(state.settings.classTargets||{});
+  return Number(ct[cat])||0;
 }
 function glideCashPct(){
   const g=state.settings.glide;
@@ -2802,6 +2808,7 @@ window.parkAddPrompt=parkAddPrompt;
 // 매핑된 현물 종목이 없으면 0주로 자동 생성(전환액 즉시 계산되도록)
 function ensureLevTechSpots(){
   let added=false;
+  if(finalClassTarget('lev_tech')<=0) return false;   // 레버리지 청산 플랜이면 전환 현물(NVDA 등) 자리 생성 안 함
   const have=new Set(state.holdings.filter(h=>h.cat==='us_stock').map(h=>(h.symbol||'').toUpperCase()));
   for(const h of state.holdings.filter(h=>h.cat==='lev_tech')){
     const spot=LEVTECH_SPOT_MAP[(h.symbol||'').toUpperCase()];
@@ -2816,6 +2823,7 @@ function ensureLevTechSpots(){
 // 디레버리징 사다리 경유 종목(MSTU 2x 등) 0주 자동 생성 — 3x→2x 전환 목적지
 function ensureStepdownHoldings(){
   let added=false;
+  if(finalClassTarget('lev_crypto')<=0) return false;   // lev_crypto 청산 플랜이면 사다리 경유지(MSTU) 자리 생성 안 함
   for(const fromSym of Object.keys(LEV_STEPDOWN_MAP)){
     const m=LEV_STEPDOWN_MAP[fromSym];
     if(m.cat==='crypto') continue;   // BTC는 별도(이미 보유 목록에 있음)

@@ -750,7 +750,7 @@ input,select,textarea{font-family:inherit;color:inherit}
 
     <div class="card">
       <div class="card-title">⏩ 공격 다이얼 점진 전환</div>
-      <div class="info-text" style="margin-bottom:10px">현재 비중에서 공격 목표(크립토 BTC+ETH 55 / US 주식 40 [MAGS·ARKK+단일 8종] / 금(IAUM) 5 · 레버리지 0 · 현금 5%(가속 시 ½) · 가속 1.25)까지 <b>6단계로 나눠</b> 점진 전환을 시작합니다. 배분 페이지에 단계별 진행 카드가 뜨고, 그 수량대로 매매·"다음 단계"를 반복하면 됩니다. 한 번에 갈아엎지 않아 타이밍·세금이 분산됩니다.</div>
+      <div class="info-text" style="margin-bottom:10px">현재 비중에서 공격 목표(크립토 BTC+ETH 55 / US ETF 22 [MAGS·ARKK] / US 단일 18 [8종] / 금(IAUM) 5 · 레버리지 0 · 현금 5%(가속 시 ½) · 가속 1.25)까지 <b>6단계로 나눠</b> 점진 전환을 시작합니다. 배분 페이지에 단계별 진행 카드가 뜨고, 그 수량대로 매매·"다음 단계"를 반복하면 됩니다. 한 번에 갈아엎지 않아 타이밍·세금이 분산됩니다.</div>
       <button class="btn btn-secondary" style="width:100%" onclick="applyRecommendedTargets()">공격 다이얼 점진 전환 시작</button>
     </div>
 
@@ -910,7 +910,8 @@ input,select,textarea{font-family:inherit;color:inherit}
    CONSTANTS & SEED  (SH_Investment 시트 기반)
    ================================================================ */
 const CATEGORIES = {
-  us_stock:   {label:'US Stock',   color:'#4FB6C4', currency:'USD', target:0.40},
+  us_stock:   {label:'US Stock',   color:'#4FB6C4', currency:'USD', target:0.18},
+  us_etf:     {label:'US ETF',     color:'#2FB985', currency:'USD', target:0.22},
   lev_tech:   {label:'Lev Tech 2x',   color:'#E5663D', currency:'USD', target:0.00},
   lev_crypto: {label:'Lev Crypto', color:'#C44ED9', currency:'USD', target:0.00},
   global_etf: {label:'Global ETF', color:'#4A90E2', currency:'KRW', target:0.00},
@@ -937,7 +938,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.17';
+const APP_VER = 'v2.9.18';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -948,12 +949,13 @@ const SEED = {
     cumReturnAfterTax:0.3907710294, cagr:0.1123507516,
     cashByClass:{
       us_stock:{krw:5120,usd:396.38},
+      us_etf:{krw:0,usd:0},
       lev_tech:{krw:0,usd:0},
       lev_crypto:{krw:897506,usd:6.3},
       global_etf:{krw:138656,usd:0},
       crypto:{krw:0,usd:0},
     },
-    classTargets:{us_stock:0.40,lev_tech:0.00,lev_crypto:0.00,global_etf:0.00,crypto:0.55,gold:0.05},
+    classTargets:{us_stock:0.18,us_etf:0.22,lev_tech:0.00,lev_crypto:0.00,global_etf:0.00,crypto:0.55,gold:0.05},
     taxRates:{overseas:0.22,global_etf:0.154,crypto:0,bond:0},
     overseasDeduction:2500000,
   },
@@ -1123,6 +1125,23 @@ function normalizeState(){
     const b=state.settings.cashByClass.bond, g=state.settings.cashByClass.global_etf||{krw:0,usd:0};
     g.krw=(g.krw||0)+(b.krw||0); g.usd=(g.usd||0)+(b.usd||0);
     state.settings.cashByClass.global_etf=g; delete state.settings.cashByClass.bond;
+  }
+  // US ETF 자산군 신설 — 기존 us_stock의 MAGS·ARKK를 us_etf로 분리 이전(보유·예수금·목표·글라이드)
+  for(const h of (state.holdings||[])){
+    const b=(h.symbol||'').replace('.KS','').replace('.L','').toUpperCase();
+    if(h.cat==='us_stock' && (b==='MAGS'||b==='ARKK')) h.cat='us_etf';
+  }
+  if(state.settings.classTargets && state.settings.classTargets.us_etf==null){
+    const t=state.settings.classTargets.us_stock||0;
+    state.settings.classTargets.us_etf=Math.min(0.22,t);                       // ETF 몫 분리
+    state.settings.classTargets.us_stock=Math.max(0,t-state.settings.classTargets.us_etf);
+    // 진행 중 글라이드가 있으면 목표도 동일하게 분리(재탭 전까지 표시 일관성)
+    const g=state.settings.glide;
+    if(g && g.to && g.to.us_etf==null){
+      const tt=g.to.us_stock||0;
+      g.to.us_etf=Math.min(0.22,tt); g.to.us_stock=Math.max(0,tt-g.to.us_etf);
+      if(g.from && g.from.us_etf==null) g.from.us_etf=0;
+    }
   }
   // 실현손익 장부 — { 연도: [{id,date,market:'overseas'|'domestic',amount}] }
   if (!state.realizedPnl) state.realizedPnl = {};
@@ -1295,7 +1314,7 @@ function relTime(ts){
   if(s<86400) return Math.floor(s/3600)+'시간 전';
   return Math.floor(s/86400)+'일 전';
 }
-function isUSDcat(cat){ return cat==='us_stock'||cat==='lev_tech'||cat==='lev_crypto'||cat==='gold'; }
+function isUSDcat(cat){ return cat==='us_stock'||cat==='us_etf'||cat==='lev_tech'||cat==='lev_crypto'||cat==='gold'; }
 
 /* 자산군 목표 비중 (사용자 수정값 우선) */
 function classTarget(k){
@@ -1454,17 +1473,17 @@ function taxEstimate(){
   const fx=state.settings.fxRate;
   const r=state.settings.taxRates||{};
   const ded=state.settings.overseasDeduction||0;
-  const gain={us_stock:0,lev_tech:0,lev_crypto:0,global_etf:0,crypto:0};
+  const gain={us_stock:0,us_etf:0,lev_tech:0,lev_crypto:0,global_etf:0,crypto:0};
   for (const h of state.holdings){
     if (gain[h.cat]==null) gain[h.cat]=0;
     gain[h.cat]+=holdingGainBreakdown(h,fx).total;
   }
   const rows=[];
-  // 해외주식 — US Stock + Lev Tech + Lev Crypto 합산, 연 기본공제 후 과세
-  const ovGain=gain.us_stock+gain.lev_tech+gain.lev_crypto+(gain.gold||0);
+  // 해외주식 — US Stock + US ETF + Lev Tech + Lev Crypto + 금 합산, 연 기본공제 후 과세
+  const ovGain=gain.us_stock+(gain.us_etf||0)+gain.lev_tech+gain.lev_crypto+(gain.gold||0);
   const ovRate=r.overseas||0;
   const ovTaxable=Math.max(0, ovGain-ded);
-  rows.push({key:'overseas',label:'해외주식',sub:'US Stock · Leverage',
+  rows.push({key:'overseas',label:'해외주식',sub:'US Stock · US ETF · Leverage · 금',
              gain:ovGain,rate:ovRate,deduction:ded,taxable:ovTaxable,tax:ovTaxable*ovRate});
   for (const k of ['global_etf','crypto']){
     const g=gain[k]||0, rt=r[k]||0, taxable=Math.max(0,g);
@@ -2525,7 +2544,7 @@ function levSleeve(){
 }
 function effectiveLeverage(s){
   const nav=s.totalWithCash; if(nav<=0) return 0;
-  const other=['us_stock','global_etf','crypto'].reduce((a,k)=>a+((s.totals[k]&&s.totals[k].current)||0),0);
+  const other=['us_stock','us_etf','global_etf','crypto','gold'].reduce((a,k)=>a+((s.totals[k]&&s.totals[k].current)||0),0);
   const grossExp=other + levSleeve().notional;          // 각 레버리지 종목은 실제 배율만큼 노출 확대
   return grossExp/nav;
 }
@@ -3047,7 +3066,7 @@ function kellyCutBreakdown(cutAmt){
 }
 /* 추천 자산군·종목 목표비중 1회 적용 — 2x 테크 이동 + 자산군 타깃 + 종목 타깃(자산군별 정규화) */
 function applyRecommendedTargets(){
-  if(!confirm('공격 다이얼로 점진 전환을 시작합니다 (6단계 글라이드).\n· 목표: 크립토(BTC+ETH) 55 / US 주식 40 (MAGS·ARKK+단일 8종) / 금 IAUM 5 / 레버리지 0\n· 크립토 분할 BTC 70 : ETH 30 · 현금 5%(가속 시 ½) · 가속 1.25\n· 한 번에 안 옮기고 6단계로 나눠 이동 (타이밍·세금 분산)\n· 매 단계 리밸런싱대로 매매 후 "다음 단계" 진행\n계속할까요?')) return;
+  if(!confirm('공격 다이얼로 점진 전환을 시작합니다 (6단계 글라이드).\n· 목표: 크립토(BTC+ETH) 55 / US ETF 22(MAGS·ARKK) / US 단일 18(8종) / 금 IAUM 5 / 레버리지 0\n· 크립토 분할 BTC 70 : ETH 30 · 현금 5%(가속 시 ½) · 가속 1.25\n· 한 번에 안 옮기고 6단계로 나눠 이동 (타이밍·세금 분산)\n· 매 단계 리밸런싱대로 매매 후 "다음 단계" 진행\n계속할까요?')) return;
   const base=h=>(h.symbol||'').replace('.KS','').replace('.L','').toUpperCase();
   // 1) 2x 테크 이동
   const TECH=['NVDL','TSLL','GGLL','PLTU'];
@@ -3056,7 +3075,7 @@ function applyRecommendedTargets(){
     if(isUSDcat(h.cat)&&(h.avgFx==null||isNaN(h.avgFx))) h.avgFx=isLevCat(h.cat)?1486.95:1465.57;
   }
   // 2) 자산군 목표비중 (합 100%) — 공격 다이얼. 점진 전환은 글라이드가 처리.
-  const AGG={us_stock:0.40,lev_tech:0.00,lev_crypto:0.00,global_etf:0.00,crypto:0.55,gold:0.05};
+  const AGG={us_stock:0.18,us_etf:0.22,lev_tech:0.00,lev_crypto:0.00,global_etf:0.00,crypto:0.55,gold:0.05};
   state.settings.classTargets={...AGG};   // 최종(글라이드 완료 시 도달)
   if(state.settings.risk) state.settings.risk.accelMax=1.25;   // 가속 상한 1.25
   // 2-1) 현물 코인 자리 종목 자동 생성(없으면 수량 0으로) — 리밸런싱에 BTC/ETH 매수액이 뜨도록
@@ -3067,12 +3086,12 @@ function applyRecommendedTargets(){
         cat:'crypto', symbol:sym, name:sym, qty:0, avgKRW:0, curKRW:0, targetWt:0});
     }
   });
-  // 2-2) US 코어 ETF 자리(MAGS·ARKK) 자동 생성(없으면 수량 0) — 글라이드에 매수액이 뜨도록
-  const haveUS=state.holdings.filter(h=>h.cat==='us_stock').map(h=>base(h));
+  // 2-2) US 코어 ETF 자리(MAGS·ARKK) 자동 생성(없으면 수량 0) — us_etf 자산군, 글라이드에 매수액이 뜨도록
+  const haveETF=state.holdings.filter(h=>h.cat==='us_etf').map(h=>base(h));
   [['MAGS','Roundhill Magnificent Seven ETF'],['ARKK','ARK Innovation ETF']].forEach(([sym,nm])=>{
-    if(!haveUS.includes(sym)){
-      state.holdings.push({id:'us_'+sym+'_'+Date.now().toString(36)+Math.floor(Math.random()*1e3),
-        cat:'us_stock', symbol:sym, name:nm, qty:0, avgUSD:0, curUSD:0, avgFx:1465.57, targetWt:0});
+    if(!haveETF.includes(sym)){
+      state.holdings.push({id:'usetf_'+sym+'_'+Date.now().toString(36)+Math.floor(Math.random()*1e3),
+        cat:'us_etf', symbol:sym, name:nm, qty:0, avgUSD:0, curUSD:0, avgFx:1465.57, targetWt:0});
     }
   });
   // 2-3) 금 자리(IAUM) 자동 생성(없으면 수량 0) — 닻/분산용 골드 슬리브
@@ -3441,7 +3460,7 @@ function renderRebalAlert(s){
     const pp=(Math.abs(maxDev)*100).toFixed(1);
     const tradeAmt=Math.abs(maxDev)*total;   // 목표 비중 복귀에 필요한 거래액
     const act = maxDev>0 ? `매도 ₩${fmtKRW(tradeAmt)}` : `매수 ₩${fmtKRW(tradeAmt)}`;
-    const taxable = maxDev>0 && (maxK==='us_stock'||maxK==='lev_tech'||maxK==='lev_crypto'||maxK==='global_etf');
+    const taxable = maxDev>0 && (maxK==='us_stock'||maxK==='us_etf'||maxK==='lev_tech'||maxK==='lev_crypto'||maxK==='global_etf'||maxK==='gold');
     const taxNote = taxable ? ' <span style="color:var(--orange)">· 과세 주의(손익 통산 점검)</span>' : '';
     el.innerHTML=`<div style="display:flex;align-items:center;gap:11px">
       <span class="ra-dot"></span>

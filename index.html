@@ -938,7 +938,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.19';
+const APP_VER = 'v2.9.20';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -3066,7 +3066,12 @@ function kellyCutBreakdown(cutAmt){
 }
 /* 추천 자산군·종목 목표비중 1회 적용 — 2x 테크 이동 + 자산군 타깃 + 종목 타깃(자산군별 정규화) */
 function applyRecommendedTargets(){
-  if(!confirm('공격 다이얼로 점진 전환을 시작합니다 (6단계 글라이드).\n· 목표: 크립토(BTC+ETH) 55 / US ETF 22(MAGS·ARKK) / US 단일 18(8종) / 금 IAUM 5 / 레버리지 0\n· 크립토 분할 BTC 70 : ETH 30 · 현금 5%(가속 시 ½) · 가속 1.25\n· 한 번에 안 옮기고 6단계로 나눠 이동 (타이밍·세금 분산)\n· 매 단계 리밸런싱대로 매매 후 "다음 단계" 진행\n계속할까요?')) return;
+  const _gActive = state.settings.glide && state.settings.glide.active;
+  if(_gActive){
+    if(!confirm('이미 진행 중인 전환이 있습니다.\n\n[확인] 지금 보유를 시작점으로 6단계를 처음부터(1/6) 다시 짭니다.\n[취소] 그대로 유지 — 아무 것도 안 바뀜.\n\n※ 평소 진행은 글라이드 카드의 "다음 단계"로 하세요. 다이얼을 반복해서 누르면 매번 1단계로 리셋됩니다.')) return;
+  } else {
+    if(!confirm('공격 다이얼로 점진 전환을 시작합니다 (6단계 글라이드).\n· 목표: 크립토(BTC+ETH) 55 / US ETF 22(MAGS·ARKK) / US 단일 18(8종) / 금 IAUM 5 / 레버리지 0\n· 크립토 분할 BTC 70 : ETH 30 · 현금 5%(가속 시 ½) · 가속 1.25\n· 한 번에 안 옮기고 6단계로 나눠 이동 (타이밍·세금 분산)\n· 매 단계 리밸런싱대로 매매 후 "다음 단계" 진행\n계속할까요?')) return;
+  }
   const base=h=>(h.symbol||'').replace('.KS','').replace('.L','').toUpperCase();
   // 1) 2x 테크 이동
   const TECH=['NVDL','TSLL','GGLL','PLTU'];

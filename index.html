@@ -750,7 +750,7 @@ input,select,textarea{font-family:inherit;color:inherit}
 
     <div class="card">
       <div class="card-title">⏩ 공격 다이얼 점진 전환</div>
-      <div class="info-text" style="margin-bottom:10px">현재 비중에서 공격 목표(크립토 BTC+ETH 55 / US 주식 40 [MAGS·ARKK+단일4] / 금(IAUM) 5 · 레버리지 0 · 현금 5%(가속 시 ½) · 가속 1.25)까지 <b>6단계로 나눠</b> 점진 전환을 시작합니다. 배분 페이지에 단계별 진행 카드가 뜨고, 그 수량대로 매매·"다음 단계"를 반복하면 됩니다. 한 번에 갈아엎지 않아 타이밍·세금이 분산됩니다.</div>
+      <div class="info-text" style="margin-bottom:10px">현재 비중에서 공격 목표(크립토 BTC+ETH 55 / US 주식 40 [MAGS·ARKK+단일 8종] / 금(IAUM) 5 · 레버리지 0 · 현금 5%(가속 시 ½) · 가속 1.25)까지 <b>6단계로 나눠</b> 점진 전환을 시작합니다. 배분 페이지에 단계별 진행 카드가 뜨고, 그 수량대로 매매·"다음 단계"를 반복하면 됩니다. 한 번에 갈아엎지 않아 타이밍·세금이 분산됩니다.</div>
       <button class="btn btn-secondary" style="width:100%" onclick="applyRecommendedTargets()">공격 다이얼 점진 전환 시작</button>
     </div>
 
@@ -937,7 +937,7 @@ const LEV_STEPDOWN_MAP = {
 };
 const UPBIT_MARKET = {BTC:'KRW-BTC',ETH:'KRW-ETH',SOL:'KRW-SOL',LINK:'KRW-LINK',XRP:'KRW-XRP',DOGE:'KRW-DOGE'};
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.12';
+const APP_VER = 'v2.9.15';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -3048,7 +3048,7 @@ function kellyCutBreakdown(cutAmt){
 }
 /* 추천 자산군·종목 목표비중 1회 적용 — 2x 테크 이동 + 자산군 타깃 + 종목 타깃(자산군별 정규화) */
 function applyRecommendedTargets(){
-  if(!confirm('공격 다이얼로 점진 전환을 시작합니다 (6단계 글라이드).\n· 목표: 크립토(BTC+ETH) 55 / US 주식 40 (MAGS·ARKK+단일4) / 금 IAUM 5 / 레버리지 0\n· 크립토 분할 BTC 90 : ETH 10 · 현금 5%(가속 시 ½) · 가속 1.25\n· 한 번에 안 옮기고 6단계로 나눠 이동 (타이밍·세금 분산)\n· 매 단계 리밸런싱대로 매매 후 "다음 단계" 진행\n계속할까요?')) return;
+  if(!confirm('공격 다이얼로 점진 전환을 시작합니다 (6단계 글라이드).\n· 목표: 크립토(BTC+ETH) 55 / US 주식 40 (MAGS·ARKK+단일 8종) / 금 IAUM 5 / 레버리지 0\n· 크립토 분할 BTC 70 : ETH 30 · 현금 5%(가속 시 ½) · 가속 1.25\n· 한 번에 안 옮기고 6단계로 나눠 이동 (타이밍·세금 분산)\n· 매 단계 리밸런싱대로 매매 후 "다음 단계" 진행\n계속할까요?')) return;
   const base=h=>(h.symbol||'').replace('.KS','').replace('.L','').toUpperCase();
   // 1) 2x 테크 이동
   const TECH=['NVDL','TSLL','GGLL','PLTU'];
@@ -3083,11 +3083,11 @@ function applyRecommendedTargets(){
       cat:'gold', symbol:'IAUM', name:'iShares Gold Trust Micro', qty:0, avgUSD:0, curUSD:0, avgFx:1465.57, targetWt:0});
   }
   // 3) 종목 목표비중 — 원시 가중치 → 자산군별 정규화(누락/추가 종목 있어도 합 100% 보장)
-  const RAW={ MAGS:18,ARKK:10, RKLB:3,IONQ:3,SMR:3,JOBY:3, IAUM:5,
-    MU:0,CRWD:0,CRSP:0,RBLX:0,RGTI:0,ARQQ:0,PLUG:0,BWXT:0,SPCX:0,NVDA:0,TSLA:0,GOOGL:0,PLTR:0,
+  const RAW={ MAGS:14,ARKK:8, RKLB:2.5,IONQ:2.5,SMR:2.5,JOBY:2.5, MU:2,CRWD:2, PLUG:2,SPCX:2, IAUM:5,
+    RGTI:0,CRSP:0,RBLX:0,ARQQ:0,BWXT:0,NVDA:0,TSLA:0,GOOGL:0,PLTR:0,
     NVDL:0,GGLL:0,TSLL:0,PLTU:0, BMNU:0,MST3:0,MSTU:0,
     '453630':0,'453640':0,'390390':0,'494840':0,'218420':0,
-    BTC:90,ETH:10 };
+    BTC:70,ETH:30 };
   const byCat={};
   for(const h of state.holdings){ (byCat[h.cat]=byCat[h.cat]||[]).push(h); }
   for(const cat in byCat){

@@ -1006,7 +1006,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.38';
+const APP_VER = 'v2.9.39';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -2756,13 +2756,19 @@ function effectiveLeverage(s){
 async function fetchTrend200(force){
   const risk=state.settings.risk; if(!risk||!risk.trendOn) return;
   const t=risk.trend||(risk.trend={});
-  if(!force && t.ts && (Date.now()-t.ts) < 6*3600*1000) return;   // 6시간 1회면 충분
+  const haveCrypto = t['BTC-USD'] && t['ETH-USD'];   // 크립토 트랙 데이터가 아직 없으면 캐시 무시하고 재수집
+  if(!force && haveCrypto && t.ts && (Date.now()-t.ts) < 6*3600*1000) return;   // 6시간 1회면 충분
   const idxs=['^GSPC','^NDX','BTC-USD','ETH-USD'];   // 주식 트랙(^GSPC·^NDX) + 크립토 트랙(BTC·ETH)
+  // 일봉 종가 시리즈 — 1차 일봉 API, 실패 시 병합 시리즈(차트와 동일) 폴백
+  const closesOf=async(sym)=>{
+    try{ const ser=await withTimeout(fetchYahooHistoryDaily(sym,'1y',false),8000); const c=(ser||[]).map(x=>x.v).filter(v=>v>0); if(c.length>=200) return c; }catch(_){}
+    try{ const m=await withTimeout(fetchHistMerged(sym,false),9000); const c=((m&&m.daily)||[]).map(x=>x.v).filter(v=>v>0); if(c.length>=200) return c; }catch(_){}
+    return null;
+  };
   for(const sym of idxs){
     try{
-      const ser=await withTimeout(fetchYahooHistoryDaily(sym,'1y',false),8000);
-      const closes=(ser||[]).map(x=>x.v).filter(v=>v>0);
-      if(closes.length>=200){
+      const closes=await closesOf(sym);
+      if(closes && closes.length>=200){
         const last=closes[closes.length-1];
         const sma=closes.slice(-200).reduce((a,b)=>a+b,0)/200;
         const first=closes[0];

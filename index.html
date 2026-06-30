@@ -1007,7 +1007,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.45';
+const APP_VER = 'v2.9.47';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -2858,10 +2858,13 @@ function effectiveCashPct(s){
   try{
     const dt=drawdownTier(s);
     const r=computeRiskStatus(s);
-    if(r.level && r.level!=='near') return Math.max(base, dt.cashFloor||0);   // 방어: 기본 + 낙폭 티어 현금 반영
-    if(dt.tier>=1) return Math.max(base, dt.cashFloor);                       // 고점 대비 낙폭 방어 — 가속보다 우선
-    const ac=computeAccelRegime(s);
-    if(ac && ac.on && (ac.regime==='early'||ac.regime==='full')) return base/2;   // 상승 확인: 현금 절반 투입
+    if(r.level && r.level!=='near') return Math.max(base, dt.cashFloor||0);   // 실제 방어(추세이탈·플로어·레버): 기본 + 낙폭 티어 현금 반영
+    const ac=computeAccelRegime(s);                                          // 주식 트랙(^GSPC·^NDX)
+    const accelOn = ac && ac.on && (ac.regime==='early'||ac.regime==='full');
+    // [B안] 시장 지수가 가속(200일선 위)이면 NAV 고점대비 낙폭은 크립토/레버 베타로 보고 현금 강제 보류.
+    //       글라이드 매집 유지 + 윈너라이딩과의 모순 제거. 실제 크래시는 위 추세필터·일간 급락(-10%)·플로어가 담당.
+    if(accelOn) return base/2;                                                // 가속: 현금 절반 투입 (낙폭 티어보다 우선)
+    if(dt.tier>=1) return Math.max(base, dt.cashFloor);                       // 시장 중립/약세에서만 NAV 낙폭 방어 현금 상향
   }catch(_){}
   return base;
 }
@@ -3493,13 +3496,26 @@ function computeActionAlerts(s){
         act:'alloc'});
     }
   }catch(_){}
-  // 고점 대비 낙폭 1차 방어 — −10%~−20% 구간에서 현금 버퍼 상향 알림(−20%↑는 백스톱이 담당)
+  // 고점 대비 낙폭 방어 — 1차(−10%)·2차(−20%). [B안] 시장 가속 중이면 현금 강제 보류(베타)·참고용으로 표시
   try{ const dt=drawdownTier(s);
-    if(dt.tier===1){
-      out.push({tag:'1차 방어',sev:'warn',
-        why:`고점 대비 −${(dt.dd*100).toFixed(1)}% — 현금 버퍼 15%로 상향`,
-        sub:`중간 되돌림 구간 진입(고점 ₩${fmtKRW(dt.peak)} → 현재 ₩${fmtKRW(dt.nav)}). 현금 목표를 5%→15%로 올려 위험자산 일부 정리 권장. 가속(윈너라이딩)보다 방어 우선. −20% 더 빠지면 백스톱(현금 25%) 발동. (신호일 뿐 강제 아님)`,
-        act:'alloc'});
+    if(dt.tier>=1){
+      const _rr=computeRiskStatus(s); const _inDef=_rr.level&&_rr.level!=='near';
+      const _ac=computeAccelRegime(s); const _accelOn=_ac&&_ac.on&&(_ac.regime==='early'||_ac.regime==='full');
+      const floorActive = _inDef || !_accelOn;   // effectiveCashPct가 실제로 현금 floor를 적용하는 상태
+      const cashTgt = dt.tier===2?25:15;
+      const tierLbl = dt.tier===2?'2차 방어':'1차 방어';
+      const peakLine = `고점 ₩${fmtKRW(dt.peak)} → 현재 ₩${fmtKRW(dt.nav)}`;
+      if(floorActive){
+        out.push({tag:tierLbl,sev:'warn',
+          why:`고점 대비 −${(dt.dd*100).toFixed(1)}% — 현금 버퍼 ${cashTgt}%로 상향`,
+          sub:`${dt.tier===2?'백스톱 구간':'중간 되돌림 구간'} 진입(${peakLine}). 현금 목표를 ${cashTgt}%로 올려 위험자산 일부 정리 권장. 가속(윈너라이딩)보다 방어 우선.${dt.tier===1?' −20% 더 빠지면 현금 25%로 추가 상향.':''} (신호일 뿐 강제 아님)`,
+          act:'alloc'});
+      } else {
+        out.push({tag:tierLbl,sev:'info',
+          why:`고점 대비 −${(dt.dd*100).toFixed(1)}% — 시장 가속 중, 현금 강제 보류`,
+          sub:`${peakLine}. 지수(S&P·나스닥)가 200일선 위라 NAV 낙폭은 크립토·레버리지 베타로 판단 — 글라이드 매집 유지(현금 강제 안 함). 실제 크래시는 일간 급락(−10%)·추세필터·절대 플로어가 담당. peak이 비정상적으로 높으면(과거 글리치 스냅샷) 이력 점검 필요. (참고용)`,
+          act:'alloc'});
+      }
     }
   }catch(_){}
   // 디레버리징 사다리 — 고배율(3x) 보유 시 한 칸 낮추는 전환 권장
@@ -3533,7 +3549,7 @@ function renderActionCenter(s){
   if(!acts.length){ el.style.display='none'; el.onclick=null; return; }
   const sev = acts.some(a=>a.sev==='crit')?'crit':(acts.some(a=>a.sev==='warn')?'warn':'');
   el.className='card action-center'+(sev?' '+sev:'');
-  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','1차 방어':'#E8A23D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A'};
+  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A'};
   const rows=acts.map(a=>`<div class="ac-row" onclick="event.stopPropagation();acDispatch('${a.act}')" style="cursor:pointer">
     <span class="ac-tag" style="background:${tagColor[a.tag]||'#666'}22;color:${tagColor[a.tag]||'#aaa'}">${a.tag}</span>
     <span style="flex:1;min-width:0"><span style="font-size:11.5px;line-height:1.4;font-weight:600">${esc(a.why)}</span>${a.sub?`<br><span style="font-size:10px;color:var(--text-3);line-height:1.35">${esc(a.sub)}</span>`:''}</span>
@@ -3800,14 +3816,17 @@ function renderAllocChart(s){
   if(!el) return;
   const total=s.totalWithCash||1;
   const cashPct=(typeof effectiveCashPct==='function')?effectiveCashPct(s):(state.settings.reserveTargetPct||0);
+  // 카드의 "조정" 금액은 종합 실행(배분)과 동일 출처에서 산출 — 윈너라이딩 ⅓ 트림·레버리지 levLiq 보류·현금까지 반영해 두 화면 불일치 제거
+  let planNet={};
+  try{ const _p=computeUnifiedPlan(s); [..._p.buys,..._p.sells].forEach(x=>{ planNet[x.cat]=(planNet[x.cat]||0)+x.val; }); }catch(_){}
   const items=[];
   for (const k in CATEGORIES){
     if(s.totals[k].current>0 || classTarget(k)>0)
-      items.push({label:CATEGORIES[k].label,val:s.totals[k].current,color:CATEGORIES[k].color,target:classTarget(k)*(1-cashPct)});  // 현금 차감 기준
+      items.push({k,label:CATEGORIES[k].label,val:s.totals[k].current,color:CATEGORIES[k].color,target:classTarget(k)*(1-cashPct),plan:planNet[k]||0});  // 현금 차감 기준
   }
   items.sort((a,b)=>b.val-a.val);                  // 자산군만 평가액 내림차순
   // 현금 — 하나의 자산군처럼 목표(cashPct) 표시. 별도 대기자금 버킷 없음.
-  items.push({label:'현금',val:Math.max(0,s.cash),color:'#565967',target:cashPct,isCash:true,
+  items.push({k:'__cash__',label:'현금',val:Math.max(0,s.cash),color:'#565967',target:cashPct,isCash:true,
               cashDep:cashByClassKRW(), cashAcct:cashAccountKRW()});
   if(!items.length){ el.innerHTML='<div class="empty">자산이 없습니다.</div>'; return; }
   const legend=`<div class="abar-legend"><span class="abar-lg-bar"></span>현재 비중<span class="abar-lg-tick"></span>목표 비중</div>`;
@@ -3820,13 +3839,16 @@ function renderAllocChart(s){
     const devCls=balanced?'muted':(dev>0?'up':'down');
     const tgtColor = !hasTgt ? 'var(--text)' : (balanced ? 'var(--text)' : (dev>0 ? 'var(--up)' : 'var(--down)'));
     const tgtMark=hasTgt?`<span class="abar-target" style="left:${Math.min(tgtPct,100)}%;background:${tgtColor};box-shadow:0 0 0 1.5px rgba(14,17,23,0.55)${balanced?'':',0 0 6px '+tgtColor}"></span>`:'';
-    // 목표 도달을 위한 조정 금액
-    const adjust=total*it.target-it.val;
+    // 조정 금액 — 비현금은 실제 실행 플랜(배분과 동일), 현금은 목표 기준
+    const adjust = it.isCash ? (total*it.target-it.val) : (it.plan||0);
+    const gap = total*it.target - it.val;   // 전략 목표 대비 갭(주석 판단용)
+    const deferred = !it.isCash && Math.abs(gap) > Math.abs(adjust)+10000 && Math.abs(gap) > 1e6;   // 윈너라이딩 트림·levLiq 보류로 일부만/보류
+    const deferNote = deferred ? ' <span style="color:var(--text-3);font-weight:500">· 일부만(가속/청산 보류)</span>' : '';
     const action=Math.abs(adjust)>10000
       ? (it.isCash
           ? (adjust>0?`${fmtKRW(adjust)} 현금 확보 필요(매도)`:`${fmtKRW(-adjust)} 투입 가능`)
-          : (adjust>0?`+${fmtKRW(adjust)} 매수`:`${fmtKRW(adjust)} 매도`))
-      : '균형 상태';
+          : (adjust>0?`+${fmtKRW(adjust)} 매수`:`${fmtKRW(adjust)} 매도`)+deferNote)
+      : (deferred ? `보류 <span style="color:var(--text-3);font-weight:500">· 가속/청산</span>` : '균형 상태');
     const statsRight = hasTgt
       ? `<span class="abar-tgt">목표 ${tgtPct.toFixed(1)}%</span>
          <span class="abar-dev ${devCls}">${dev>=0?'+':''}${dev.toFixed(2)}%p ${balanced?'균형':(dev>0?'초과':'부족')}</span>`
@@ -4799,6 +4821,10 @@ function renderStockRebalance(){
       _uniPlan.holds.forEach(h=>{ _holdMap[h.sym]=h.reason; });
     }catch(e){ _uniPlan=null; }
   }
+  // 종목별 최종 목적지 비중(보간 아님) — "청산 중(최종 0%)" 판정·표시용. 비목적지 종목/레버리지는 최종 0
+  const _sumFinalTw={};
+  state.holdings.forEach(h=>{ _sumFinalTw[h.cat]=(_sumFinalTw[h.cat]||0)+(h.targetWt||0); });
+  const finalTgtPort=(h)=>{ const fc=finalClassTarget(h.cat), sm=_sumFinalTw[h.cat]||0; return (fc>0&&sm>0)?fc*((h.targetWt||0)/sm):0; };
   // 행 렌더링 — 자산군 단일 모드 vs 전체 모드
   const buildRow = (r) => {
     const h=r.h;
@@ -4823,14 +4849,16 @@ function renderStockRebalance(){
       }
     } else { sh=normalSh; val=r.adjustVal; }
     const hold = !heldReason && (isC ? Math.abs(sh)<1e-6 : Math.round(sh)===0);
+    const _finalPort = finalTgtPort(h);
+    const isExiting = !heldReason && (h.qty||0)>0 && _finalPort < 0.0005;   // 보유 중인데 최종 목적지 비중 0 → 글라이드 청산 중(비목적지·레버리지)
     const buy=sh>0 && !hold && !heldReason;
     const cls=(hold||heldReason)?'muted':(buy?'down':'up');
-    const accent=heldReason?'var(--orange)':(hold?'var(--text-3)':(buy?'var(--down)':'var(--up)'));
+    const accent=heldReason?'var(--orange)':(hold?(isExiting?'#B7791F':'var(--text-3)'):(buy?'var(--down)':'var(--up)'));
     const tk=h.symbol.replace('.KS','').replace('.L','');
     const qtyAfter=h.qty+(heldReason?0:sh);
-    const qtyTxt = heldReason ? '보류' : (hold ? '균형' : `${buy?'+':'−'}${fmtQ(sh)}${unit} ${buy?'매수':'매도'}`);
+    const qtyTxt = heldReason ? '보류' : (hold ? (isExiting?'청산 중':'균형') : `${buy?'+':'−'}${fmtQ(sh)}${unit} ${buy?'매수':'매도'}`);
     const subTxt = heldReason ? esc(heldReason)
-      : hold ? `이후 ${fmtQ(qtyAfter)}${unit}`
+      : hold ? (isExiting ? `최종 0% · 청산 중 · 이후 ${fmtQ(qtyAfter)}${unit}` : `이후 ${fmtQ(qtyAfter)}${unit}`)
       : `₩${fmtKRW(Math.abs(val))} · 이후 ${fmtQ(qtyAfter)}${unit}`;
     const isConv = !!(reasonTxt && reasonTxt.includes('전환'));
     const isDefCut = useUni && isLevCat(h.cat) && sh<0 && reasonTxt && /켈리|축소|방어|플로어|추세/.test(reasonTxt);
@@ -4841,6 +4869,9 @@ function renderStockRebalance(){
       : rbMode==='within'
       ? `현재 ${fmtPct(r.curWtInCat,1)} → 목표 ${fmtPct(r.tw,1)}`
       : `현재 ${fmtPct(r.curWtPort,1)} → 목표 ${fmtPct(r.tgtWtPort,1)} <span style="color:var(--text-3)">(전체)</span>`;
+    // 최종 목적지 비중 노출 — 보간 목표(이번 단계)와 최종이 다를 때(특히 청산 중) 궤적을 보여줌
+    const _showFinal = useUni && !isConv && !isDefCut && rbMode!=='within' && (isExiting || Math.abs(_finalPort-(r.tgtWtPort||0))>0.01);
+    const finalNote = _showFinal ? ` <span style="color:#B7791F">→ 최종 ${fmtPct(_finalPort,1)}${isExiting?' 청산':''}</span>` : '';
     const reasonBadge = (useUni && reasonTxt && !hold) ? `<div style="font-size:9.5px;color:var(--text-3);margin-top:2px">${esc(reasonTxt)}</div>` : '';
     const conflictBadge = (conflict && !isDefCut) ? `<div style="font-size:9.5px;color:var(--orange);margin-top:1px">⚠ ${esc(conflict)}</div>` : '';
     const releaseHint = heldReason ? ({
@@ -4865,7 +4896,7 @@ function renderStockRebalance(){
       <div class="rbx-accent" style="background:${accent}"></div>
       <div class="rbx-main">
         <div class="rbx-l1"><span class="rbx-tk">${tk}</span><span class="rbx-nm">${esc(h.name)}</span></div>
-        <div class="rbx-wt">${wtLine}</div>
+        <div class="rbx-wt">${wtLine}${finalNote}</div>
         ${conflictBadge}${releaseBadge}${activateBadge}
       </div>
       <div class="rbx-right">
@@ -7580,7 +7611,7 @@ function renderSettings(){
       const _hasExemptLev=(state.holdings||[]).some(h=>isLevCat(h.cat)&&(h.qty||0)>0&&isDefenseExempt(h));
       st=`① 사이징: 실효 ${r.eff.toFixed(2)}배 / 권장 ≤${cap} <span style="color:var(--text-3)">(변동성 ${vol})</span>`
         +(_hasExemptLev?` · <span style="color:var(--gold)">레버리지 점진 청산 중 — 방어 보류</span>`:'')+`<br>`
-        +`② 추세 200일선 ${rk.trendOn?'사용':'끔'} · ③ 백스톱 ${state.settings.risk&&state.settings.risk.backstop!=null?('−'+(state.settings.risk.backstop*100).toFixed(0)+'%'):'미사용'}(고점 −10% 1차→현금15% · −20% 2차→현금25%) · ④ 플로어 <b style="color:var(--text)">${floorTxt}</b><br>`
+        +`② 추세 200일선 ${rk.trendOn?'사용':'끔'} · ③ 백스톱 ${state.settings.risk&&state.settings.risk.backstop!=null?('−'+(state.settings.risk.backstop*100).toFixed(0)+'%'):'미사용'}(고점 −10% 1차→현금15% · −20% 2차→현금25% · 단 지수 가속(200일선 위) 중엔 베타로 보고 현금 강제 보류) · ④ 플로어 <b style="color:var(--text)">${floorTxt}</b><br>`
         +`⑤ 리밸런싱 노터치 밴드 ±${((rk.rebalBand!=null?rk.rebalBand:0.05)*100).toFixed(0)}%p<br>`
         +`⑥ 오버슛 현금화: 목표 +${((rk.overshootPct!=null?rk.overshootPct:0.15)*100).toFixed(0)}% 초과 시 초과분의 ${((rk.cashoutFrac!=null?rk.cashoutFrac:0.50)*100).toFixed(0)}% 분할`;
       try{ const acS=computeAccelRegime(portfolioStats(),'stock'); const acC=computeAccelRegime(portfolioStats(),'crypto');

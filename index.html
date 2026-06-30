@@ -1008,7 +1008,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.49';
+const APP_VER = 'v2.9.51';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -3419,8 +3419,8 @@ function computeBackstop(s){
   const actualLev=(lt.current||0)+(lc.current||0);
   const inv=(lt.invested||0)+(lc.invested||0);
   if(rk.backstop==null || total<=0) return {on:false,hit:false,backstop:rk.backstop,actualLev,sellAmt:0,ddFromPeak:0,peak:total,realized:0,ytd:0,tax:0};
-  const peak=Math.max(rk.peakNav||total, total); rk.peakNav=peak;
-  const ddFromPeak=(peak-total)/peak;
+  const peak=Math.max(peakNavAll(), total);   // 단일 고점 기준(drawdownTier·플로어와 동일) — rk.peakNav 이원화/렌더 중 state 변경 제거
+  const ddFromPeak=peak>0?(peak-total)/peak:0;
   const hit=ddFromPeak>=rk.backstop;
   const sellAmt=hit?Math.max(0, actualLev*0.5):0;   // 절반 디리스크 → 현금 보유
   const sleeveRatio=actualLev>0?(actualLev-inv)/actualLev:0;
@@ -3452,10 +3452,11 @@ function computeActionAlerts(s){
       out.push({tag:'전환',sev:'warn',why:`Lev Tech → 현물 전환 (${cv.trigger==='trend'?'추세 이탈 2일':'신호'})`,sub:(qty?qty+' · ':'')+'매매 후 입력하면 목표 자동 이전',act:'alloc'});
     }
   }catch(_){}
-  // 백스톱 — 고점 대비 −% 도달 시 레버리지 절반 방어 매도(현금 디리스크). 방어(lev/trend/floor) 활성 시엔 방어가 더 크게 축소하므로 숨김(중복 방지)
+  // 백스톱 — 고점 대비 −% 도달 시 레버리지 절반 방어 매도(현금 디리스크). 방어(lev/trend/floor) 또는 levLiq(회복연동 청산) 활성 시엔 숨김(레버리지 정책 충돌·중복 방지)
   try{ const bsp=computeBackstop(s);
     const defLevOn=_r&&_r.level&&_r.level!=='near';
-    if(bsp.hit && bsp.sellAmt>1000000 && !defLevOn){
+    const levLiqOn=!!(state.settings.levLiq && state.settings.levLiq.active);   // levLiq가 레버리지 청산을 전담 중이면 백스톱 절반매도 보류(빠지면 보류·신고가 매도가 우선)
+    if(bsp.hit && bsp.sellAmt>1000000 && !defLevOn && !levLiqOn){
       out.push({tag:'백스톱',sev:'warn',why:`백스톱 발동 — 고점 −${fmtPct(bsp.ddFromPeak,0)} · 레버리지 절반 방어 매도 ₩${fmtKRW(bsp.sellAmt)}`,sub:'위기 디리스크 — 레버리지 절반 매도 후 현금 보유(반등 시 목표대로 재배분) ▸',act:'risk'});
     }
   }catch(_){}
@@ -3532,7 +3533,7 @@ function computeActionAlerts(s){
   }catch(_){}
   // 리밸런싱 드리프트 — 방어 중인 레버리지 종목은 방어 알림이 처리하므로 제외(중복 방지)
   try{ let drift=0; const defenseOn=_r&&_r.level&&_r.level!=='near';
-    Object.keys(CATEGORIES).forEach(cat=>{ if(defenseOn&&isLevCat(cat)) return; stockRebalance(cat,'portfolio').forEach(rr=>{ if((rr.h.qty||0)>0 && Math.abs((rr.curWtPort||0)-(rr.tgtWtPort||0))>=0.05) drift++; }); });
+    Object.keys(CATEGORIES).forEach(cat=>{ if(defenseOn&&isLevCat(cat)) return; stockRebalance(cat,'portfolio',s).forEach(rr=>{ if((rr.h.qty||0)>0 && Math.abs((rr.curWtPort||0)-(rr.tgtWtPort||0))>=0.05) drift++; }); });
     if(drift>0) out.push({tag:'리밸런싱',sev:'info',why:`목표비중 ±5%p 이탈 ${drift}종목`,sub:'배분에서 수량 확인 후 매매 → 입력',act:'alloc'});
   }catch(_){}
   return out;
@@ -3621,8 +3622,9 @@ function openRiskPlan(){
   const row4 = `하한 ${floorTxt} = <b>₩${fmtKRW(r.floor)}</b> · 현재 ${yn(r.floorBreach,'여유','붕괴')} ${dist!=null?`<span style="color:var(--text-3)">(${fmtPctSigned(dist,1)})</span>`:''}`;
   // ③ 백스톱(하방 보호)
   const sp=computeBackstop(s);
+  const _levLiqOn=!!(state.settings.levLiq && state.settings.levLiq.active);
   const row3 = (risk.backstop!=null)
-    ? `고점 −${(risk.backstop*100).toFixed(0)}% · ${yn(sp.hit,'정상','발동')}${sp.peak?` <span style="color:var(--text-3)">(고점 대비 ${fmtPctSigned(-sp.ddFromPeak,1)})</span>`:''}`
+    ? `고점 −${(risk.backstop*100).toFixed(0)}% · ${yn(sp.hit,'정상','발동')}${sp.peak?` <span style="color:var(--text-3)">(고점 대비 ${fmtPctSigned(-sp.ddFromPeak,1)})</span>`:''}${(sp.hit&&_levLiqOn)?`<div style="color:var(--text-3);font-size:10.5px;margin-top:2px">· 레버리지는 levLiq 회복연동 청산이 처리 — 백스톱 절반매도 보류</div>`:''}`
     : `<span style="color:var(--text-3)">미사용</span>`;
   // 현재 활성 경고의 권장 조치 + 재진입 조건
   let actionBlock='';
@@ -4721,14 +4723,15 @@ function computeCagrGap(){
               · CAGR 초과 시 그만큼 차감 (총자산을 페이스 목표선까지 끌어내림)
               · CAGR 미달 + 대기 자금 보유 시 부족분만큼 대기 자금 투입 (매수에 자동 반영)
    within   : 그 자산군의 보유 평가액만 기준 → 예수금 제외, 자산군 내 재분배만 */
-function stockRebalance(cat, mode){
+function stockRebalance(cat, mode, s){
   const fx=state.settings.fxRate;
   const holdings=state.holdings.filter(h=>h.cat===cat);
-  const catCurrent=holdings.reduce((s,h)=>s+holdingValue(h,fx).current,0);
-  let basis=portfolioStats().totalWithCash;
+  const catCurrent=holdings.reduce((a,h)=>a+holdingValue(h,fx).current,0);
+  s = s || portfolioStats();   // 호출자가 stats를 넘기면 재계산 회피(핫패스 절감 — computeUnifiedPlan이 카테고리마다 부르므로)
+  let basis=s.totalWithCash;
   if(mode!=='within'){
     // 현금 목표 비중을 제외한 부분만 슬리브에 배분 — 엔진이 상승 시 현금%를 낮춰 자동 투입(가속)
-    const cashPct=effectiveCashPct(portfolioStats());
+    const cashPct=effectiveCashPct(s);
     basis = basis*(1-cashPct);
   }
   const catTargetVal = mode==='within' ? catCurrent : basis*classTarget(cat);
@@ -4804,10 +4807,10 @@ function cashGuideBody(s, plan, avail){
       <span>매수 합계 ₩${fmtKRW(g.totalBuy)} · 가용 ₩${fmtKRW(g.avail)}</span>
       <span style="${g.shortfall>0?'color:#B7791F;font-weight:700':''}">${g.shortfall>0?'부족 ₩'+fmtKRW(g.shortfall):'전액 집행 가능'}</span></div>`;
 }
-function renderCashGuide(){
+function renderCashGuide(s, plan){
   const el=document.getElementById('rb-cashguide'); if(!el) return;
   if(rbMode!=='portfolio'){ el.innerHTML=''; return; }
-  let s,plan; try{ s=portfolioStats(); plan=computeUnifiedPlan(s); }catch(_){ el.innerHTML=''; return; }
+  try{ if(!s) s=portfolioStats(); if(!plan) plan=computeUnifiedPlan(s); }catch(_){ el.innerHTML=''; return; }
   const cashNow=Math.max(0,Math.round(s.cash||0));
   const sells=Math.max(0,Math.round(plan.sellTotal||0));
   const totalBuy=Math.round(plan.buyTotal||0);
@@ -4899,15 +4902,16 @@ function renderStockRebalance(){
 
   // 종합(모든 로직) 결과 — 종목별 최종 매수/매도로 사용 (전체 포트폴리오 모드에서만)
   const useUni = rbMode==='portfolio';
+  const _s = portfolioStats();   // 1회만 계산 — 종합플랜·종목리밸·현금가이드에서 재사용(재계산 회피)
   let _uniMap={}, _holdMap={}, _uniPlan=null;
   if(useUni){
     try{
-      _uniPlan=computeUnifiedPlan(portfolioStats());
+      _uniPlan=computeUnifiedPlan(_s);
       _uniPlan.buys.concat(_uniPlan.sells).forEach(x=>{ _uniMap[x.sym]=x; });
       _uniPlan.holds.forEach(h=>{ _holdMap[h.sym]=h.reason; });
     }catch(e){ _uniPlan=null; }
   }
-  renderCashGuide();   // 가용 현금 우선순위 매수 가이드 (portfolio 모드·매수 부족 시 표시)
+  renderCashGuide(_s, _uniPlan);   // 이미 만든 stats·플랜 재사용
   // 종목별 최종 목적지 비중(보간 아님) — "청산 중(최종 0%)" 판정·표시용. 비목적지 종목/레버리지는 최종 0
   const _sumFinalTw={};
   state.holdings.forEach(h=>{ _sumFinalTw[h.cat]=(_sumFinalTw[h.cat]||0)+(h.targetWt||0); });
@@ -5006,7 +5010,7 @@ function renderStockRebalance(){
   let allRows=[];
   if(rbStockCat==='all'){
     for(const k of cats){
-      const rows=stockRebalance(k, rbMode);
+      const rows=stockRebalance(k, rbMode, _s);
       const shown=new Set(rows.map(r=>r.h.symbol));
       const extras=synthFor(k, shown);
       const groupRows=rows.concat(extras);
@@ -5032,7 +5036,7 @@ function renderStockRebalance(){
       </div>`;
     }
   } else {
-    const rows=stockRebalance(rbStockCat, rbMode);
+    const rows=stockRebalance(rbStockCat, rbMode, _s);
     const shown=new Set(rows.map(r=>r.h.symbol));
     allRows=rows.concat(synthFor(rbStockCat, shown));
     let gb=0,gs=0;
@@ -5070,7 +5074,7 @@ function renderStockRebalance(){
     if(useUni && _uniPlan){
       _uniPlan.buys.concat(_uniPlan.sells).forEach(x=>{ if(x.cat!==k) return; if(x.val>0) b+=x.val; else s-=x.val; });
     } else {
-      stockRebalance(k,rbMode).forEach(r=>{ const amt=r.adjustShares*r.priceKRW; if(amt>0) b+=amt; else if(amt<0) s-=amt; });
+      stockRebalance(k,rbMode,_s).forEach(r=>{ const amt=r.adjustShares*r.priceKRW; if(amt>0) b+=amt; else if(amt<0) s-=amt; });
     }
     return {k,buy:b,sell:s};
   });
@@ -5171,7 +5175,7 @@ function computeUnifiedPlan(s){
   // 2) 일반 목표비중 리밸런싱 — 방어로 처리한 레버리지는 제외/보류
   const step1Syms=new Set(rows.map(x=>x.sym));   // 방어 1단계에서 이미 축소한 종목
   Object.keys(CATEGORIES).forEach(cat=>{
-    stockRebalance(cat,'portfolio').forEach(rr=>{
+    stockRebalance(cat,'portfolio',s).forEach(rr=>{
       if(rr.adjustShares===0) return;
       if(ladderSrc.has((rr.h.symbol||'').toUpperCase())) return;   // 디레버리징이 이미 처리
       const lev=isLevCat(rr.h.cat);
@@ -5238,51 +5242,6 @@ function computeUnifiedPlan(s){
   const buyTotal=buys.reduce((a,x)=>a+x.val,0);
   const sellTotal=sells.reduce((a,x)=>a-x.val,0);
   return {mode:r.level||'normal',modeLabel,defense,buys,sells,holds,buyTotal,sellTotal,net:buyTotal-sellTotal,deleverInfo,accelInfo,accelOn};
-}
-function renderUnifiedCard(s){
-  const p=computeUnifiedPlan(s);
-  const fmtRow=x=>{
-    const isC=x.unit==='개';
-    const q=isC?(+Math.abs(x.sh).toFixed(6)).toString():Math.abs(x.sh).toLocaleString();
-    const cls=x.sh>0?'down':'up';
-    return `<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0">
-      <span><b>${esc(x.sym)}</b> <span style="color:var(--text-3);font-size:10px">${esc(x.reason)}</span></span>
-      <span class="${cls}">${x.sh>0?'+':'−'}${q}${x.unit} <span style="color:var(--text-3)">₩${fmtKRW(Math.abs(x.val))}</span></span></div>`;
-  };
-  const sec=(title,arr)=> arr.length?`<div style="margin-top:8px"><div style="font-size:11px;font-weight:700;color:var(--text-2)">${title}</div>${arr.map(fmtRow).join('')}</div>`:'';
-  const holdHtml=p.holds.length?`<div style="margin-top:8px"><div style="font-size:11px;font-weight:700;color:var(--orange)">보류 (경고 중)</div>${p.holds.map(h=>`<div style="font-size:11px;color:var(--text-3);padding:2px 0">· ${esc(h.sym)} — ${esc(h.reason)}</div>`).join('')}</div>`:'';
-  const modeColor=p.defense?'var(--orange)':'var(--up)';
-  return `<div class="card" style="border:1px solid ${modeColor};margin-bottom:14px">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-      <span style="font-weight:800;font-size:14px">🎯 종합 실행</span>
-      <span style="font-size:10.5px;color:${modeColor};font-weight:700">${esc(p.modeLabel)}</span></div>
-    <div style="font-size:10.5px;color:var(--text-3);margin-bottom:6px">모든 신호(목표비중·켈리·추세·방어·디레버리징·가속)를 우선순위로 통합 — 자동매매 아님, 분할 실행 권장</div>
-    ${(()=>{ const chips=[];
-      if(p.defense) chips.push(`<span style="background:rgba(229,102,61,0.15);color:#E5663D;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px">방어 우선 · 빠르게 축소</span>`);
-      if(p.deleverInfo) chips.push(`<span style="background:rgba(183,121,31,0.15);color:#B7791F;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px">디레버리징 ⅓ · ${esc(p.deleverInfo.fromSym)}(${p.deleverInfo.fromMult}x)→${esc(p.deleverInfo.toSym)}(${p.deleverInfo.toMult}x)→${esc(p.deleverInfo.finalSpot)}</span>`);
-      if(p.accelInfo) chips.push(`<span style="background:rgba(30,158,90,0.15);color:#1E9E5A;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px">${esc(p.accelInfo.label)} · 현금목표 절반↓ 자동 투입</span>`);
-      if(p.accelOn) chips.push(`<span style="background:rgba(30,158,90,0.12);color:#1E9E5A;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px">윈너라이딩 · 초과분 ⅓만 트림</span>`);
-      return chips.length?`<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px">${chips.join('')}</div>`:'';
-    })()}
-    ${sec('매도',p.sells)}
-    ${sec('매수',p.buys)}
-    ${holdHtml}
-    <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;padding-top:8px;margin-top:8px;border-top:1px solid var(--hairline)">
-      <span>순현금 흐름</span>
-      <span class="${p.net>=0?'down':'up'}">${p.net>=0?'순매수':'순매도'} ₩${fmtKRW(Math.abs(p.net))}</span></div>
-    ${(()=>{ const avail=Math.max(0,Math.round(s.cash||0)); const buy=Math.round(p.buyTotal||0); const sell=Math.round(p.sellTotal||0);
-      if(buy<=0 && sell<=0) return '';
-      const enough = buy<=avail;
-      const bridge = Math.min(buy, sell);   // 매도 정산 전 현금이 메우는 부분
-      const color = enough?'#1E9E5A':'#B7791F';
-      return `<div style="margin-top:8px;padding:8px 10px;background:var(--bg-2);border-radius:8px;border-left:3px solid ${color}">
-        <div style="font-size:11px;font-weight:700;color:${color};margin-bottom:3px">정산 브리지 (T+2~3)</div>
-        <div style="font-size:11px;color:var(--text-2);line-height:1.6">
-          현금 가용 <b style="color:var(--text)">₩${fmtKRW(avail)}</b>${buy>0?` · 매수 ₩${fmtKRW(buy)} ${enough?'<b style="color:#1E9E5A">→ 현금으로 즉시 집행 가능</b>':'<b style="color:#B7791F">→ 현금 일부 집행 + 나머지 정산 후</b>'}`:''}<br>
-          ${sell>0?`매도 ₩${fmtKRW(sell)}는 정산(국장 T+2·미장 T+3) 후 현금 보충 — 같은 날 매수·매도 동시 집행 가능`:'매도 없음'}
-        </div></div>`;
-    })()}
-  </div>`;
 }
 /* === 자산군 목표 비중 수정 === */
 function openClassTargetEditor(){

@@ -1008,7 +1008,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.54';
+const APP_VER = 'v2.9.55';
 const APP_BUILD = '2026-06-30';
 
 const SEED = {
@@ -2898,6 +2898,7 @@ function tickCryptoTrendConv(){
 /* 추가 방어 상수 — #1 크립토 소프트 브레이크 / #2 심층 낙폭 해제 */
 const CRYPTO_BRAKE_CASH = 0.10;   // 크립토 2일 추세이탈 시 현금 버퍼 상향(가속 추가투입만 보류 · 글라이드 기본 매집은 유지)
 const DEEP_DD = 0.35;             // 고점 대비 −35%↑ + 풀가속 아님(추세 취약) → 가속이어도 현금 floor 재가동
+const CRYPTO_HARDCAP = 0.60;      // 크립토(spot) 비중 상한 — 초과 시 윈너라이딩 무시하고 목표(50%)까지 풀스피드 매도(과집중 차단)
 // 크립토 추세(BTC/ETH 200일선+모멘텀) 2거래일 이탈 확인 시 소프트 브레이크 ON
 function cryptoBrakeOn(){
   const tc=(state.settings.risk&&state.settings.risk.cryptoConv)||{};
@@ -3594,7 +3595,15 @@ function computeActionAlerts(s){
       }
     }
   }catch(_){}
-  // 고점 대비 낙폭 방어 — 1차(−10%)·2차(−20%). [B안] 시장 가속 중이면 현금 강제 보류(베타)·참고용으로 표시
+  // 크립토 과집중 하드캡 — spot 크립토가 상한(60%) 초과면 풀스피드 매도 권고
+  try{ const cw=(s.totalWithCash>0)?(((s.totals.crypto&&s.totals.crypto.current)||0)/s.totalWithCash):0;
+    if(cw>CRYPTO_HARDCAP){
+      out.push({tag:'크립토 하드캡',sev:'warn',
+        why:`크립토 과집중 — ${(cw*100).toFixed(0)}% (상한 ${(CRYPTO_HARDCAP*100).toFixed(0)}%)`,
+        sub:`spot 크립토가 상한을 넘었어. 윈너라이딩(가속 트림 완화)을 무시하고 목표 ${(classTarget('crypto')*100).toFixed(0)}%까지 초과분을 풀스피드로 매도 권고 — 한 자산군 과집중 차단. ▸`,
+        act:'alloc'});
+    }
+  }catch(_){}
   try{ const dt=drawdownTier(s);
     if(dt.tier>=1){
       const _rr=computeRiskStatus(s); const _inDef=_rr.level&&_rr.level!=='near';
@@ -3650,7 +3659,7 @@ function renderActionCenter(s){
   if(!acts.length){ el.style.display='none'; el.onclick=null; return; }
   const sev = acts.some(a=>a.sev==='crit')?'crit':(acts.some(a=>a.sev==='warn')?'warn':'');
   el.className='card action-center'+(sev?' '+sev:'');
-  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','크립토 브레이크':'#E5663D','peak 리셋':'#5AA0A6','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A'};
+  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','크립토 브레이크':'#E5663D','크립토 하드캡':'#E5484D','peak 리셋':'#5AA0A6','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A'};
   const rows=acts.map(a=>`<div class="ac-row" onclick="event.stopPropagation();acDispatch('${a.act}')" style="cursor:pointer">
     <span class="ac-tag" style="background:${tagColor[a.tag]||'#666'}22;color:${tagColor[a.tag]||'#aaa'}">${a.tag}</span>
     <span style="flex:1;min-width:0"><span style="font-size:11.5px;line-height:1.4;font-weight:600">${esc(a.why)}</span>${a.sub?`<br><span style="font-size:10px;color:var(--text-3);line-height:1.35">${esc(a.sub)}</span>`:''}</span>
@@ -5264,6 +5273,9 @@ function computeUnifiedPlan(s){
   const accelOn  = !defense && ac  && ac.on  && (ac.regime==='early'||ac.regime==='full');    // 주식 트랙
   const accelCOn = !defense && acC && acC.on && (acC.regime==='early'||acC.regime==='full');   // 크립토 트랙
   const TREASURY_CRYPTO=new Set(['MSTR','BMNR']);   // 트레저리 주식 → BTC·ETH 추종 → 크립토 트랙으로 판정
+  const isCryptoTrack=(h)=>{ const tk=(h.symbol||'').replace('.KS','').replace('.L','').toUpperCase(); return h.cat==='crypto' || TREASURY_CRYPTO.has(tk); };
+  const cryptoWt = (s.totalWithCash>0) ? (((s.totals.crypto&&s.totals.crypto.current)||0)/s.totalWithCash) : 0;   // spot 크립토 비중
+  const cryptoOverCap = cryptoWt > CRYPTO_HARDCAP;
   // 윈너라이딩 트랙 선택: 금=제외(헤지·목표비중 유지), 크립토·트레저리=크립토 트랙, 그 외 주식=주식 트랙
   const wrAllowed=(h)=>{
     if(h.cat==='gold') return false;
@@ -5283,6 +5295,13 @@ function computeUnifiedPlan(s){
         if(rr.adjustShares>0) holds.push({sym:rr.h.symbol,reason:'레버리지 경고 — 매수 보류'});
         else if(rr.adjustShares<0) holds.push({sym:rr.h.symbol,reason:'3x 우선 축소 — 이번 차례 보류'});
         return;   // 매도는 방어 축소(1단계)가 처리, 미처리 2x는 보류
+      }
+      // 크립토 과집중 하드캡 — spot 크립토가 상한(60%) 초과면 윈너라이딩 무시하고 목표(50%)까지 풀스피드 매도
+      if(!lev && rr.adjustShares<0 && cryptoOverCap && isCryptoTrack(rr.h)){
+        rows.push({sym:rr.h.symbol,cat:rr.h.cat,sh:rr.adjustShares,val:rr.adjustVal,
+          reason:`크립토 ${(cryptoWt*100).toFixed(0)}% 과집중 — 하드캡 ${(CRYPTO_HARDCAP*100).toFixed(0)}% 초과·풀매도`,
+          unit:rr.h.cat==='crypto'?'개':'주'});
+        return;
       }
       // 윈너라이딩 — 상승 가속 국면에선 비레버리지 초과(매도)를 ⅓만 트림(나머지 태움). 트랙: 크립토/트레저리=BTC·ETH, 주식=나스닥, 금=제외
       if(!lev && rr.adjustShares<0 && wrAllowed(rr.h)){
@@ -7760,7 +7779,7 @@ function renderSettings(){
         +(_hasExemptLev?` · <span style="color:var(--gold)">레버리지 점진 청산 중 — 방어 보류</span>`:'')+`<br>`
         +`② 추세 200일선 ${rk.trendOn?'사용':'끔'} · ③ 백스톱 ${state.settings.risk&&state.settings.risk.backstop!=null?('−'+(state.settings.risk.backstop*100).toFixed(0)+'%'):'미사용'}(고점 −10% 1차→현금15% · −20% 2차→현금25% · 단 지수 <b>풀가속</b> 중엔 베타로 보고 현금 보류 · <b>고점 −35%↑ + 풀가속 아님이면 현금 floor 재가동</b>) · ④ 플로어 <b style="color:var(--text)">${floorTxt}</b>${rk.peakEpoch?` <span style="color:#5AA0A6">· peak 기준 ${rk.peakEpoch} 리셋됨</span> <span style="color:var(--text-3);text-decoration:underline;cursor:pointer" onclick="if(confirm('peak 리셋을 해제하고 전체 이력 기준으로 되돌립니다. 계속할까요?'))window.clearPeakEpoch()">해제</span>`:''}<br>`
         +`⑤ 리밸런싱 노터치 밴드 ±${((rk.rebalBand!=null?rk.rebalBand:0.05)*100).toFixed(0)}%p<br>`
-        +`⑥ 오버슛 현금화: 목표 +${((rk.overshootPct!=null?rk.overshootPct:0.15)*100).toFixed(0)}% 초과 시 초과분의 ${((rk.cashoutFrac!=null?rk.cashoutFrac:0.50)*100).toFixed(0)}% 분할`;
+        +`⑥ 오버슛 현금화: 목표 +${((rk.overshootPct!=null?rk.overshootPct:0.15)*100).toFixed(0)}% 초과 시 초과분의 ${((rk.cashoutFrac!=null?rk.cashoutFrac:0.50)*100).toFixed(0)}% 분할 · <b>크립토 하드캡 ${(CRYPTO_HARDCAP*100).toFixed(0)}%</b>(spot 크립토 초과 시 윈너라이딩 무시·목표까지 풀매도)`;
       try{ const acS=computeAccelRegime(portfolioStats(),'stock'); const acC=computeAccelRegime(portfolioStats(),'crypto');
         if((acS.on&&acS.regime!=='unknown')||(acC.on&&acC.regime!=='unknown')){
         const sLab=acS.on?acS.label:'대기', cLab=acC.on?acC.label:'대기';

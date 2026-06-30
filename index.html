@@ -971,6 +971,27 @@ const CATEGORIES = {
   crypto:     {label:'Crypto',     color:'#9B7BD8', currency:'KRW', target:0.55},
   gold:       {label:'Gold (금)',  color:'#D4AF37', currency:'USD', target:0.05},
 };
+/* === 계좌 모델 (KB·키움·업비트) === */
+const ACCOUNTS = {
+  kb:     {label:'KB증권',  color:'#FBBF24', margin:true,  note:'증거금 매수 — 당일 집행'},
+  kiwoom: {label:'키움증권', color:'#E5484D', margin:true,  note:'청산 전용 — 비우는 계좌'},
+  upbit:  {label:'업비트',   color:'#3B9EFF', margin:false, note:'원화 이체 도착 후 매수'},
+};
+const ACCOUNT_ORDER = ['kb','kiwoom','upbit'];
+// 카테고리 → 기본 계좌 (어떤 카테고리도 계좌를 가로지르지 않음)
+const ACCOUNT_OF_CAT = {
+  us_stock:'kb', us_etf:'kb', lev_tech:'kb', gold:'kb',
+  global_etf:'kiwoom', lev_crypto:'kiwoom',
+  crypto:'upbit',
+};
+function defaultAccount(h){
+  const sym=(h.symbol||'').toUpperCase().replace('.KS','').replace('.L','');
+  if(sym==='BMNU'||sym==='MST3') return 'kiwoom';     // 심볼 명시 우선(레버리지 크립토는 키움)
+  return ACCOUNT_OF_CAT[h.cat] || 'kb';
+}
+function holdingAccount(h){ return (h&&h.account && ACCOUNTS[h.account]) ? h.account : defaultAccount(h); }
+function accountOfCat(cat){ return ACCOUNT_OF_CAT[cat] || 'kb'; }
+
 const LEV_CATS = ['lev_tech','lev_crypto'];
 function isLevCat(c){ return c==='lev_tech'||c==='lev_crypto'; }
 // 종목의 실제 레버리지 배율(2/3) — 명시 필드 > 이름 파싱 > 카테고리 추정. 방어 축소 우선순위에 사용.
@@ -1008,7 +1029,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.57';
+const APP_VER = 'v2.10.0';
 const APP_BUILD = '2026-06-30';
 
 const SEED = {
@@ -1288,6 +1309,8 @@ function normalizeState(){
         cat:'gold', symbol:'IAUM', name:'iShares Gold Trust Micro', qty:0, avgUSD:0, curUSD:0, avgFx:1465.57, targetWt:1});
     }
   }catch(_){}
+  // 계좌 자동배정 — account 필드 없는 보유행에 기본 계좌 부여(KB·키움·업비트). 사용자가 종목별로 바꿀 수 있음.
+  try{ (state.holdings||[]).forEach(h=>{ if(!h.account || !ACCOUNTS[h.account]) h.account=defaultAccount(h); }); }catch(_){}
   try{ compactOldHistory(); }catch(e){}   // 1년 이상 지난 일별 기록 → 주 1개로 압축 (실패해도 부팅 지속)
 }
 /* === history 압축 — 365일 이전 구간은 ISO주당 마지막 기록만 유지 === */
@@ -4920,25 +4943,27 @@ function renderCashGuide(s, plan){
   const el=document.getElementById('rb-cashguide'); if(!el) return;
   if(rbMode!=='portfolio'){ el.innerHTML=''; return; }
   try{ if(!s) s=portfolioStats(); if(!plan) plan=computeUnifiedPlan(s); }catch(_){ el.innerHTML=''; return; }
-  const cashNow=Math.max(0,Math.round(s.cash||0));
-  const sells=Math.max(0,Math.round(plan.sellTotal||0));
-  const totalBuy=Math.round(plan.buyTotal||0);
-  // 현금만으로 매수 전액 커버되면 가이드 숨김(제약 없음)
-  if(!(plan.buys||[]).length || totalBuy<=cashNow+10000){ el.innerHTML=''; return; }
-  const avail = rbCashAvail!=null ? rbCashAvail : cashNow;
+  // 계좌별 순매수/매도 — 계좌(KB·키움·업비트) 모델 안내. 증거금이라 현금 우선순위 줄세우기 불필요.
+  const acct={}; ACCOUNT_ORDER.forEach(a=>acct[a]={b:0,s:0});
+  try{ (plan.buys||[]).concat(plan.sells||[]).forEach(x=>{ const a=accountOfCat(x.cat); if(!acct[a])acct[a]={b:0,s:0}; if(x.val>0)acct[a].b+=x.val; else acct[a].s-=x.val; }); }catch(_){}
+  const anyAction=ACCOUNT_ORDER.some(a=>acct[a].b>10000||acct[a].s>10000);
+  if(!anyAction){ el.innerHTML=''; return; }
+  const rows=ACCOUNT_ORDER.filter(a=>acct[a].b>10000||acct[a].s>10000).map(a=>{
+    const A=ACCOUNTS[a]; const net=acct[a].b-acct[a].s;
+    const flow = a==='upbit' ? '<span style="color:#3B9EFF">이체 대기 경유(원화 도착 후)</span>'
+               : (A.margin ? '<span style="color:var(--text-3)">증거금 · 당일</span>' : '');
+    return `<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-top:1px solid var(--hairline)">
+      <span style="font-size:12px"><b style="color:${A.color}">${A.label}</b> <span style="font-size:9.5px;color:var(--text-3)">${A.note}</span><div style="font-size:9.5px;margin-top:1px">${flow}</div></span>
+      <span style="font-size:12px;font-weight:700;white-space:nowrap;text-align:right">
+        ${acct[a].b>10000?`<span class="down">매수 ₩${fmtKRW(acct[a].b)}</span>`:''}${acct[a].b>10000&&acct[a].s>10000?'<br>':''}${acct[a].s>10000?`<span class="up">매도 ₩${fmtKRW(acct[a].s)}</span>`:''}</span></div>`;
+  }).join('');
   el.innerHTML=`<div style="margin:0 0 12px;padding:11px 13px;background:var(--bg-2);border:1px solid var(--hairline);border-radius:11px">
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:7px">
-      <span style="font-weight:800;font-size:13px">💵 가용 현금 우선순위 매수</span>
-      <span style="font-size:10px;color:var(--text-3)">미달 큰 순서</span></div>
-    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
-      <span style="font-size:12px;color:var(--text-3)">₩</span>
-      <input id="rb-cash-in" type="number" inputmode="numeric" value="${avail}" oninput="rbUpdateGuideBody(this.value)"
-        style="flex:1;min-width:0;padding:7px 9px;border-radius:8px;border:1px solid var(--hairline);background:var(--bg);color:var(--text);font-size:13px">
-      <button onclick="rbCashPreset('cash')" style="padding:7px 9px;border-radius:8px;background:var(--bg);color:var(--text-2);font-size:10.5px;border:1px solid var(--hairline);white-space:nowrap">현금 ₩${fmtKRW(cashNow)}</button>
-      <button onclick="rbCashPreset('sell')" style="padding:7px 9px;border-radius:8px;background:var(--bg);color:var(--text-2);font-size:10.5px;border:1px solid var(--hairline);white-space:nowrap">+매도 ₩${fmtKRW(cashNow+sells)}</button>
-    </div>
-    <div id="rb-cashguide-body">${cashGuideBody(s,plan,avail)}</div>
-    <div style="font-size:9.5px;color:var(--text-3);margin-top:7px;line-height:1.5">현금 N원 입력 → 미달 큰 자산군부터 자동 배분. 큰 전환 자금은 레버리지 청산(회복·12.31 마감)이 댐 · 계산 도구(자동매매 아님)</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+      <span style="font-weight:800;font-size:13px">🏦 계좌별 매매</span>
+      <span style="font-size:10px;color:var(--text-3)">KB·키움·업비트</span></div>
+    ${rows}
+    <div style="font-size:9.5px;color:var(--text-3);margin-top:8px;padding-top:7px;border-top:1px dashed var(--hairline);line-height:1.5">
+      증권 계좌(KB·키움)는 증거금이라 입금 전에도 당일 매수 · 업비트는 원화 이체 도착 후 매수 · 계좌 넘는 자금은 매도 정산(T+2~3) 후 이체 · 계산 도구(자동매매 아님)</div>
   </div>`;
 }
 window.rbUpdateGuideBody=function(v){
@@ -5118,16 +5143,17 @@ function renderStockRebalance(){
   let html='';
   let allRows=[];
   if(rbStockCat==='all'){
+    // 카테고리별 그룹 HTML + 합계를 먼저 만들고, 계좌(KB·키움·업비트) 헤더 아래로 묶는다
+    const catBlock={};   // k -> {html, gb, gs, hasRows}
     for(const k of cats){
       const rows=stockRebalance(k, rbMode, _s);
       const shown=new Set(rows.map(r=>r.h.symbol));
       const extras=synthFor(k, shown);
       const groupRows=rows.concat(extras);
-      if(!groupRows.length) continue;
+      if(!groupRows.length){ catBlock[k]={html:'',gb:0,gs:0,hasRows:false}; continue; }
       allRows = allRows.concat(groupRows);
       const wtSum=rows.reduce((s,r)=>s+r.tw,0);
       const wtWarn=Math.abs(wtSum-1)>0.001?` <span class="up" style="font-size:10px">⚠ ${fmtPct(wtSum,1)}</span>`:'';
-      // 자산군별 매수·매도 합계 (하단 종합과 동일 계산식) — 헤더 바로 아래 표기
       let gb=0,gs=0;
       if(useUni && _uniPlan){
         _uniPlan.buys.concat(_uniPlan.sells).forEach(x=>{ if(x.cat!==k) return; if(x.val>0) gb+=x.val; else gs-=x.val; });
@@ -5138,10 +5164,30 @@ function renderStockRebalance(){
       const gsumLine=`<div style="font-size:10.5px;margin:-2px 0 9px 16px">`
         +`<span class="${gnet>=0?'down':'up'}" style="font-weight:600">순 ${gnet>=0?'매수':'매도'} ₩${fmtKRW(Math.abs(gnet))}</span>`
         +`<span style="color:var(--text-3)"> · 매수 ${gb>0?'₩'+fmtKRW(gb):'—'} · 매도 ${gs>0?'₩'+fmtKRW(gs):'—'}</span></div>`;
-      html+=`<div class="rbx-group">
+      catBlock[k]={gb,gs,hasRows:true,html:`<div class="rbx-group">
         <div class="rbx-group-head"><span class="abar-dot" style="background:${CATEGORIES[k].color}"></span>${CATEGORIES[k].label}${wtWarn}</div>
         ${gsumLine}
         ${groupRows.map(buildRow).join('')}
+      </div>`};
+    }
+    // 계좌 헤더로 묶기
+    for(const acct of ACCOUNT_ORDER){
+      const A=ACCOUNTS[acct];
+      const acctCats=cats.filter(k=>accountOfCat(k)===acct && catBlock[k] && catBlock[k].hasRows);
+      if(!acctCats.length) continue;
+      let aB=0,aS=0, inner='';
+      acctCats.forEach(k=>{ aB+=catBlock[k].gb; aS+=catBlock[k].gs; inner+=catBlock[k].html; });
+      const aNet=aB-aS;
+      html+=`<div style="margin-bottom:16px;border:1px solid var(--hairline);border-left:3px solid ${A.color};border-radius:10px;padding:11px 12px 4px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:2px">
+          <span style="font-size:13.5px;font-weight:800;color:${A.color}">${A.label}</span>
+          <span style="font-size:9.5px;color:var(--text-3);font-weight:500">${A.note}</span>
+        </div>
+        <div style="font-size:10.5px;margin-bottom:10px">
+          <span class="${aNet>=0?'down':'up'}" style="font-weight:700">순 ${aNet>=0?'매수':'매도'} ₩${fmtKRW(Math.abs(aNet))}</span>
+          <span style="color:var(--text-3)"> · 매수 ${aB>0?'₩'+fmtKRW(aB):'—'} · 매도 ${aS>0?'₩'+fmtKRW(aS):'—'}</span>
+        </div>
+        ${inner}
       </div>`;
     }
   } else {

@@ -1008,7 +1008,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.56';
+const APP_VER = 'v2.9.57';
 const APP_BUILD = '2026-06-30';
 
 const SEED = {
@@ -3965,7 +3965,7 @@ function renderAllocChart(s){
           : (adjust>0?`+${fmtKRW(adjust)} 매수${addNote}`:`${fmtKRW(adjust)} 매도`)+deferNote)
       : (deferred ? `보류 <span style="color:var(--text-3);font-weight:500">· 가속/청산</span>` : '균형 상태');
     const statsRight = hasTgt
-      ? `<span class="abar-tgt">목표 ${tgtPct.toFixed(1)}%</span>
+      ? `<span class="abar-tgt">목표 ${tgtPct.toFixed(2)}%</span>
          <span class="abar-dev ${devCls}">${dev>=0?'+':''}${dev.toFixed(2)}%p ${balanced?'균형':(dev>0?'초과':'부족')}</span>`
       : `<span class="abar-dev muted" style="margin-left:auto">목표 없음</span>`;
     const actionLine = hasTgt

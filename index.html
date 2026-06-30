@@ -1038,7 +1038,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.2';
+const APP_VER = 'v2.10.4';
 const APP_BUILD = '2026-06-30';
 
 const SEED = {
@@ -1293,6 +1293,15 @@ function normalizeState(){
   if (state.settings.cashAccount==null) state.settings.cashAccount={krw:0,usd:0};
   else if (typeof state.settings.cashAccount==='number') state.settings.cashAccount={krw:state.settings.cashAccount,usd:0};  // 구버전(단일 KRW) → {krw,usd} 마이그레이션
   else state.settings.cashAccount={krw:state.settings.cashAccount.krw||0,usd:state.settings.cashAccount.usd||0};
+  // 미정산금(T+2 정산대기) — 계좌별 {krw,usd}. 구버전 통짜 pendingSettle → KB로 이전.
+  if (state.settings.pendingByAccount==null || typeof state.settings.pendingByAccount!=='object'){
+    state.settings.pendingByAccount={};
+    ACCOUNT_ORDER.forEach(a=>state.settings.pendingByAccount[a]={krw:0,usd:0});
+    const old=state.settings.pendingSettle;
+    if(old && typeof old==='object' && ((old.krw||0)>0||(old.usd||0)>0)){ state.settings.pendingByAccount.kb={krw:old.krw||0,usd:old.usd||0}; }
+  }
+  ACCOUNT_ORDER.forEach(a=>{ const p=state.settings.pendingByAccount[a]; state.settings.pendingByAccount[a]=(p&&typeof p==='object')?{krw:p.krw||0,usd:p.usd||0}:{krw:0,usd:0}; });
+  delete state.settings.pendingSettle;
   if (state.settings.reserveCash==null) state.settings.reserveCash=0;
   if (state.settings.reserveTargetPct==null) state.settings.reserveTargetPct=0.05;   // 현금 목표 비중(NAV 대비)
   // 대기자금(별도 버킷) 개념 폐지 → 현금 비중(%)으로 통합. 기존 reserveCash는 현금계정 KRW로 흡수(총현금 보존).
@@ -1653,6 +1662,9 @@ function cashByClassKRW(){
   return s;
 }
 function totalCash(){ return cashByClassKRW() + cashAccountKRW(); }
+/* 미정산금 — 매도 실행했으나 아직 정산(T+2~3) 안 된 돈. 계좌별로 보유(어느 계좌 정산분인지 추적). 총자산엔 포함, '쓸 수 있는 예수금'과는 분리. */
+function pendingAccountKRW(a){ const p=(state.settings.pendingByAccount||{})[a]||{krw:0,usd:0}; return (p.krw||0)+(p.usd||0)*(state.settings.fxRate||0); }
+function pendingSettleKRW(){ return ACCOUNT_ORDER.reduce((t,a)=>t+pendingAccountKRW(a),0); }
 /* 특정 자산군의 예수금(원화 환산) — 리밸런싱 종목 계산에서 그 자산군 몫으로 차감하는 데 사용
    (예수금은 아직 종목이 아니지만 그 자산군에 '속한' 현금이라, 목표액에서 빼야 매도→예수금 전환이 재매수를 안 부름) */
 function classDepositKRW(cat){
@@ -1661,9 +1673,10 @@ function classDepositKRW(cat){
 }
 function portfolioStats(){
   const totals=categoryTotals(), cash=totalCash();
+  const pending=pendingSettleKRW();   // 미정산금(T+2 대기) — 총자산엔 포함, 예수금엔 미포함
   let invested=0,current=0;
   for (const k in totals){ invested+=totals[k].invested; current+=totals[k].current; }
-  return { totals, cash, invested, current, totalWithCash:current+cash,
+  return { totals, cash, pendingSettle:pending, invested, current, totalWithCash:current+cash+pending,
            pnl:current-invested, pnlPct:invested>0?(current-invested)/invested:0 };
 }
 
@@ -3969,8 +3982,8 @@ function renderAllocChart(s){
   }
   items.sort((a,b)=>b.val-a.val);                  // 자산군만 평가액 내림차순
   // 현금 — 하나의 자산군처럼 목표(cashPct) 표시. 별도 대기자금 버킷 없음.
-  items.push({k:'__cash__',label:'현금',val:Math.max(0,s.cash),color:'#565967',target:cashPct,isCash:true,
-              cashDep:cashByClassKRW(), cashAcct:cashAccountKRW()});
+  items.push({k:'__cash__',label:'현금',val:Math.max(0,s.cash)+Math.max(0,s.pendingSettle||0),color:'#565967',target:cashPct,isCash:true,
+              cashDep:cashByClassKRW(), cashAcct:cashAccountKRW(), cashPending:Math.max(0,s.pendingSettle||0)});
   if(!items.length){ el.innerHTML='<div class="empty">자산이 없습니다.</div>'; return; }
   const legend=`<div class="abar-legend"><span class="abar-lg-bar"></span>현재 비중<span class="abar-lg-tick"></span>목표 비중</div>`;
   el.innerHTML=legend+items.map(it=>{
@@ -4012,7 +4025,7 @@ function renderAllocChart(s){
         <span class="abar-cur" style="color:${it.color}">${pct.toFixed(2)}%</span>
         ${statsRight}
       </div>
-      ${it.isCash?`<div style="font-size:10.5px;color:var(--text-3);margin:1px 0 4px;letter-spacing:-0.2px">예수금 ₩${fmtKRW(it.cashDep)} · 현금계정 ₩${fmtKRW(it.cashAcct)}</div>`:''}
+      ${it.isCash?`<div style="font-size:10.5px;color:var(--text-3);margin:1px 0 4px;letter-spacing:-0.2px">예수금 ₩${fmtKRW(it.cashDep)} · 현금계정 ₩${fmtKRW(it.cashAcct)}${(it.cashPending>0)?` · <span style="color:#B7791F">미정산 ₩${fmtKRW(it.cashPending)}</span>`:''}</div>`:''}
       <div class="abar-track">
         <div class="abar-fill" style="width:${Math.min(pct,100)}%;background:${it.color}"></div>
         ${(hasTgt && dev>0.01)?`<div class="abar-over" style="left:${Math.min(tgtPct,100)}%;width:${Math.min(pct,100)-Math.min(tgtPct,100)}%"></div>`:''}
@@ -4637,14 +4650,17 @@ function renderHoldingsSummary(){
   let cashUSD=0;
   for (const k in cb){ if(cb[k]) cashUSD += (cb[k].usd||0); }
   { const _ca=state.settings.cashAccount; if(_ca&&typeof _ca==='object') cashUSD += (_ca.usd||0); }  // 현금 계정 달러 포함
-  const cashKRW=totalCash();                          // 총 현금 = 배분 페이지 '현금'과 동일
+  const spendableCash=totalCash();                    // 쓸 수 있는 현금(예수금+현금계정)
+  const pendingCash=pendingSettleKRW();                // 미정산금(T+2 대기)
+  const cashKRW=spendableCash+pendingCash;             // 총 현금 = 배분 페이지 '현금'과 동일(미정산 포함)
   const cashAcc=cashAccountKRW();                      // 현금 계정 (증권사 밖, 원화 환산)
-  const brokerCash=Math.max(0, cashKRW-cashAcc);      // 증권사 예수금만 (현금 계정 분리)
+  const brokerCash=Math.max(0, spendableCash-cashAcc); // 증권사 예수금만 (현금 계정 분리)
   const dot=c=>`<span class="abar-dot" style="background:${c};display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle"></span>`;
   html+=`<div class="sum-row">
     <div class="sum-top"><span class="sum-name">현금</span><span class="sum-cash">₩${fmtKRW(cashKRW)}</span></div>
     <div class="sum-line">${dot('#565967')}증권사 예수금 <b>₩${fmtKRW(brokerCash)}</b></div>
     ${cashAcc>0?`<div class="sum-line">${dot('#5A7A9A')}현금 계정 <b>₩${fmtKRW(cashAcc)}</b></div>`:''}
+    ${pendingCash>0?`<div class="sum-line">${dot('#B7791F')}미정산금 <b style="color:#B7791F">₩${fmtKRW(pendingCash)}</b> <span style="color:var(--text-3);font-size:10px">T+2 정산대기</span></div>`:''}
     ${cashUSD>0?`<div class="sum-usd">달러 예수금 $${Math.round(cashUSD).toLocaleString()}</div>`:''}
   </div>`;
 
@@ -4949,21 +4965,25 @@ function cashGuideBody(s, plan, avail){
       <span style="${g.shortfall>0?'color:#B7791F;font-weight:700':''}">${g.shortfall>0?'부족 ₩'+fmtKRW(g.shortfall):'전액 집행 가능'}</span></div>`;
 }
 /* === 계좌 간 이체대기 큐 — 증거금 계좌(KB·키움)는 당장 매수(이체 불필요), 비증거금(업비트)만 실제 원화 이동 필요.
-   조달 풀 = 예수금 + 증거금 계좌 매도정산 여유(net<0). 업비트 필요액 대비 동원가능/부족 산출. === */
+   각 계좌 inflow = 플랜 매도 + 그 계좌 미정산금(이미 매도, 정산 대기). 조달 풀 = 예수금 + 증거금 계좌 (매도+미정산) 여유. === */
 function computeTransferQueue(plan, s){
   const acct={}; ACCOUNT_ORDER.forEach(a=>acct[a]={b:0,s:0});
   try{ (plan.buys||[]).concat(plan.sells||[]).forEach(x=>{ const a=accountOfCat(x.cat); if(!acct[a])acct[a]={b:0,s:0}; if(x.val>0)acct[a].b+=x.val; else acct[a].s-=x.val; }); }catch(_){}
   const TH=10000;
-  const net={}; ACCOUNT_ORDER.forEach(a=>net[a]=acct[a].b-acct[a].s);   // +면 순매수(필요)·−면 매도여유
+  // 계좌별 미정산금(이미 매도, 정산대기) — 그 계좌 inflow에 합산
+  const pend={}; ACCOUNT_ORDER.forEach(a=>pend[a]=Math.max(0,Math.round(pendingAccountKRW(a))));
+  // net = 매수 − (플랜 매도 + 미정산금) · +면 순매수(필요)·−면 여유(보낼)
+  const net={}; ACCOUNT_ORDER.forEach(a=>net[a]=acct[a].b-(acct[a].s+pend[a]));
   // 비증거금 계좌(업비트) = 현금이 실제로 이동해야 매수 가능 → 이체대기 큐 목적지
   const cashDests=ACCOUNT_ORDER.filter(a=>!ACCOUNTS[a].margin && net[a]>TH).map(a=>({a,need:net[a]}));
-  // 조달 풀 = 예수금 + 증거금 계좌 매도정산 여유(net<0). 정산되면 업비트로 이체 가능한 실제 현금.
-  const surplus=ACCOUNT_ORDER.filter(a=>net[a] < -TH).map(a=>({a,free:-net[a]}));
+  // 조달원 = (매도정산 + 미정산) 여유(net<0) 있는 계좌. pending은 그 여유에 포함됨.
+  const surplus=ACCOUNT_ORDER.filter(a=>net[a] < -TH).map(a=>({a,free:-net[a],pending:pend[a]}));
   const cashNow=Math.max(0,Math.round((s&&s.cash)||0));
   const surplusTotal=surplus.reduce((t,x)=>t+x.free,0);
+  const pendingTotal=ACCOUNT_ORDER.reduce((t,a)=>t+pend[a],0);
   const pool=cashNow+surplusTotal;
   const cashNeed=cashDests.reduce((t,d)=>t+d.need,0);
-  return {acct,net,cashDests,surplus,cashNow,surplusTotal,pool,cashNeed,
+  return {acct,net,pend,cashDests,surplus,cashNow,pendingTotal,surplusTotal,pool,cashNeed,
     coverable:Math.min(cashNeed,pool), shortfall:Math.max(0,cashNeed-pool), TH};
 }
 /* === 키움 통합 진행률 — 키움(글로벌ETF+레버리지크립토) 잔액이 0으로 줄어드는 정도. 글라이드 시작 비중 대비. === */
@@ -5002,8 +5022,9 @@ function renderCashGuide(s, plan){
         <span style="font-size:11.5px"><b style="color:${A.color}">${A.label}</b> ← 이동 필요</span>
         <span style="font-size:11.5px;font-weight:700;color:#B7791F">₩${fmtKRW(d.need)}</span></div>`; }).join('');
     const srcRows=Q.surplus.map(d=>{ const A=ACCOUNTS[d.a];
+      const pendNote=d.pending>Q.TH?` <span style="color:var(--text-3);font-size:9px">(미정산 ₩${fmtKRW(d.pending)} 포함)</span>`:'';
       return `<div style="display:flex;justify-content:space-between;gap:8px;padding:2px 0">
-        <span style="font-size:10.5px;color:var(--text-2)">${A.label} 매도정산 여유</span>
+        <span style="font-size:10.5px;color:var(--text-2)">${A.label} 매도정산 여유${pendNote}</span>
         <span style="font-size:10.5px;font-weight:600;color:var(--up)">₩${fmtKRW(d.free)}</span></div>`; }).join('');
     const shortLine = Q.shortfall>Q.TH
       ? `<div style="display:flex;justify-content:space-between;gap:8px;margin-top:5px;padding-top:5px;border-top:1px solid var(--hairline)">
@@ -5792,6 +5813,18 @@ function openCashEditor(){
         <input id="cash-account-usd" type="number" step="0.01" inputmode="decimal" value="${(state.settings.cashAccount&&state.settings.cashAccount.usd)||''}" placeholder="달러 $" style="flex:1;min-width:0">
       </div>
       <small>이자 수익 등은 잔액에 더해 입력 · 종목 매수에 쓰면 직접 줄여주세요 · 리밸런싱/전환 시 자동 연동</small></div>
+    <div class="field"><label>미정산금 — 매도했으나 정산(T+2~3) 안 된 돈 · 계좌별 (총자산엔 포함, 예수금 아님)</label>
+      <div style="font-size:11px;color:var(--text-2);margin-bottom:4px">KB증권</div>
+      <div class="field-row" style="gap:8px;margin-bottom:8px">
+        <input id="pending-kb-krw" type="number" step="1" inputmode="numeric" value="${((state.settings.pendingByAccount||{}).kb||{}).krw||''}" placeholder="원화 ₩" style="flex:1;min-width:0">
+        <input id="pending-kb-usd" type="number" step="0.01" inputmode="decimal" value="${((state.settings.pendingByAccount||{}).kb||{}).usd||''}" placeholder="달러 $" style="flex:1;min-width:0">
+      </div>
+      <div style="font-size:11px;color:var(--text-2);margin-bottom:4px">키움증권</div>
+      <div class="field-row" style="gap:8px">
+        <input id="pending-kiwoom-krw" type="number" step="1" inputmode="numeric" value="${((state.settings.pendingByAccount||{}).kiwoom||{}).krw||''}" placeholder="원화 ₩" style="flex:1;min-width:0">
+        <input id="pending-kiwoom-usd" type="number" step="0.01" inputmode="decimal" value="${((state.settings.pendingByAccount||{}).kiwoom||{}).usd||''}" placeholder="달러 $" style="flex:1;min-width:0">
+      </div>
+      <small>매도 실행 시 그 계좌의 정산예정액 입력 → 정산되면 예수금으로 옮기고 여기서 줄이세요 · 이체대기 큐가 그 계좌의 '매도정산 여유'에 합산</small></div>
     <div style="height:1px;background:var(--hairline);margin:14px 0"></div>
     ${rows}
     <div class="btn-row">
@@ -5810,6 +5843,12 @@ async function saveCashEditor(){
   }
   state.settings.cashByClass=cb;
   { const ak=Math.max(0,parseFloat(document.getElementById('cash-account-krw').value)||0); const au=Math.max(0,parseFloat(document.getElementById('cash-account-usd').value)||0); state.settings.cashAccount={krw:ak,usd:au}; }
+  { const f=id=>Math.max(0,parseFloat(document.getElementById(id)?.value)||0);
+    state.settings.pendingByAccount={
+      kb:{krw:f('pending-kb-krw'),usd:f('pending-kb-usd')},
+      kiwoom:{krw:f('pending-kiwoom-krw'),usd:f('pending-kiwoom-usd')},
+      upbit:((state.settings.pendingByAccount||{}).upbit)||{krw:0,usd:0}
+    }; }
   await saveState(); closeModal(); toast('예수금 저장됨'); switchView('quickentry');
 }
 function cashSign(k,cur,s){
@@ -6206,7 +6245,7 @@ function renderCashList(){
         <div class="txn-date">원화 ${fmtKRWFull(c.krw||0)} · 달러 ${fmtUSD(c.usd||0)}</div></div>
       <div class="txn-amount num" style="color:var(--text)">${fmtKRW(krwEq)}</div></div>`;
   }).join('');
-  const acct=cashAccountKRW(), grand=total+acct;
+  const acct=cashAccountKRW(), pending=pendingSettleKRW(), grand=total+acct+pending;
   el.innerHTML=rows
     +`<div class="txn" style="border-top:1px solid var(--hairline);margin-top:4px">
       <div class="txn-info"><div class="txn-title">예수금 합계 <span style="font-size:10.5px;color:var(--text-3);font-weight:400">자산군별</span></div></div>
@@ -6215,8 +6254,12 @@ function renderCashList(){
       <div class="txn-icon" style="background:var(--gold-soft);color:var(--gold)">현</div>
       <div class="txn-info"><div class="txn-title">현금 계정</div><div class="txn-date">직접 입력 · 자산군 미배정 현금</div></div>
       <div class="txn-amount num" style="color:var(--text)">${fmtKRW(acct)}</div></div>`
+    +(pending>0?`<div class="txn">
+      <div class="txn-icon" style="background:rgba(183,121,31,0.15);color:#B7791F">정</div>
+      <div class="txn-info"><div class="txn-title">미정산금 <span style="font-size:10.5px;color:var(--text-3);font-weight:400">T+2 정산대기</span></div><div class="txn-date">매도 실행분 · 정산되면 예수금으로 이동</div></div>
+      <div class="txn-amount num" style="color:#B7791F">${fmtKRW(pending)}</div></div>`:'')
     +`<div class="txn" style="border-top:2px solid var(--hairline);margin-top:2px">
-      <div class="txn-info"><div class="txn-title" style="font-weight:700">총 현금 합계</div><div class="txn-date">예수금 + 현금 계정 · 배분 '현금'과 동일</div></div>
+      <div class="txn-info"><div class="txn-title" style="font-weight:700">총 현금 합계</div><div class="txn-date">예수금 + 현금 계정${pending>0?' + 미정산금':''} · 배분 '현금'과 동일</div></div>
       <div class="txn-amount num" style="color:var(--gold);font-weight:700">${fmtKRW(grand)}</div></div>`;
 }
 /* 이자 · 세금 */

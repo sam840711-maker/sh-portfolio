@@ -553,6 +553,7 @@ input,select,textarea{font-family:inherit;color:inherit}
       </div>
       <div id="idx-accel" style="font-size:12px;font-weight:600;margin:2px 0 8px"></div>
       <div class="seg trend-seg" id="idx-seg" style="margin-bottom:8px">
+        <button data-xr="1mo" onclick="setIdxRange('1mo',this)">1M</button>
         <button data-xr="3mo" class="active" onclick="setIdxRange('3mo',this)">3M</button>
         <button data-xr="6mo" onclick="setIdxRange('6mo',this)">6M</button>
         <button data-xr="1y" onclick="setIdxRange('1y',this)">1Y</button>
@@ -1006,7 +1007,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.39';
+const APP_VER = 'v2.9.40';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {

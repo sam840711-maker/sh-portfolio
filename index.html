@@ -1006,7 +1006,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.35';
+const APP_VER = 'v2.9.36';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -2142,6 +2142,12 @@ async function renderSymCard(P){
     // 전고점 (일별 종가 기준)
     let ath=null;
     for(const p of allPts) if(!ath||p.y>ath.y) ath={...p};
+    // 200일선 생성 가능 여부 — 200거래일 이상이어야 계산됨(상장 1년 미만 종목은 아직 없음). 200일 넘으면 자동으로 선이 나타남
+    const maReady = dailyPts.length>=200;
+    if(footEl && !maReady){
+      const resTxt=(document.getElementById(X+'-res')||{}).textContent||'';
+      footEl.innerHTML = conf.foot.replace('<span style="color:#E2C285">━ 200일 이평선</span>','<span style="color:var(--text-3)">200일선 준비 중(상장 200거래일 후 자동 생성)</span>') + '<span id="'+X+'-res">'+resTxt+'</span>';
+    }
     // 선택 구간 슬라이스
     const days={'1mo':31,'3mo':92,'6mo':183,'1y':366,'5y':1830}[P.range];
     const lastX=allPts[allPts.length-1].x;
@@ -2165,7 +2171,9 @@ async function renderSymCard(P){
       const last=pts[pts.length-1].y;
       const lastMa=[...maPts].reverse().find(p=>p.y!=null);
       let maTxt='';
-      if(lastMa){
+      if(!maReady){
+        maTxt='📊 상장 ~'+dailyPts.length+'거래일 · 200일선은 약 '+Math.max(0,200-dailyPts.length)+'거래일 후 생성';
+      } else if(lastMa){
         const gap=(last/lastMa.y-1)*100;
         maTxt=(gap>=0)
           ? '200일선 위 <b>+'+gap.toFixed(1)+'%</b>로, 장기 추세는 상승 우위'

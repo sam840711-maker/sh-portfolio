@@ -1007,7 +1007,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.47';
+const APP_VER = 'v2.9.48';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -3840,14 +3840,18 @@ function renderAllocChart(s){
     const tgtColor = !hasTgt ? 'var(--text)' : (balanced ? 'var(--text)' : (dev>0 ? 'var(--up)' : 'var(--down)'));
     const tgtMark=hasTgt?`<span class="abar-target" style="left:${Math.min(tgtPct,100)}%;background:${tgtColor};box-shadow:0 0 0 1.5px rgba(14,17,23,0.55)${balanced?'':',0 0 6px '+tgtColor}"></span>`:'';
     // 조정 금액 — 비현금은 실제 실행 플랜(배분과 동일), 현금은 목표 기준
-    const adjust = it.isCash ? (total*it.target-it.val) : (it.plan||0);
-    const gap = total*it.target - it.val;   // 전략 목표 대비 갭(주석 판단용)
-    const deferred = !it.isCash && Math.abs(gap) > Math.abs(adjust)+10000 && Math.abs(gap) > 1e6;   // 윈너라이딩 트림·levLiq 보류로 일부만/보류
+    const gap = total*it.target - it.val;   // +면 매수(미달)·−면 매도(초과)
+    // 미달(매수)인데 플랜에 매수가 없으면(빈 목적지: 예 IAUM 미보유) 목표 매수를 표시 — "보류"로 잘못 뜨던 것 교정
+    const buyEmpty = !it.isCash && gap > 1e6 && Math.abs(it.plan||0) < 10000;
+    const noHolding = !it.isCash && it.k!=='__cash__' && !state.holdings.some(h=>h.cat===it.k && (h.qty||0)>0);
+    const adjust = it.isCash ? gap : (buyEmpty ? gap : (it.plan||0));
+    const deferred = !it.isCash && !buyEmpty && gap < -1e6 && Math.abs(gap) > Math.abs(adjust)+10000;   // 초과(매도) 쪽이 윈너라이딩 트림·levLiq로 일부만/보류일 때만
     const deferNote = deferred ? ' <span style="color:var(--text-3);font-weight:500">· 일부만(가속/청산 보류)</span>' : '';
+    const addNote = (buyEmpty && noHolding) ? ' <span style="color:var(--text-3);font-weight:500">· 종목 추가</span>' : '';
     const action=Math.abs(adjust)>10000
       ? (it.isCash
           ? (adjust>0?`${fmtKRW(adjust)} 현금 확보 필요(매도)`:`${fmtKRW(-adjust)} 투입 가능`)
-          : (adjust>0?`+${fmtKRW(adjust)} 매수`:`${fmtKRW(adjust)} 매도`)+deferNote)
+          : (adjust>0?`+${fmtKRW(adjust)} 매수${addNote}`:`${fmtKRW(adjust)} 매도`)+deferNote)
       : (deferred ? `보류 <span style="color:var(--text-3);font-weight:500">· 가속/청산</span>` : '균형 상태');
     const statsRight = hasTgt
       ? `<span class="abar-tgt">목표 ${tgtPct.toFixed(1)}%</span>

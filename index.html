@@ -1008,7 +1008,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.53';
+const APP_VER = 'v2.9.54';
 const APP_BUILD = '2026-06-30';
 
 const SEED = {
@@ -1435,6 +1435,35 @@ function classTarget(k){
    기간 종속 X. 직전 기준가 대비 +3% 신고가 경신 시에만 그 회복분 비례로 매도(오를수록 더·빠지면 보류),
    2026-12-31(거주자 신분·과세연도 마감) 하드 마감일엔 잔량 전량 정리. */
 function levDeadlineTs(){ return new Date('2026-12-31T23:59:59+09:00').getTime(); }
+// 레버리지 정리 완료 판정 — 마감일 경과 + 레버리지 평가액이 NAV의 1% 미만(사실상 청산)
+function levLiquidationDone(){
+  try{ if(Date.now() <= levDeadlineTs()) return false;
+    const s=portfolioStats();
+    const lev=((s.totals.lev_tech&&s.totals.lev_tech.current)||0)+((s.totals.lev_crypto&&s.totals.lev_crypto.current)||0);
+    return s.totalWithCash>0 && (lev/s.totalWithCash)<0.01;
+  }catch(_){ return false; }
+}
+// peak 리셋이 필요한 상태 — 정리 완료됐는데 아직 기준일 미설정
+function peakResetPending(){
+  return !(state.settings.risk && state.settings.risk.peakEpoch) && levLiquidationDone();
+}
+// peak 기준 리셋 — 오늘(KST) 이후 고점으로 낙폭·방어를 재계산(정리된 레버리지 고점 제거). 되돌릴 수 있음.
+window.resetPeakEpoch=function(){
+  if(!state.settings.risk) return;
+  const today=new Date(Date.now()+9*3600*1000).toISOString().slice(0,10);
+  state.settings.risk.peakEpoch=today;
+  try{ saveState(); }catch(_){}
+  try{ if(typeof renderDashboard==='function') renderDashboard(); }catch(_){}
+  try{ if(typeof currentView!=='undefined' && currentView) switchView(currentView); }catch(_){}
+  try{ toast('peak 기준 리셋 — '+today+' 이후 고점으로 낙폭 재계산'); }catch(_){}
+};
+window.clearPeakEpoch=function(){
+  if(state.settings.risk){ state.settings.risk.peakEpoch=null;
+    try{ saveState(); }catch(_){}
+    try{ if(typeof currentView!=='undefined' && currentView) switchView(currentView); }catch(_){}
+    try{ toast('peak 리셋 해제 — 전체 이력 기준으로 복귀'); }catch(_){}
+  }
+};
 function initLevLiq(){
   const L={active:true, deadline:levDeadlineTs(), origQty:{}, remain:{}, refPx:{}};
   (state.holdings||[]).forEach(h=>{ if(isLevCat(h.cat)){ L.origQty[h.id]=h.qty; L.remain[h.id]=1; L.refPx[h.id]=(isUSDcat(h.cat)?h.curUSD:h.curKRW)||0; } });
@@ -2759,8 +2788,9 @@ function ytdOverseasRealized(){
    계산·알림 전용(자동매매 아님)
    ================================================================ */
 function peakNavAll(){
+  const ep=(state.settings.risk&&state.settings.risk.peakEpoch)||null;   // 리셋 기준일 — 이 날짜 이전 기록 제외(레버리지 정리 후 고점 재설정)
   let pk=0;
-  for(const h of (state.history||[])){ if((h.total||0)>pk) pk=h.total; }
+  for(const h of (state.history||[])){ if(ep && h.d && h.d<ep) continue; if((h.total||0)>pk) pk=h.total; }
   try{ const s=portfolioStats(); if(s.totalWithCash>pk) pk=s.totalWithCash; }catch(_){}
   return pk;
 }
@@ -3489,6 +3519,13 @@ function computeBackstop(s){
 function computeActionAlerts(s){
   const out=[];
   let _r=null;
+  // 레버리지 정리 완료 후 peak 기준 리셋 권장 — 정리된 레버리지가 포함된 과거 고점이 낙폭을 과도하게 깊게 잡는 것 교정
+  try{ if(peakResetPending()){
+    out.push({tag:'peak 리셋',sev:'warn',
+      why:'레버리지 정리 완료 — peak 기준 리셋 권장',
+      sub:`12.31 레버리지 청산이 끝났어. 현재 고점(₩${fmtKRW(peakNavAll())})은 정리된 레버리지가 포함된 과거값이라 낙폭이 과도하게 깊게 잡혀(방어 과민). 탭하면 지금 포트 기준으로 고점을 리셋해 낙폭·방어를 현실화 — 되돌릴 수 있음 ▸`,
+      act:'resetPeak'});
+  }}catch(_){}
   try{
     const r=computeRiskStatus(s); _r=r;
     const reentry=(r.reentry&&r.level)?r.reentry[r.level]:'';
@@ -3600,6 +3637,9 @@ function computeActionAlerts(s){
 function acDispatch(act){
   try{
     if(act==='risk') openRiskPlan();
+    else if(act==='resetPeak'){
+      if(confirm('레버리지 정리가 끝났으면 고점(peak) 기준을 지금 포트로 리셋합니다.\n· 이후 낙폭·방어가 현재 포트 기준으로 현실화됩니다\n· 설정에서 되돌릴 수 있습니다\n계속할까요?')) window.resetPeakEpoch();
+    }
     else switchView('allocation');
   }catch(_){ switchView('allocation'); }
 }
@@ -3610,7 +3650,7 @@ function renderActionCenter(s){
   if(!acts.length){ el.style.display='none'; el.onclick=null; return; }
   const sev = acts.some(a=>a.sev==='crit')?'crit':(acts.some(a=>a.sev==='warn')?'warn':'');
   el.className='card action-center'+(sev?' '+sev:'');
-  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','크립토 브레이크':'#E5663D','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A'};
+  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','크립토 브레이크':'#E5663D','peak 리셋':'#5AA0A6','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A'};
   const rows=acts.map(a=>`<div class="ac-row" onclick="event.stopPropagation();acDispatch('${a.act}')" style="cursor:pointer">
     <span class="ac-tag" style="background:${tagColor[a.tag]||'#666'}22;color:${tagColor[a.tag]||'#aaa'}">${a.tag}</span>
     <span style="flex:1;min-width:0"><span style="font-size:11.5px;line-height:1.4;font-weight:600">${esc(a.why)}</span>${a.sub?`<br><span style="font-size:10px;color:var(--text-3);line-height:1.35">${esc(a.sub)}</span>`:''}</span>
@@ -5247,8 +5287,10 @@ function computeUnifiedPlan(s){
       // 윈너라이딩 — 상승 가속 국면에선 비레버리지 초과(매도)를 ⅓만 트림(나머지 태움). 트랙: 크립토/트레저리=BTC·ETH, 주식=나스닥, 금=제외
       if(!lev && rr.adjustShares<0 && wrAllowed(rr.h)){
         const trimSh=Math.round(rr.adjustShares/3);
-        if(trimSh<0){ rows.push({sym:rr.h.symbol,cat:rr.h.cat,sh:trimSh,val:rr.adjustVal/3,reason:'윈너라이딩 ⅓ 트림',unit:rr.h.cat==='crypto'?'개':'주'}); }
-        else { holds.push({sym:rr.h.symbol,reason:'윈너라이딩 — 익절 보류(추세 지속)'}); }
+        // 최종 목적지 0%면 '윈너'가 아니라 청산 대상 — 라벨 구분(분할 매도 동작은 동일)
+        const exiting = (rr.h.targetWt||0) <= 0.0001 || finalClassTarget(rr.h.cat) <= 0.0001;
+        if(trimSh<0){ rows.push({sym:rr.h.symbol,cat:rr.h.cat,sh:trimSh,val:rr.adjustVal/3,reason:exiting?'청산 ⅓ 분할(가속 중 천천히)':'윈너라이딩 ⅓ 트림',unit:rr.h.cat==='crypto'?'개':'주'}); }
+        else { holds.push({sym:rr.h.symbol,reason:exiting?'청산 분할 — 이번 차례 보류':'윈너라이딩 — 익절 보류(추세 지속)'}); }
         return;
       }
       rows.push({sym:rr.h.symbol,cat:rr.h.cat,sh:rr.adjustShares,
@@ -7716,7 +7758,7 @@ function renderSettings(){
       const _hasExemptLev=(state.holdings||[]).some(h=>isLevCat(h.cat)&&(h.qty||0)>0&&isDefenseExempt(h));
       st=`① 사이징: 실효 ${r.eff.toFixed(2)}배 / 권장 ≤${cap} <span style="color:var(--text-3)">(변동성 ${vol})</span>`
         +(_hasExemptLev?` · <span style="color:var(--gold)">레버리지 점진 청산 중 — 방어 보류</span>`:'')+`<br>`
-        +`② 추세 200일선 ${rk.trendOn?'사용':'끔'} · ③ 백스톱 ${state.settings.risk&&state.settings.risk.backstop!=null?('−'+(state.settings.risk.backstop*100).toFixed(0)+'%'):'미사용'}(고점 −10% 1차→현금15% · −20% 2차→현금25% · 단 지수 <b>풀가속</b> 중엔 베타로 보고 현금 보류 · <b>고점 −35%↑ + 풀가속 아님이면 현금 floor 재가동</b>) · ④ 플로어 <b style="color:var(--text)">${floorTxt}</b><br>`
+        +`② 추세 200일선 ${rk.trendOn?'사용':'끔'} · ③ 백스톱 ${state.settings.risk&&state.settings.risk.backstop!=null?('−'+(state.settings.risk.backstop*100).toFixed(0)+'%'):'미사용'}(고점 −10% 1차→현금15% · −20% 2차→현금25% · 단 지수 <b>풀가속</b> 중엔 베타로 보고 현금 보류 · <b>고점 −35%↑ + 풀가속 아님이면 현금 floor 재가동</b>) · ④ 플로어 <b style="color:var(--text)">${floorTxt}</b>${rk.peakEpoch?` <span style="color:#5AA0A6">· peak 기준 ${rk.peakEpoch} 리셋됨</span> <span style="color:var(--text-3);text-decoration:underline;cursor:pointer" onclick="if(confirm('peak 리셋을 해제하고 전체 이력 기준으로 되돌립니다. 계속할까요?'))window.clearPeakEpoch()">해제</span>`:''}<br>`
         +`⑤ 리밸런싱 노터치 밴드 ±${((rk.rebalBand!=null?rk.rebalBand:0.05)*100).toFixed(0)}%p<br>`
         +`⑥ 오버슛 현금화: 목표 +${((rk.overshootPct!=null?rk.overshootPct:0.15)*100).toFixed(0)}% 초과 시 초과분의 ${((rk.cashoutFrac!=null?rk.cashoutFrac:0.50)*100).toFixed(0)}% 분할`;
       try{ const acS=computeAccelRegime(portfolioStats(),'stock'); const acC=computeAccelRegime(portfolioStats(),'crypto');

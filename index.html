@@ -1008,7 +1008,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.52';
+const APP_VER = 'v2.9.53';
 const APP_BUILD = '2026-06-30';
 
 const SEED = {
@@ -1277,6 +1277,17 @@ function normalizeState(){
       h.avgFx = isLevCat(h.cat) ? 1486.95 : 1465.57;
     }
   }
+  // 금(IAUM) 보유행 보정 — 글라이드/목표에 금 비중이 있는데 금 종목이 없으면 IAUM 자리 생성(구버전 글라이드 시작분).
+  //   글라이드가 금 카테고리 목표를 IAUM으로 채우도록(없으면 자산 카드만 부족 표시되고 배분 페이지에 매수 종목이 안 떴음).
+  try{
+    const _g=state.settings.glide;
+    const goldFinal = (_g && _g.active && _g.to && _g.to.gold!=null) ? _g.to.gold
+                    : ((state.settings.classTargets && state.settings.classTargets.gold) || 0);
+    if(goldFinal>0 && !(state.holdings||[]).some(h=>h.cat==='gold')){
+      state.holdings.push({id:'gold_IAUM_'+Date.now().toString(36)+Math.floor(Math.random()*1e3),
+        cat:'gold', symbol:'IAUM', name:'iShares Gold Trust Micro', qty:0, avgUSD:0, curUSD:0, avgFx:1465.57, targetWt:1});
+    }
+  }catch(_){}
   try{ compactOldHistory(); }catch(e){}   // 1년 이상 지난 일별 기록 → 주 1개로 압축 (실패해도 부팅 지속)
 }
 /* === history 압축 — 365일 이전 구간은 ISO주당 마지막 기록만 유지 === */

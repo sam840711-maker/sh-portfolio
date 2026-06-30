@@ -1006,7 +1006,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.37';
+const APP_VER = 'v2.9.38';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -3399,7 +3399,7 @@ function computeActionAlerts(s){
       const sLab=acS.on?acS.label:'데이터 대기', cLab=acC.on?acC.label:'데이터 대기';
       const why = held
         ? `가속 보류 중 — 지금 할 일 없음 (방어 우선·자동 대기)`
-        : `상승가속 — 주식 <b>${sLab}</b> · 크립토 <b>${cLab}</b>`;
+        : `상승가속 — 주식 ${sLab} · 크립토 ${cLab}`;
       const sub=defenseLevOn
         ? '왜 보류? 방어(급락 대응)가 우선. 방어 해제되면 자동으로 켜짐 — 지금은 그대로 두면 됨'
         : `윈너라이딩 트랙 분리 — 주식(나스닥): ${sLab} / 크립토(BTC·ETH, 트레저리주 포함): ${cLab} · 금 제외 · 레버리지 청산 우선`+(glideActive?' · 글라이드 10단계 진행 중':'');

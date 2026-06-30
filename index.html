@@ -1008,7 +1008,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.51';
+const APP_VER = 'v2.9.52';
 const APP_BUILD = '2026-06-30';
 
 const SEED = {
@@ -2827,6 +2827,7 @@ async function fetchTrend200(force){
   }
   t.ts=Date.now();
   tickTrendConv();   // 추세 이탈 연속일 카운트(현물 전환 확인용)
+  tickCryptoTrendConv();   // 크립토 추세 이탈 연속일 카운트(소프트 브레이크용)
 }
 // 추세 이탈(200일선+모멘텀 음전) 연속 거래일 카운터 — 2일 확인 후 전환 트리거
 function tickTrendConv(){
@@ -2840,7 +2841,27 @@ function tickTrendConv(){
     tc.lastDate=today; tc.prevBroken=broken;
   } else { tc.prevBroken=broken; if(!broken) tc.days=0; }  // 같은 날 회복하면 리셋
 }
+// 크립토 추세 이탈(BTC·ETH 200일선+모멘텀 음전) 연속 거래일 카운터 — 2일 확인 후 소프트 브레이크
+function tickCryptoTrendConv(){
+  const risk=state.settings.risk; if(!risk) return;
+  const t=risk.trend||{};
+  const broken=(t['BTC-USD']&&t['BTC-USD'].below)||(t['ETH-USD']&&t['ETH-USD'].below);
+  const tc=risk.cryptoConv||(risk.cryptoConv={days:0,lastDate:null,prevBroken:false});
+  const today=new Date(Date.now()+9*3600*1000).toISOString().slice(0,10);  // KST
+  if(tc.lastDate!==today){
+    tc.days = broken ? (tc.prevBroken?(tc.days||0)+1:1) : 0;
+    tc.lastDate=today; tc.prevBroken=broken;
+  } else { tc.prevBroken=broken; if(!broken) tc.days=0; }
+}
 // 현금 목표 비중 — 엔진이 굴림: 상승 확인 시 절반(투입), 방어/중립은 기본. 정적 현금 드래그 회피.
+/* 추가 방어 상수 — #1 크립토 소프트 브레이크 / #2 심층 낙폭 해제 */
+const CRYPTO_BRAKE_CASH = 0.10;   // 크립토 2일 추세이탈 시 현금 버퍼 상향(가속 추가투입만 보류 · 글라이드 기본 매집은 유지)
+const DEEP_DD = 0.35;             // 고점 대비 −35%↑ + 풀가속 아님(추세 취약) → 가속이어도 현금 floor 재가동
+// 크립토 추세(BTC/ETH 200일선+모멘텀) 2거래일 이탈 확인 시 소프트 브레이크 ON
+function cryptoBrakeOn(){
+  const tc=(state.settings.risk&&state.settings.risk.cryptoConv)||{};
+  return (tc.days||0)>=2;
+}
 /* 고점(전진식 peakNav) 대비 낙폭 티어 — 중간 되돌림 단계 방어. 1차 −10%→현금15%, 2차 −20%→현금25% */
 function drawdownTier(s){
   try{
@@ -2861,7 +2882,13 @@ function effectiveCashPct(s){
     const r=computeRiskStatus(s);
     if(r.level && r.level!=='near') return Math.max(base, dt.cashFloor||0);   // 실제 방어(추세이탈·플로어·레버): 기본 + 낙폭 티어 현금 반영
     const ac=computeAccelRegime(s);                                          // 주식 트랙(^GSPC·^NDX)
+    const accelFull = ac && ac.on && ac.regime==='full';
     const accelOn = ac && ac.on && (ac.regime==='early'||ac.regime==='full');
+    // [#2 심층 낙폭 해제] 고점 −35%↑ 인데 '풀가속'이 아니면(추세 취약) — B안을 깨고 현금 floor 재가동.
+    //   풀가속(시장 강세)이면 낙폭은 크립토/레버 베타로 보고 그대로 견딤(바닥 매도 회피).
+    if(dt.dd>=DEEP_DD && !accelFull) return Math.max(base, dt.cashFloor||0, CRYPTO_BRAKE_CASH);
+    // [#1 크립토 소프트 브레이크] 크립토 2일 추세이탈 — 가속 추가투입 보류 + 현금 버퍼 상향(글라이드 기본 매집은 유지).
+    if(cryptoBrakeOn()) return Math.max(base, CRYPTO_BRAKE_CASH);
     // [B안] 시장 지수가 가속(200일선 위)이면 NAV 고점대비 낙폭은 크립토/레버 베타로 보고 현금 강제 보류.
     //       글라이드 매집 유지 + 윈너라이딩과의 모순 제거. 실제 크래시는 위 추세필터·일간 급락(-10%)·플로어가 담당.
     if(accelOn) return base/2;                                                // 가속: 현금 절반 투입 (낙폭 티어보다 우선)
@@ -2996,8 +3023,22 @@ function backtestRules(){
     }
     return {end:eq, mdd};
   }
-  const a=curve(false), b=curve(true);
-  return {actualMDD:a.mdd, ruledMDD:b.mdd, actualEnd:a.end, ruledEnd:b.end, n:h.length, band};
+  // 낙폭 현금 floor(soft) — 트레일링 전량 스톱이 아니라 노출만 부분 축소: −10%→85%·−20%→75%(현금 15/25%)
+  function softCurve(){
+    let eq=1, peak=1, mdd=0;
+    for(const r of ret){
+      const ddNow = peak>0 ? (eq/peak-1) : 0;
+      let expo = 1;
+      if(ddNow <= -0.20) expo = 0.75;
+      else if(ddNow <= -0.10) expo = 0.85;
+      eq *= (1 + r*expo);
+      if(eq>peak) peak=eq;
+      const dd=eq/peak-1; if(dd<mdd) mdd=dd;
+    }
+    return {end:eq, mdd};
+  }
+  const a=curve(false), b=curve(true), c=softCurve();
+  return {actualMDD:a.mdd, ruledMDD:b.mdd, softMDD:c.mdd, actualEnd:a.end, ruledEnd:b.end, softEnd:c.end, n:h.length, band};
 }
 /* ================================================================
    오버슛 현금 버퍼 — 목표 초과 시 현금화(파킹) → 파킹 시점 NAV 대비 하락 래더로 분할 재투입(B안)
@@ -3487,15 +3528,22 @@ function computeActionAlerts(s){
         act:'risk'});
     }
   }catch(_){}
-  // 크립토 추세 이탈 — 알림만(방어 모드 전환 X). 조기 인식용. 실제 크래시 방어는 NAV 낙폭층·급락알림이 담당
+  // 크립토 추세 이탈 — 1일: 알림 / 2일 확인: 소프트 브레이크(가속 보류·현금 버퍼↑). 하드 매도는 아님(매집 thesis 유지)
   try{ const tt=(state.settings.risk&&state.settings.risk.trend)||{};
     const cb=[]; if(tt['BTC-USD']&&tt['BTC-USD'].below) cb.push('BTC'); if(tt['ETH-USD']&&tt['ETH-USD'].below) cb.push('ETH');
     const _rr=computeRiskStatus(s);
     if(cb.length && !(_rr.level&&_rr.level!=='near')){   // 이미 방어(플로어/추세/레버) 중이면 중복 표시 안 함
-      out.push({tag:'크립토 추세',sev:'warn',
-        why:`크립토 추세 이탈 — ${cb.join('·')} 200일선 아래`,
-        sub:`크립토(50% 비중)가 장기 추세 아래. 단 이건 매집 구간일 수도 있어 하드 방어는 안 함(글라이드 매집 유지). 실제 급락은 급락알림(전일 −10%)·낙폭 방어(NAV −10/−20%)가 잡음. 윈너라이딩은 크립토 트랙에서 자동 보류 중. (참고용)`,
-        act:'alloc'});
+      if(cryptoBrakeOn()){
+        out.push({tag:'크립토 브레이크',sev:'warn',
+          why:`크립토 소프트 브레이크 발동 — ${cb.join('·')} 200일선 2일↑ 이탈`,
+          sub:`크립토(50% 비중) 추세 이탈 2거래일 확인 → 가속 추가투입 보류 + 현금 버퍼 ${(CRYPTO_BRAKE_CASH*100).toFixed(0)}%로 상향. 글라이드 기본 매집(DCA)은 유지 — 칼날 잡기(추가 현금투입)만 차단. 추세 회복 시 자동 해제. ▸`,
+          act:'alloc'});
+      } else {
+        out.push({tag:'크립토 추세',sev:'warn',
+          why:`크립토 추세 이탈 — ${cb.join('·')} 200일선 아래 (1일)`,
+          sub:`크립토가 장기 추세 아래. 2거래일 확인되면 소프트 브레이크(가속 보류·현금 ${(CRYPTO_BRAKE_CASH*100).toFixed(0)}%)로 격상돼. 매집 구간일 수도 있어 기본 매집은 유지. 실제 급락은 급락알림(−10%)·낙폭 방어가 잡음. (참고용)`,
+          act:'alloc'});
+      }
     }
   }catch(_){}
   // 고점 대비 낙폭 방어 — 1차(−10%)·2차(−20%). [B안] 시장 가속 중이면 현금 강제 보류(베타)·참고용으로 표시
@@ -3551,7 +3599,7 @@ function renderActionCenter(s){
   if(!acts.length){ el.style.display='none'; el.onclick=null; return; }
   const sev = acts.some(a=>a.sev==='crit')?'crit':(acts.some(a=>a.sev==='warn')?'warn':'');
   el.className='card action-center'+(sev?' '+sev:'');
-  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A'};
+  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','크립토 브레이크':'#E5663D','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A'};
   const rows=acts.map(a=>`<div class="ac-row" onclick="event.stopPropagation();acDispatch('${a.act}')" style="cursor:pointer">
     <span class="ac-tag" style="background:${tagColor[a.tag]||'#666'}22;color:${tagColor[a.tag]||'#aaa'}">${a.tag}</span>
     <span style="flex:1;min-width:0"><span style="font-size:11.5px;line-height:1.4;font-weight:600">${esc(a.why)}</span>${a.sub?`<br><span style="font-size:10px;color:var(--text-3);line-height:1.35">${esc(a.sub)}</span>`:''}</span>
@@ -7657,7 +7705,7 @@ function renderSettings(){
       const _hasExemptLev=(state.holdings||[]).some(h=>isLevCat(h.cat)&&(h.qty||0)>0&&isDefenseExempt(h));
       st=`① 사이징: 실효 ${r.eff.toFixed(2)}배 / 권장 ≤${cap} <span style="color:var(--text-3)">(변동성 ${vol})</span>`
         +(_hasExemptLev?` · <span style="color:var(--gold)">레버리지 점진 청산 중 — 방어 보류</span>`:'')+`<br>`
-        +`② 추세 200일선 ${rk.trendOn?'사용':'끔'} · ③ 백스톱 ${state.settings.risk&&state.settings.risk.backstop!=null?('−'+(state.settings.risk.backstop*100).toFixed(0)+'%'):'미사용'}(고점 −10% 1차→현금15% · −20% 2차→현금25% · 단 지수 가속(200일선 위) 중엔 베타로 보고 현금 강제 보류) · ④ 플로어 <b style="color:var(--text)">${floorTxt}</b><br>`
+        +`② 추세 200일선 ${rk.trendOn?'사용':'끔'} · ③ 백스톱 ${state.settings.risk&&state.settings.risk.backstop!=null?('−'+(state.settings.risk.backstop*100).toFixed(0)+'%'):'미사용'}(고점 −10% 1차→현금15% · −20% 2차→현금25% · 단 지수 <b>풀가속</b> 중엔 베타로 보고 현금 보류 · <b>고점 −35%↑ + 풀가속 아님이면 현금 floor 재가동</b>) · ④ 플로어 <b style="color:var(--text)">${floorTxt}</b><br>`
         +`⑤ 리밸런싱 노터치 밴드 ±${((rk.rebalBand!=null?rk.rebalBand:0.05)*100).toFixed(0)}%p<br>`
         +`⑥ 오버슛 현금화: 목표 +${((rk.overshootPct!=null?rk.overshootPct:0.15)*100).toFixed(0)}% 초과 시 초과분의 ${((rk.cashoutFrac!=null?rk.cashoutFrac:0.50)*100).toFixed(0)}% 분할`;
       try{ const acS=computeAccelRegime(portfolioStats(),'stock'); const acC=computeAccelRegime(portfolioStats(),'crypto');
@@ -7666,6 +7714,12 @@ function renderSettings(){
         st+=`<br>⑦ 상승 가속(트랙 분리): 주식 <b style="color:${acS.color||'#7A8195'}">${sLab}</b> · 크립토 <b style="color:${acC.color||'#7A8195'}">${cLab}</b>`
           +`<br><span style="color:var(--text-3);font-size:11px">주식=나스닥 / 크립토=BTC·ETH(트레저리주 포함) · 금 제외 · 레버리지 청산 우선</span>`;
       } }catch(_){}
+      try{ const _tt=(state.settings.risk&&state.settings.risk.trend)||{};
+        const _cbroken=(_tt['BTC-USD']&&_tt['BTC-USD'].below)||(_tt['ETH-USD']&&_tt['ETH-USD'].below);
+        const _bOn=cryptoBrakeOn();
+        st+=`<br>⑧ 크립토 소프트 브레이크: ${_bOn?`<b style="color:#E5663D">발동 — 현금 ${(CRYPTO_BRAKE_CASH*100).toFixed(0)}%·가속 추가투입 보류</b>`:(_cbroken?'<b style="color:#D98A3D">관찰 — 1일 이탈(2일 확인 시 발동)</b>':'<span style="color:var(--up)">정상</span>')}`
+          +`<br><span style="color:var(--text-3);font-size:11px">BTC·ETH 200일선 2거래일↑ 이탈 시 가속분만 차단 · 글라이드 기본 매집(DCA)은 유지 · 회복 시 자동 해제</span>`;
+      }catch(_){}
     }catch(e){ st=`② 추세 ${rk.trendOn?'사용':'끔'} · ④ 플로어 <b>${floorTxt}</b>`; }
     rs.innerHTML=st;
   }
@@ -7679,10 +7733,12 @@ function renderSettings(){
       if(!bt){ bts.innerHTML='<span style="color:var(--text-3)">데이터 부족 — 스냅샷 10일 이상 쌓이면 표시 (앱을 자주 열수록 정확)</span>'; }
       else{
         const mddImp=(bt.actualMDD-bt.ruledMDD)*100;   // 양수면 규칙이 낙폭 축소
+        const softImp=(bt.actualMDD-bt.softMDD)*100;
         bts.innerHTML=`히스토리 ${bt.n}개 · 트레일링 −${(bt.band*100).toFixed(0)}% 규칙 적용 시(근사)<br>`
-          +`최대낙폭(MDD): 실제 <b style="color:var(--down)">${fmtPct(bt.actualMDD,0)}</b> → 규칙 <b style="color:${mddImp>0?'var(--up)':'var(--down)'}">${fmtPct(bt.ruledMDD,0)}</b> <span style="color:var(--text-3)">(${mddImp>=0?'−':'+'}${Math.abs(mddImp).toFixed(0)}%p)</span><br>`
-          +`최종 성장배수: 실제 <b>${bt.actualEnd.toFixed(2)}x</b> · 규칙 <b>${bt.ruledEnd.toFixed(2)}x</b><br>`
-          +`<span style="color:var(--text-3);font-size:10.5px">※ 스냅샷(앱 사용일) 기반 근사 — 방향성 참고용</span>`;
+          +`최대낙폭(MDD): 실제 <b style="color:var(--down)">${fmtPct(bt.actualMDD,0)}</b> → 트레일링스톱 <b style="color:${mddImp>0?'var(--up)':'var(--down)'}">${fmtPct(bt.ruledMDD,0)}</b> <span style="color:var(--text-3)">(${mddImp>=0?'−':'+'}${Math.abs(mddImp).toFixed(0)}%p)</span><br>`
+          +`낙폭 현금 floor(−10%→15%·−20%→25%, 상시 가정): MDD <b style="color:${softImp>0?'var(--up)':'var(--down)'}">${fmtPct(bt.softMDD,0)}</b> <span style="color:var(--text-3)">(${softImp>=0?'−':'+'}${Math.abs(softImp).toFixed(0)}%p)</span><br>`
+          +`최종 성장배수: 실제 <b>${bt.actualEnd.toFixed(2)}x</b> · 스톱 <b>${bt.ruledEnd.toFixed(2)}x</b> · 현금floor <b>${bt.softEnd.toFixed(2)}x</b><br>`
+          +`<span style="color:var(--text-3);font-size:10.5px">※ 스냅샷(앱 사용일) 기반 근사 — 방향성 참고용. 현금floor는 가속 중 B안으로 보류될 수 있어 실제 보호는 이보다 약할 수 있음</span>`;
       }
     }catch(e){ bts.innerHTML='<span style="color:var(--text-3)">계산 불가</span>'; }
   }

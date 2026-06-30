@@ -1008,7 +1008,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.55';
+const APP_VER = 'v2.9.56';
 const APP_BUILD = '2026-06-30';
 
 const SEED = {
@@ -4898,7 +4898,8 @@ function cashGuideBody(s, plan, avail){
   const fundedHtml=g.funded.filter(f=>f.fundVal>10000).map((f,i)=>{
     const lbl=CATEGORIES[f.cat]?CATEGORIES[f.cat].label:f.cat;
     const rowsTxt=f.rows.filter(r=>Math.abs(r.sh)>(r.unit==='개'?1e-6:0))
-      .map(r=>`${esc(r.sym)} ${r.unit==='개'?(+r.sh.toFixed(6)):Math.round(r.sh).toLocaleString()}${r.unit}`).join(' · ');
+      .map(r=>{ const q=r.unit==='개'?(+r.sh.toFixed(6)):Math.round(r.sh).toLocaleString();
+        return `${esc(r.sym)} ${q}${r.unit} <span style="color:var(--text-2);font-weight:600">₩${fmtKRW(r.fundVal)}</span>`; }).join(' · ');
     const pctTxt=f.ratio<0.999?` <span style="color:var(--text-3)">(목표의 ${Math.round(f.ratio*100)}%)</span>`:'';
     return `<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-top:${i?'1px solid var(--hairline)':'none'}">
       <span style="font-size:12px"><b style="color:#1E9E5A">${ord[i]||'·'}</b> ${lbl}${pctTxt}${rowsTxt?`<div style="font-size:10px;color:var(--text-3);margin-top:1px">${rowsTxt}</div>`:''}</span>

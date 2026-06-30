@@ -955,7 +955,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.27';
+const APP_VER = 'v2.9.29';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -4612,8 +4612,20 @@ function renderStockRebalance(){
       allRows = allRows.concat(groupRows);
       const wtSum=rows.reduce((s,r)=>s+r.tw,0);
       const wtWarn=Math.abs(wtSum-1)>0.001?` <span class="up" style="font-size:10px">⚠ ${fmtPct(wtSum,1)}</span>`:'';
+      // 자산군별 매수·매도 합계 (하단 종합과 동일 계산식) — 헤더 바로 아래 표기
+      let gb=0,gs=0;
+      if(useUni && _uniPlan){
+        _uniPlan.buys.concat(_uniPlan.sells).forEach(x=>{ if(x.cat!==k) return; if(x.val>0) gb+=x.val; else gs-=x.val; });
+      } else {
+        rows.forEach(r=>{ const amt=r.adjustShares*r.priceKRW; if(amt>0) gb+=amt; else if(amt<0) gs-=amt; });
+      }
+      const gnet=gb-gs;
+      const gsumLine=`<div style="font-size:10.5px;margin:-2px 0 9px 16px">`
+        +`<span class="${gnet>=0?'down':'up'}" style="font-weight:600">순 ${gnet>=0?'매수':'매도'} ₩${fmtKRW(Math.abs(gnet))}</span>`
+        +`<span style="color:var(--text-3)"> · 매수 ${gb>0?'₩'+fmtKRW(gb):'—'} · 매도 ${gs>0?'₩'+fmtKRW(gs):'—'}</span></div>`;
       html+=`<div class="rbx-group">
         <div class="rbx-group-head"><span class="abar-dot" style="background:${CATEGORIES[k].color}"></span>${CATEGORIES[k].label}${wtWarn}</div>
+        ${gsumLine}
         ${groupRows.map(buildRow).join('')}
       </div>`;
     }
@@ -4621,7 +4633,18 @@ function renderStockRebalance(){
     const rows=stockRebalance(rbStockCat, rbMode);
     const shown=new Set(rows.map(r=>r.h.symbol));
     allRows=rows.concat(synthFor(rbStockCat, shown));
-    html=allRows.map(buildRow).join('');
+    let gb=0,gs=0;
+    if(useUni && _uniPlan){
+      _uniPlan.buys.concat(_uniPlan.sells).forEach(x=>{ if(x.cat!==rbStockCat) return; if(x.val>0) gb+=x.val; else gs-=x.val; });
+    } else {
+      rows.forEach(r=>{ const amt=r.adjustShares*r.priceKRW; if(amt>0) gb+=amt; else if(amt<0) gs-=amt; });
+    }
+    const gnet=gb-gs;
+    const gsumLine=`<div style="font-size:11px;margin:0 0 12px 0;padding-bottom:9px;border-bottom:1px solid var(--hairline)">`
+      +`<span class="abar-dot" style="background:${CATEGORIES[rbStockCat].color}"></span>`
+      +`<span class="${gnet>=0?'down':'up'}" style="font-weight:600">순 ${gnet>=0?'매수':'매도'} ₩${fmtKRW(Math.abs(gnet))}</span>`
+      +`<span style="color:var(--text-3)"> · 매수 ${gb>0?'₩'+fmtKRW(gb):'—'} · 매도 ${gs>0?'₩'+fmtKRW(gs):'—'}</span></div>`;
+    html=gsumLine+allRows.map(buildRow).join('');
   }
   // 모드 배너 — 종합 결과임을 명시 (경고 시 방어 모드 강조)
   let banner='';
@@ -7215,11 +7238,11 @@ function applyAutoRefresh(){
     }, m*60*1000);
   }
 }
-/* 앱을 다시 볼 때마다 시세가 오래됐으면 즉시 갱신 — 자동갱신 설정과 무관 */
+/* 앱을 다시 볼 때마다 시세가 오래됐으면 즉시 갱신 — 자동갱신 설정과 무관. 재진입 갱신은 수동 탭과 동일하게 완료 토스트 표시 */
 function freshenIfStale(maxAgeSec){
   if (isFetching) return;
   const lf=state.prices&&state.prices.lastFetch;
-  if (!lf || (Date.now()-lf) > maxAgeSec*1000) refreshAllPrices(true);
+  if (!lf || (Date.now()-lf) > maxAgeSec*1000) refreshAllPrices(false);   // false=완료 토스트 표시(첫 진입·재진입 시 '갱신 완료' 안내)
 }
 function qeCommitIfEditing(){
   if(currentView==='quickentry' && qeUnlocked && Object.values(qeUnlocked).some(Boolean)){

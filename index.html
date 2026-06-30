@@ -802,7 +802,7 @@ input,select,textarea{font-family:inherit;color:inherit}
 
     <div class="card">
       <div class="card-title">⏩ 공격 다이얼 점진 전환</div>
-      <div class="info-text" style="margin-bottom:10px">현재 비중에서 공격 목표(크립토 BTC+ETH 55 / US ETF 22 [MAGS·ARKK] / US 단일 18 [8종] / 금(IAUM) 5 · 레버리지 0 · 현금 5%(가속 시 ½) · 가속 1.25)까지 <b>10단계로 나눠</b> 점진 전환을 시작합니다. 레버리지(MST3·BMNU·NVDL·TSLL·GGLL·PLTU)는 단계와 분리된 <b>회복연동 청산</b> — 직전 기준가보다 오르면(신고가 경신) 그 회복분 비례로 매도(오를수록 더), 빠지면 보류(회복 대기). 단 <b>2026-12-31(거주자·과세연도 마감)</b>엔 잔량 전량 정리. 배분 페이지에 단계별 진행 카드가 뜨고, 그 수량대로 매매·"다음 단계"를 반복하면 됩니다. 한 번에 갈아엎지 않아 타이밍·세금이 분산됩니다.</div>
+      <div class="info-text" style="margin-bottom:10px">현재 비중에서 공격 목표(크립토 BTC+ETH 50 / US ETF 22 [MAGS·ARKK] / US 단일 18 [8종] / 금(IAUM) 10 · 레버리지 0 · 현금 5%(가속 시 ½) · 가속 1.25)까지 <b>10단계로 나눠</b> 점진 전환을 시작합니다. 레버리지(MST3·BMNU·NVDL·TSLL·GGLL·PLTU)는 단계와 분리된 <b>회복연동 청산</b> — 직전 기준가보다 오르면(신고가 경신) 그 회복분 비례로 매도(오를수록 더), 빠지면 보류(회복 대기). 단 <b>2026-12-31(거주자·과세연도 마감)</b>엔 잔량 전량 정리. 배분 페이지에 단계별 진행 카드가 뜨고, 그 수량대로 매매·"다음 단계"를 반복하면 됩니다. 한 번에 갈아엎지 않아 타이밍·세금이 분산됩니다.</div>
       <button class="btn btn-secondary" style="width:100%" onclick="applyRecommendedTargets()">공격 다이얼 점진 전환 시작</button>
     </div>
 
@@ -1007,7 +1007,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.43';
+const APP_VER = 'v2.9.45';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -1024,7 +1024,7 @@ const SEED = {
       global_etf:{krw:138656,usd:0},
       crypto:{krw:0,usd:0},
     },
-    classTargets:{us_stock:0.18,us_etf:0.22,lev_tech:0.00,lev_crypto:0.00,global_etf:0.00,crypto:0.55,gold:0.05},
+    classTargets:{us_stock:0.18,us_etf:0.22,lev_tech:0.00,lev_crypto:0.00,global_etf:0.00,crypto:0.50,gold:0.10},
     taxRates:{overseas:0.22,global_etf:0.154,crypto:0,bond:0},
     overseasDeduction:2500000,
   },
@@ -1128,6 +1128,13 @@ function normalizeState(){
     state.settings.glide.steps=10;
   }
   // 레버리지 트레일링 회복 청산 — 진행 중 글라이드가 있는데 levLiq가 없으면 시딩(현재 보유 기준, 12.31 마감)
+  // 헤지 비중 재조정 — 진행 중 글라이드 목적지를 크립토 50/금 10으로 갱신(구 55/5 → 신 50/10). 남은 단계가 새 목표로 보간
+  if(state.settings.glide && state.settings.glide.active && state.settings.glide.to){
+    const _to=state.settings.glide.to;
+    if(Math.abs((_to.crypto||0)-0.55)<0.001 && Math.abs((_to.gold||0)-0.05)<0.001){
+      _to.crypto=0.50; _to.gold=0.10;
+    }
+  }
   if(state.settings.glide && state.settings.glide.active && !state.settings.levLiq){
     initLevLiq();
   }
@@ -2898,7 +2905,7 @@ function computeRiskStatus(s){
   const floor = risk.floorMode==='peakpct' ? peakNavAll()*(1-(risk.floorPeakPct||0.25)) : (risk.floorAbs||0);
   const floorBreach = floor>0 && nav<=floor;
   const floorNear   = floor>0 && !floorBreach && nav<=floor*1.08;   // 플로어 8% 이내 접근
-  // ② 추세필터
+  // ② 추세필터 — 주식 지수 기준(방어 모드 전환). 크립토 추세 이탈은 하드 방어 대신 별도 알림(매집 thesis와 충돌 방지) + NAV 낙폭층이 크래시 담당
   const t=risk.trend||{}; const below=[];
   if(t['^GSPC']&&t['^GSPC'].below) below.push('S&P500');
   if(t['^NDX'] &&t['^NDX'].below ) below.push('나스닥100');
@@ -3341,7 +3348,7 @@ function applyRecommendedTargets(){
   if(_gActive){
     if(!confirm('이미 진행 중인 전환이 있습니다.\n\n[확인] 지금 보유를 시작점으로 10단계를 처음부터(1/10) 다시 짭니다.\n[취소] 그대로 유지 — 아무 것도 안 바뀜.\n\n※ 평소 진행은 글라이드 카드의 "다음 단계"로 하세요. 다이얼을 반복해서 누르면 매번 1단계로 리셋됩니다.')) return;
   } else {
-    if(!confirm('공격 다이얼로 점진 전환을 시작합니다 (10단계 글라이드).\n· 목표: 크립토(BTC+ETH) 55 / US ETF 22(MAGS·ARKK) / US 단일 18(8종) / 금 IAUM 5 / 레버리지 0\n· 크립토 분할 BTC 70 : ETH 30 · 현금 5%(가속 시 ½) · 가속 1.25\n· 레버리지는 회복연동 청산(신고가 경신 시 매도·빠지면 보류, 2026-12-31 마감 정리)\n· 한 번에 안 옮기고 10단계로 나눠 이동 (타이밍·세금 분산)\n· 매 단계 리밸런싱대로 매매 후 "다음 단계" 진행\n계속할까요?')) return;
+    if(!confirm('공격 다이얼로 점진 전환을 시작합니다 (10단계 글라이드).\n· 목표: 크립토(BTC+ETH) 50 / US ETF 22(MAGS·ARKK) / US 단일 18(8종) / 금 IAUM 10 / 레버리지 0\n· 크립토 분할 BTC 70 : ETH 30 · 현금 5%(가속 시 ½) · 가속 1.25\n· 레버리지는 회복연동 청산(신고가 경신 시 매도·빠지면 보류, 2026-12-31 마감 정리)\n· 한 번에 안 옮기고 10단계로 나눠 이동 (타이밍·세금 분산)\n· 매 단계 리밸런싱대로 매매 후 "다음 단계" 진행\n계속할까요?')) return;
   }
   const base=h=>(h.symbol||'').replace('.KS','').replace('.L','').toUpperCase();
   // 1) 2x 테크 이동
@@ -3351,7 +3358,7 @@ function applyRecommendedTargets(){
     if(isUSDcat(h.cat)&&(h.avgFx==null||isNaN(h.avgFx))) h.avgFx=isLevCat(h.cat)?1486.95:1465.57;
   }
   // 2) 자산군 목표비중 (합 100%) — 공격 다이얼. 점진 전환은 글라이드가 처리.
-  const AGG={us_stock:0.18,us_etf:0.22,lev_tech:0.00,lev_crypto:0.00,global_etf:0.00,crypto:0.55,gold:0.05};
+  const AGG={us_stock:0.18,us_etf:0.22,lev_tech:0.00,lev_crypto:0.00,global_etf:0.00,crypto:0.50,gold:0.10};
   state.settings.classTargets={...AGG};   // 최종(글라이드 완료 시 도달)
   if(state.settings.risk) state.settings.risk.accelMax=1.25;   // 가속 상한 1.25
   // 2-1) 현물 코인 자리 종목 자동 생성(없으면 수량 0으로) — 리밸런싱에 BTC/ETH 매수액이 뜨도록
@@ -3466,6 +3473,26 @@ function computeActionAlerts(s){
       out.push({tag:'상승가속',sev:'info', why, sub:sub,act:'alloc'});
     }
   }catch(_){}
+  // 급락 경고 — 전일 대비 −10% 이상 하락 시 즉시 알림(14일 글라이드와 별개, 빠른 대응용)
+  try{ const dc=dailyChange();
+    if(dc && dc.pct<=-0.10){
+      out.push({tag:'급락 경고',sev:'risk',
+        why:`전일 대비 −${(Math.abs(dc.pct)*100).toFixed(1)}% (₩${fmtKRW(Math.abs(dc.abs))} 감소)`,
+        sub:`하루 −10% 이상 급락. 패닉 매도 금물 — 낙폭 방어(현금 버퍼)·추세필터가 자동 반영됨. 레버리지는 회복연동 청산이라 바닥 추가 매도 안 함. 추세 이탈(200일선) 확인 후 방어 단계 점검 권장. (신호일 뿐 강제 아님)`,
+        act:'risk'});
+    }
+  }catch(_){}
+  // 크립토 추세 이탈 — 알림만(방어 모드 전환 X). 조기 인식용. 실제 크래시 방어는 NAV 낙폭층·급락알림이 담당
+  try{ const tt=(state.settings.risk&&state.settings.risk.trend)||{};
+    const cb=[]; if(tt['BTC-USD']&&tt['BTC-USD'].below) cb.push('BTC'); if(tt['ETH-USD']&&tt['ETH-USD'].below) cb.push('ETH');
+    const _rr=computeRiskStatus(s);
+    if(cb.length && !(_rr.level&&_rr.level!=='near')){   // 이미 방어(플로어/추세/레버) 중이면 중복 표시 안 함
+      out.push({tag:'크립토 추세',sev:'warn',
+        why:`크립토 추세 이탈 — ${cb.join('·')} 200일선 아래`,
+        sub:`크립토(50% 비중)가 장기 추세 아래. 단 이건 매집 구간일 수도 있어 하드 방어는 안 함(글라이드 매집 유지). 실제 급락은 급락알림(전일 −10%)·낙폭 방어(NAV −10/−20%)가 잡음. 윈너라이딩은 크립토 트랙에서 자동 보류 중. (참고용)`,
+        act:'alloc'});
+    }
+  }catch(_){}
   // 고점 대비 낙폭 1차 방어 — −10%~−20% 구간에서 현금 버퍼 상향 알림(−20%↑는 백스톱이 담당)
   try{ const dt=drawdownTier(s);
     if(dt.tier===1){
@@ -3506,7 +3533,7 @@ function renderActionCenter(s){
   if(!acts.length){ el.style.display='none'; el.onclick=null; return; }
   const sev = acts.some(a=>a.sev==='crit')?'crit':(acts.some(a=>a.sev==='warn')?'warn':'');
   el.className='card action-center'+(sev?' '+sev:'');
-  const tagColor={방어:'#E5663D','1차 방어':'#E8A23D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A'};
+  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','1차 방어':'#E8A23D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A'};
   const rows=acts.map(a=>`<div class="ac-row" onclick="event.stopPropagation();acDispatch('${a.act}')" style="cursor:pointer">
     <span class="ac-tag" style="background:${tagColor[a.tag]||'#666'}22;color:${tagColor[a.tag]||'#aaa'}">${a.tag}</span>
     <span style="flex:1;min-width:0"><span style="font-size:11.5px;line-height:1.4;font-weight:600">${esc(a.why)}</span>${a.sub?`<br><span style="font-size:10px;color:var(--text-3);line-height:1.35">${esc(a.sub)}</span>`:''}</span>

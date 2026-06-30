@@ -1006,7 +1006,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.9.36';
+const APP_VER = 'v2.9.37';
 const APP_BUILD = '2026-06-28';
 
 const SEED = {
@@ -2757,7 +2757,7 @@ async function fetchTrend200(force){
   const risk=state.settings.risk; if(!risk||!risk.trendOn) return;
   const t=risk.trend||(risk.trend={});
   if(!force && t.ts && (Date.now()-t.ts) < 6*3600*1000) return;   // 6시간 1회면 충분
-  const idxs=['^GSPC','^NDX'];
+  const idxs=['^GSPC','^NDX','BTC-USD','ETH-USD'];   // 주식 트랙(^GSPC·^NDX) + 크립토 트랙(BTC·ETH)
   for(const sym of idxs){
     try{
       const ser=await withTimeout(fetchYahooHistoryDaily(sym,'1y',false),8000);
@@ -2805,16 +2805,16 @@ function effectiveCashPct(s){
    - 풀가속: 강한 추세(gap>3% & mom>8%) 확인 시 풀노출 + 상승장 한정 +10%
    - 계산·알림 전용(자동매매 아님) · 플로어·백스톱은 가속 중에도 우선
    ================================================================ */
-function computeAccelRegime(s){
+function computeAccelRegime(s, track){
   const rk=state.settings.risk||{};
   if(!rk.accelOn) return {on:false};
   const t=rk.trend||{};
-  const g=t['^GSPC'], n=t['^NDX'];
-  if(!g && !n) return {on:true, regime:'unknown', label:'추세 데이터 대기', expo:0.9};
-  const gaps=[g,n].filter(Boolean).map(x=>x.gap||0);
-  const moms=[g,n].filter(Boolean).map(x=>x.mom||0);
-  const bestGap=Math.max(...gaps), bestMom=Math.max(...moms);
-  const anyBelow=(g&&g.below)||(n&&n.below);
+  const syms = (track==='crypto') ? ['BTC-USD','ETH-USD'] : ['^GSPC','^NDX'];
+  const arr = syms.map(k=>t[k]).filter(Boolean);
+  if(!arr.length) return {on:true, regime:'unknown', label:'추세 데이터 대기', expo:0.9, track:track||'stock'};
+  const bestGap=Math.max(...arr.map(x=>x.gap||0));
+  const bestMom=Math.max(...arr.map(x=>x.mom||0));
+  const anyBelow=arr.some(x=>x.below);
   let regime,expo,label,color,why,winnerRun=false;
   if(anyBelow){
     regime='defend'; expo=0.5; label='방어'; color='#E5663D'; winnerRun=false;
@@ -2829,7 +2829,7 @@ function computeAccelRegime(s){
     regime='neutral'; expo=0.9; label='중립'; color='#7A8195'; winnerRun=false;
     why='추세 미확인 — 기본 노출 유지(현금 목표대로 보유)';
   }
-  return {on:true, regime, expo, label, color, why, winnerRun, bestGap, bestMom};
+  return {on:true, regime, expo, label, color, why, winnerRun, bestGap, bestMom, track:track||'stock'};
 }
 function computeRiskStatus(s){
   const risk=state.settings.risk||{};
@@ -3388,20 +3388,21 @@ function computeActionAlerts(s){
       out.push({tag:'백스톱',sev:'warn',why:`백스톱 발동 — 고점 −${fmtPct(bsp.ddFromPeak,0)} · 레버리지 절반 방어 매도 ₩${fmtKRW(bsp.sellAmt)}`,sub:'위기 디리스크 — 레버리지 절반 매도 후 현금 보유(반등 시 목표대로 재배분) ▸',act:'risk'});
     }
   }catch(_){}
-  // 상승 가속 — 상승 추세 확인 시 현금 목표를 절반으로 낮춰 자동 투입·윈너라이딩 (방어의 대칭)
-  try{ const ac=computeAccelRegime(s);
-    if(ac.on && (ac.regime==='early'||ac.regime==='full')){
+  // 상승 가속 — 트랙 분리(주식: 나스닥 / 크립토: BTC·ETH). 방어의 대칭, 금은 제외
+  try{ const acS=computeAccelRegime(s,'stock'); const acC=computeAccelRegime(s,'crypto');
+    const onS=acS.on&&(acS.regime==='early'||acS.regime==='full');
+    const onC=acC.on&&(acC.regime==='early'||acC.regime==='full');
+    if(onS||onC){
       const defenseLevOn=_r&&_r.level&&_r.level!=='near';
       const glideActive=!!(state.settings.glide && state.settings.glide.active);
-      const held=defenseLevOn;   // 방어 때만 보류. 글라이드 중엔 윈너라이딩(비레버리지) 적용
+      const held=defenseLevOn;   // 방어 때만 보류. 글라이드 중엔 윈너라이딩 적용
+      const sLab=acS.on?acS.label:'데이터 대기', cLab=acC.on?acC.label:'데이터 대기';
       const why = held
         ? `가속 보류 중 — 지금 할 일 없음 (방어 우선·자동 대기)`
-        : `${ac.label} 켜짐 — 비레버리지 윈너라이딩·현금 일부 투입 (노출목표 ${Math.round(ac.expo*100)}%)`;
+        : `상승가속 — 주식 <b>${sLab}</b> · 크립토 <b>${cLab}</b>`;
       const sub=defenseLevOn
         ? '왜 보류? 방어(급락 대응)가 우선. 방어 해제되면 자동으로 켜짐 — 지금은 그대로 두면 됨'
-        : glideActive
-        ? '비레버리지 상승 종목은 익절 ⅓ 보류(윈너라이딩) · 레버리지는 청산 우선(가속 제외) — 10단계 점진 청산'
-        : '현금 목표 절반↓ → 남는 현금 슬리브에 자동 투입(½ 분할) · 초과 종목 익절 보류(윈너라이딩 ⅓)'+(ac.regime==='full'?' · 상승장 한정 +10%(추세게이트)':'');
+        : `윈너라이딩 트랙 분리 — 주식(나스닥): ${sLab} / 크립토(BTC·ETH, 트레저리주 포함): ${cLab} · 금 제외 · 레버리지 청산 우선`+(glideActive?' · 글라이드 10단계 진행 중':'');
       out.push({tag:'상승가속',sev:'info', why, sub:sub,act:'alloc'});
     }
   }catch(_){}
@@ -4932,10 +4933,20 @@ function computeUnifiedPlan(s){
     }
   }
   // 상승 가속 국면(비방어) — 윈너 트림 ⅓ 완화(비레버리지) + 대기자금 ½ 투입
-  const ac=computeAccelRegime(s);
+  const ac=computeAccelRegime(s,'stock');      // 주식 트랙 (^GSPC·^NDX) — 현금 투입·표시 기본
+  const acC=computeAccelRegime(s,'crypto');    // 크립토 트랙 (BTC·ETH)
   const _glideActive = !!(state.settings.glide && state.settings.glide.active);
-  // 윈너라이딩은 글라이드 중에도 비레버리지에 적용(레버리지는 아래 !lev 가드로 자동 제외 → 청산 우선)
-  const accelOn = !defense && ac && ac.on && (ac.regime==='early'||ac.regime==='full');
+  // 윈너라이딩은 글라이드 중에도 비레버리지에 적용(레버리지는 !lev 가드로 제외 → 청산 우선)
+  const accelOn  = !defense && ac  && ac.on  && (ac.regime==='early'||ac.regime==='full');    // 주식 트랙
+  const accelCOn = !defense && acC && acC.on && (acC.regime==='early'||acC.regime==='full');   // 크립토 트랙
+  const TREASURY_CRYPTO=new Set(['MSTR','BMNR']);   // 트레저리 주식 → BTC·ETH 추종 → 크립토 트랙으로 판정
+  // 윈너라이딩 트랙 선택: 금=제외(헤지·목표비중 유지), 크립토·트레저리=크립토 트랙, 그 외 주식=주식 트랙
+  const wrAllowed=(h)=>{
+    if(h.cat==='gold') return false;
+    const tk=(h.symbol||'').replace('.KS','').replace('.L','').toUpperCase();
+    if(h.cat==='crypto' || TREASURY_CRYPTO.has(tk)) return accelCOn;
+    return accelOn;
+  };
   // 2) 일반 목표비중 리밸런싱 — 방어로 처리한 레버리지는 제외/보류
   const step1Syms=new Set(rows.map(x=>x.sym));   // 방어 1단계에서 이미 축소한 종목
   Object.keys(CATEGORIES).forEach(cat=>{
@@ -4949,8 +4960,8 @@ function computeUnifiedPlan(s){
         else if(rr.adjustShares<0) holds.push({sym:rr.h.symbol,reason:'3x 우선 축소 — 이번 차례 보류'});
         return;   // 매도는 방어 축소(1단계)가 처리, 미처리 2x는 보류
       }
-      // 윈너라이딩 — 상승 가속 국면에선 비레버리지 초과(매도)를 ⅓만 천천히 트림(나머지 태움)
-      if(accelOn && !lev && rr.adjustShares<0){
+      // 윈너라이딩 — 상승 가속 국면에선 비레버리지 초과(매도)를 ⅓만 트림(나머지 태움). 트랙: 크립토/트레저리=BTC·ETH, 주식=나스닥, 금=제외
+      if(!lev && rr.adjustShares<0 && wrAllowed(rr.h)){
         const trimSh=Math.round(rr.adjustShares/3);
         if(trimSh<0){ rows.push({sym:rr.h.symbol,cat:rr.h.cat,sh:trimSh,val:rr.adjustVal/3,reason:'윈너라이딩 ⅓ 트림',unit:rr.h.cat==='crypto'?'개':'주'}); }
         else { holds.push({sym:rr.h.symbol,reason:'윈너라이딩 — 익절 보류(추세 지속)'}); }
@@ -7468,11 +7479,11 @@ function renderSettings(){
         +`② 추세 200일선 ${rk.trendOn?'사용':'끔'} · ③ 백스톱 ${state.settings.risk&&state.settings.risk.backstop!=null?('−'+(state.settings.risk.backstop*100).toFixed(0)+'%'):'미사용'} · ④ 플로어 <b style="color:var(--text)">${floorTxt}</b><br>`
         +`⑤ 리밸런싱 노터치 밴드 ±${((rk.rebalBand!=null?rk.rebalBand:0.05)*100).toFixed(0)}%p<br>`
         +`⑥ 오버슛 현금화: 목표 +${((rk.overshootPct!=null?rk.overshootPct:0.15)*100).toFixed(0)}% 초과 시 초과분의 ${((rk.cashoutFrac!=null?rk.cashoutFrac:0.50)*100).toFixed(0)}% 분할`;
-      try{ const ac=computeAccelRegime(portfolioStats()); if(ac.on&&ac.regime&&ac.regime!=='unknown'){
-        const _gOn=!!(state.settings.glide&&state.settings.glide.active);
-        st+=`<br>⑦ 상승 가속: <b style="color:${ac.color}">${ac.label}</b> `
-          +(_gOn?`<span style="color:var(--text-3)">(노출목표 ${Math.round(ac.expo*100)}% · 윈너라이딩 비레버리지만 · 레버리지 청산 제외)</span>`
-                :`<span style="color:var(--text-3)">(노출목표 ${Math.round(ac.expo*100)}%)</span>`);
+      try{ const acS=computeAccelRegime(portfolioStats(),'stock'); const acC=computeAccelRegime(portfolioStats(),'crypto');
+        if((acS.on&&acS.regime!=='unknown')||(acC.on&&acC.regime!=='unknown')){
+        const sLab=acS.on?acS.label:'대기', cLab=acC.on?acC.label:'대기';
+        st+=`<br>⑦ 상승 가속(트랙 분리): 주식 <b style="color:${acS.color||'#7A8195'}">${sLab}</b> · 크립토 <b style="color:${acC.color||'#7A8195'}">${cLab}</b>`
+          +`<br><span style="color:var(--text-3);font-size:11px">주식=나스닥 / 크립토=BTC·ETH(트레저리주 포함) · 금 제외 · 레버리지 청산 우선</span>`;
       } }catch(_){}
     }catch(e){ st=`② 추세 ${rk.trendOn?'사용':'끔'} · ④ 플로어 <b>${floorTxt}</b>`; }
     rs.innerHTML=st;

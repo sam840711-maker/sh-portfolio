@@ -1055,7 +1055,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.16';
+const APP_VER = 'v2.10.17';
 const APP_BUILD = '2026-07-01';
 
 const SEED = {
@@ -5479,6 +5479,9 @@ function computeUnifiedPlan(s){
       if(rr.adjustShares===0) return;
       if(ladderSrc.has((rr.h.symbol||'').toUpperCase())) return;   // 디레버리징이 이미 처리
       const lev=isLevCat(rr.h.cat);
+      // 청산 대상(최종 목표 0 또는 종목 목표 0)은 매도만 — 비레버 매수 레그 억제.
+      // intra-class 비례 반올림으로 생기던 소액 매수(왕복·스프레드 낭비)를 제거해 단조 청산.
+      if(!lev && rr.adjustShares>0 && ((rr.h.targetWt||0)<=0.0001 || finalClassTarget(rr.h.cat)<=0.0001)) return;
       if(defense && lev && !isDefenseExempt(rr.h)){   // 방어 제외 종목(MST3·BMNU)은 아래 목표비중(글라이드)으로 흐름
         if(step1Syms.has(rr.h.symbol)) return;   // 1단계에서 이미 축소 확정 — 그 행을 그대로 사용(보류로 덮지 않음)
         if(rr.adjustShares>0) holds.push({sym:rr.h.symbol,reason:'레버리지 경고 — 매수 보류'});
@@ -5522,7 +5525,7 @@ function computeUnifiedPlan(s){
     // 결손 기준을 목표비중 블록과 동일하게 — basis = NAV×(1−현금%) (현금% 미적용 시 균형 자산군이 가짜 결손으로 잡혀 청산현금이 흘러감)
     const cashPct=(typeof effectiveCashPct==='function')?effectiveCashPct(s):(state.settings.reserveTargetPct||0);
     const basis=(s.totalWithCash||1)*(1-cashPct);
-    const nonLev=Object.keys(CATEGORIES).filter(k=>!isLevCat(k));
+    const nonLev=Object.keys(CATEGORIES).filter(k=>!isLevCat(k) && finalClassTarget(k)>0.0001);   // 청산 자산군(최종 0)은 재배분 매수 대상에서 제외
     // 비레버 예산 = basis − 레버홀드, classTarget 비율로 정규화 (목표비중 블록과 동일 기준 — 현금 목표% 보존)
     const nlBudget=Math.max(0, basis - levHeldKRW(s));
     const nlSum=nonLevClassSum();

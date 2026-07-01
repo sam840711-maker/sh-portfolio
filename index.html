@@ -1055,7 +1055,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.19';
+const APP_VER = 'v2.10.20';
 const APP_BUILD = '2026-07-01';
 
 const SEED = {
@@ -7910,8 +7910,8 @@ async function refreshAllPrices(quiet){
   // 추세 필터(200일선) — 6시간 1회, 비차단. 도착하면 하방 보호 카드만 갱신
   fetchTrend200(false).then(()=>{ try{ if(currentView==='dashboard'){ const _s=portfolioStats(); renderRiskAlert(_s); renderLevConvAlert(_s); renderActionCenter(_s); } }catch(_){} }).catch(()=>{});
 
-  // 주식·ETF — Yahoo, 동시 5개(버스트 완화) · 워커별 시작 시각을 120ms씩 어긋내 순간 동시요청 분산
-  //  (프록시 1개 IP로 다수 종목이 한꺼번에 나가면 야후가 429로 다수 거절 → 대량 실패 원인. 동시성↓로 성공률↑)
+  // 주식·ETF — Yahoo, 동시 12개. 느린 종목이 있어도 병렬로 격리되어 빠른 종목은 즉시 완료.
+  //  (동시성을 낮추면 한 워커가 느린 종목에 묶여 나머지까지 타임아웃 → 실패 증가. 12 유지가 최적.)
   const stocks=state.holdings.filter(h=>h.cat!=='crypto');
   let idx=0;
   async function worker(){
@@ -7929,7 +7929,7 @@ async function refreshAllPrices(quiet){
       } catch(e){ lastFailed.add(h.symbol); fail++; }
     }
   }
-  const stockPromise=Promise.all(Array.from({length:5},(_,i)=>new Promise(r=>setTimeout(r,i*120)).then(worker)));
+  const stockPromise=Promise.all(Array.from({length:12},()=>worker()));
 
   // 코인 — Upbit 일괄
   const cryptos=state.holdings.filter(h=>h.cat==='crypto');

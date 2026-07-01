@@ -1055,7 +1055,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.20';
+const APP_VER = 'v2.10.21';
 const APP_BUILD = '2026-07-01';
 
 const SEED = {
@@ -7639,14 +7639,16 @@ async function proxyFetchJson(targetUrl){
 }
 
 /* Yahoo — 정규장 + 프리장·애프터장 시세 반영 (Apps Script YAHOO()와 동일 소스) */
+/* Yahoo — v8 chart 우선. v7 quote는 야후가 크럼/쿠키 인증을 요구해 프록시 경유 시 자주 401 →
+   실패 전 프록시 체인을 다 태워 종목당 시간예산을 낭비(느림·대량실패 주범).
+   chart는 동일 필드(가격·전일종가·변동률·52주·프리/애프터장)를 모두 제공하므로 1순위로 두고,
+   chart가 드물게 실패할 때만 quote로 폴백 → 야후 호출 2회→1회(공통경로), 낭비 타임아웃 제거. */
 async function fetchYahoo(symbol){
-  // 1순위: quote API — 야후가 계산한 수치(현재가·전일종가·변동률·프리장)를 그대로 사용
   try {
-    const q=await fetchYahooQuote(symbol);
-    if(q) return q;
-  } catch(e){ /* 인증/CORS 실패 시 chart 방식으로 폴백 */ }
-  // 폴백: chart API (1분봉에서 직접 추출)
-  return await fetchYahooChart(symbol);
+    const c=await fetchYahooChart(symbol);
+    if(c && c.price>0) return c;
+  } catch(e){ /* chart 실패 시에만 quote 폴백 */ }
+  return await fetchYahooQuote(symbol);
 }
 
 /* === 네이버 금융 — 국장(코스피·코스닥) 실시간 시세 (야후는 ~20분 지연) ===

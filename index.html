@@ -1038,7 +1038,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.8';
+const APP_VER = 'v2.10.9';
 const APP_BUILD = '2026-07-01';
 
 const SEED = {
@@ -4873,6 +4873,37 @@ function computeCagrGap(){
               · CAGR 초과 시 그만큼 차감 (총자산을 페이스 목표선까지 끌어내림)
               · CAGR 미달 + 대기 자금 보유 시 부족분만큼 대기 자금 투입 (매수에 자동 반영)
    within   : 그 자산군의 보유 평가액만 기준 → 예수금 제외, 자산군 내 재분배만 */
+/* 레버리지 '홀드' 평가액 — levLiq가 이번 회차 팔지 않고 들고 가는 레버 목표값 총합(원).
+   비레버 슬리브 예산에서 이만큼 빼야 (비레버+레버홀드=basis) → 현금 목표%가 정확히 보존됨.
+   레버가 청산될수록 이 값이 줄어 비레버 투입 여력이 자동으로 늘어남. */
+function levHeldKRW(s){
+  if(s && s._levHeld!=null) return s._levHeld;
+  const _L=state.settings.levLiq;
+  const fx=state.settings.fxRate;
+  const basis=(s.totalWithCash||0)*(1-effectiveCashPct(s));
+  let held=0;
+  Object.keys(CATEGORIES).filter(isLevCat).forEach(cat=>{
+    const hs=state.holdings.filter(h=>h.cat===cat);
+    const twSum=hs.reduce((a,h)=>a+effectiveTargetWt(h),0);
+    hs.forEach(h=>{
+      const priceKRW=isUSDcat(h.cat)?h.curUSD*fx:h.curKRW;
+      if(_L && _L.active && _L.remain && _L.remain[h.id]!=null){
+        const rem=(Date.now()>=_L.deadline)?0:_L.remain[h.id];   // 마감 후 0
+        const oq=(_L.origQty && _L.origQty[h.id]!=null)?_L.origQty[h.id]:h.qty;
+        held += Math.max(0, rem*oq*priceKRW);
+      } else {                                                    // levLiq 미적용 종목은 글라이드 목표대로
+        const tw=twSum>0?effectiveTargetWt(h)/twSum:0;
+        held += Math.max(0, basis*classTarget(cat)*tw);
+      }
+    });
+  });
+  if(s) s._levHeld=held;
+  return held;
+}
+/* 비레버 자산군 classTarget 합 — 비레버 예산 정규화용 */
+function nonLevClassSum(){
+  return Object.keys(CATEGORIES).filter(k=>!isLevCat(k)).reduce((a,k)=>a+classTarget(k),0);
+}
 function stockRebalance(cat, mode, s){
   const fx=state.settings.fxRate;
   const holdings=state.holdings.filter(h=>h.cat===cat);
@@ -4884,7 +4915,15 @@ function stockRebalance(cat, mode, s){
     const cashPct=effectiveCashPct(s);
     basis = basis*(1-cashPct);
   }
-  const catTargetVal = mode==='within' ? catCurrent : basis*classTarget(cat);
+  let catTargetVal;
+  if(mode==='within'){ catTargetVal=catCurrent; }
+  else if(isLevCat(cat)){ catTargetVal=basis*classTarget(cat); }   // 레버는 아래 종목별 levLiq 잔량으로 덮어씀
+  else {
+    // 비레버 = (basis − 레버홀드)를 비레버 classTarget 비율로 배분 → 비레버+레버홀드=basis → 현금 목표% 정확 보존
+    const nonLevBudget=Math.max(0, basis - levHeldKRW(s));
+    const nlSum=nonLevClassSum();
+    catTargetVal = nlSum>0 ? nonLevBudget*(classTarget(cat)/nlSum) : 0;
+  }
   // 종목 목표비중을 자산군 합으로 정규화 — 합이 100%가 아니어도(반올림 등) 자산군 목표를 정확히 지킴
   const twSumCat = holdings.reduce((s,h)=>s+effectiveTargetWt(h),0);
   return holdings.map(h=>{
@@ -4906,7 +4945,7 @@ function stockRebalance(cat, mode, s){
       curWtInCat:catCurrent>0?v.current/catCurrent:0,
       // 전체 모드용 — 계산과 동일한 기준(basis)의 포트폴리오 비중
       curWtPort: basis>0 ? v.current/basis : 0,
-      tgtWtPort: classTarget(cat)*tw,
+      tgtWtPort: basis>0 ? targetVal/basis : 0,
       curVal:v.current, priceKRW, catTargetVal };
   });
 }
@@ -5433,7 +5472,10 @@ function computeUnifiedPlan(s){
     const cashPct=(typeof effectiveCashPct==='function')?effectiveCashPct(s):(state.settings.reserveTargetPct||0);
     const basis=(s.totalWithCash||1)*(1-cashPct);
     const nonLev=Object.keys(CATEGORIES).filter(k=>!isLevCat(k));
-    const defs=nonLev.map(k=>({k,deficit:Math.max(0, classTarget(k)*basis - (s.totals[k]?s.totals[k].current:0))}));
+    // 비레버 예산 = basis − 레버홀드, classTarget 비율로 정규화 (목표비중 블록과 동일 기준 — 현금 목표% 보존)
+    const nlBudget=Math.max(0, basis - levHeldKRW(s));
+    const nlSum=nonLevClassSum();
+    const defs=nonLev.map(k=>({k,deficit:Math.max(0, (nlSum>0?nlBudget*(classTarget(k)/nlSum):0) - (s.totals[k]?s.totals[k].current:0))}));
     let defSum=defs.reduce((a,x)=>a+x.deficit,0);
     let alloc={};
     // A안 — 결손(목표−현재>0)인 자산군에만 비례 배분. 모두 목표 이상이면 재배분 안 하고 현금으로 남김(균형·초과 자산군 강제매수 방지)

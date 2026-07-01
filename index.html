@@ -1055,7 +1055,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.17';
+const APP_VER = 'v2.10.18';
 const APP_BUILD = '2026-07-01';
 
 const SEED = {
@@ -5195,6 +5195,11 @@ function renderStockRebalance(){
           ? `방어 우선 — 목표비중상 ${normalSh>0?'매수':'매도'} 대상이나 축소`
           : `목표비중 ${normalSh>0?'매수':'매도'} ↔ 종합 ${sh>0?'매수':'매도'}`;
       }
+    } else if(useUni){
+      // 전체 포트폴리오 모드 = 통합 플랜이 유일한 실행 소스.
+      // 플랜에 없는 종목(청산 자산군 매수 억제·매수캡 초과·균형)은 원시 stockRebalance로 폴백하지 않고 무행동 처리
+      // → 청산 자산군 개별 카드가 억제 후에도 raw +1주로 되살아나던 문제 교정(헤더 순액과 카드 일치).
+      sh=0; val=0;
     } else { sh=normalSh; val=r.adjustVal; }
     const hold = !heldReason && (isC ? Math.abs(sh)<1e-6 : Math.round(sh)===0);
     const _finalPort = finalTgtPort(h);

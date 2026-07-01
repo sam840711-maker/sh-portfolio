@@ -870,10 +870,25 @@ input,select,textarea{font-family:inherit;color:inherit}
       <p class="muted" style="font-size:12px;margin-top:4px">증권사 화면의 실제 수량·매수총액을 입력하고 맨 아래 저장을 누르세요</p>
     </div>
     <div class="chips" id="qe-cat-chips" style="margin-bottom:14px"></div>
+    <div class="card" id="qe-import-card" style="margin-bottom:14px">
+      <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="qeImportToggle()">
+        <span>📋 MTS 캡처 JSON 붙여넣기</span>
+        <span id="qe-import-arrow" style="color:var(--text-3);font-size:13px">▾</span>
+      </div>
+      <div id="qe-import-body" style="display:none">
+        <div class="info-text" style="margin-bottom:10px">증권사 잔고 캡처를 JSON으로 변환해 붙여넣고 <b>미리보기</b> → <b>입력칸 채우기</b> → 그리드 확인 후 맨 아래 <b>전체 저장</b>. 일부 종목만·계좌별로도 가능. <b>cash</b>(예수금)·<b>pending</b>(미정산금)도 계좌별로 함께 반영. 레버 청산 추적은 보존됩니다.</div>
+        <textarea id="qe-import-json" placeholder='{"holdings":[{"symbol":"NVDL","qty":636,"buyUSD":17592.34,"buyKRW":25989919}], "cash":{"kb":{"krw":11393619}}, "pending":{"kb":{"krw":27288095}}}' style="width:100%;box-sizing:border-box;min-height:96px;background:var(--frame);border:1px solid var(--hairline);border-radius:9px;padding:11px 12px;font-size:12px;font-family:monospace;color:var(--text);resize:vertical"></textarea>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn btn-secondary" style="flex:1" onclick="qeImportPreview()">미리보기</button>
+          <button class="btn btn-primary" style="flex:1" id="qe-import-apply" onclick="qeImportApply()" disabled>입력칸 채우기</button>
+        </div>
+        <div id="qe-import-preview" style="margin-top:12px"></div>
+      </div>
+    </div>
     <div id="qe-list"></div>
     <button class="btn btn-primary" id="qe-save" style="width:100%;margin:4px 0 8px">전체 저장</button>
     <div class="card">
-      <div class="card-title">자산군별 예수금 (현금) <span class="action" id="edit-cash">수정</span></div>
+      <div class="card-title">계좌별 예수금 (현금) <span class="action" id="edit-cash">수정</span></div>
       <div id="cash-list"></div>
     </div>
     <div class="card">
@@ -885,7 +900,7 @@ input,select,textarea{font-family:inherit;color:inherit}
       </div>
       <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--hairline)">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
-          <span style="font-size:12px;color:var(--text-2)">자산군별 예수금</span>
+          <span style="font-size:12px;color:var(--text-2)">계좌별 예수금</span>
           <span class="num" id="qe-sum-broker" style="font-size:13px;color:var(--text)">₩0</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px" id="qe-sum-cashacc-row">
@@ -1040,7 +1055,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.10';
+const APP_VER = 'v2.10.14';
 const APP_BUILD = '2026-07-01';
 
 const SEED = {
@@ -1173,6 +1188,11 @@ function normalizeState(){
   }
   // 구버전 단계래칫 잔재 정리
   if(state.settings.glide){ delete state.settings.glide.levRemain; delete state.settings.glide.levOrigQty; delete state.settings.glide.levLastPx; }
+  // 자산군별 청산/전환 속도 배수 — 글로벌ETF는 기본 가속(2x)으로 다른 자산군보다 빠르게 청산
+  if(state.settings.glide){
+    if(!state.settings.glide.speed || typeof state.settings.glide.speed!=='object') state.settings.glide.speed={};
+    if(state.settings.glide.speed.global_etf==null) state.settings.glide.speed.global_etf=2;
+  }
   // 마감일이 과거(데이터 오래됨)거나 누락 시 보정
   if(state.settings.levLiq && !state.settings.levLiq.deadline) state.settings.levLiq.deadline=levDeadlineTs();
   pruneDefenseExempt();   // 이미 청산된(보유 0) 제외 종목 제거 — 6단계 청산 완료 후 재진입 시 방어 자동 부활
@@ -1291,6 +1311,14 @@ function normalizeState(){
   for (const k in CATEGORIES){
     if(!state.settings.cashByClass[k]) state.settings.cashByClass[k]={krw:0,usd:0};
   }
+  // 예수금 계좌별 전환 — 자산군별(cashByClass) → 계좌별(cashByAccount). accountOfCat으로 합산 이전(총액 보존).
+  if (!state.settings.cashByAccount || typeof state.settings.cashByAccount!=='object'){
+    const ca={}; ACCOUNT_ORDER.forEach(a=>ca[a]={krw:0,usd:0});
+    const cb=state.settings.cashByClass||{};
+    for(const k in cb){ const a=accountOfCat(k); if(!ca[a])ca[a]={krw:0,usd:0}; ca[a].krw+=(cb[k].krw||0); ca[a].usd+=(cb[k].usd||0); }
+    state.settings.cashByAccount=ca;
+  }
+  ACCOUNT_ORDER.forEach(a=>{ const p=state.settings.cashByAccount[a]; state.settings.cashByAccount[a]=(p&&typeof p==='object')?{krw:p.krw||0,usd:p.usd||0}:{krw:0,usd:0}; });
   // 현금 계정 — 자산군에 배정 안 된 순수 현금 (한화+외화, 직접 편집)
   if (state.settings.cashAccount==null) state.settings.cashAccount={krw:0,usd:0};
   else if (typeof state.settings.cashAccount==='number') state.settings.cashAccount={krw:state.settings.cashAccount,usd:0};  // 구버전(단일 KRW) → {krw,usd} 마이그레이션
@@ -1467,8 +1495,10 @@ function classTarget(k){
   if(g && g.active){
     const f=(g.from&&g.from[k]!=null)?g.from[k]:0;
     const t=(g.to&&g.to[k]!=null)?g.to[k]:0;
-    const p=(g.steps>0)?Math.min(1,Math.max(0,g.step/g.steps)):1;
-    return f+(t-f)*p;   // 글라이드: 현재→목표 보간
+    const base=(g.steps>0)?Math.min(1,Math.max(0,g.step/g.steps)):1;
+    const mul=(g.speed&&g.speed[k]!=null)?g.speed[k]:1;   // 자산군별 청산/전환 속도 배수(기본 1)
+    const p=Math.min(1,Math.max(0,base*mul));
+    return f+(t-f)*p;   // 글라이드: 현재→목표 보간 (자산군별 속도 반영)
   }
   const ct=state.settings.classTargets;
   return (ct && ct[k]!=null) ? ct[k] : CATEGORIES[k].target;
@@ -1657,13 +1687,15 @@ function addCashAccountKRW(delta){
   if(delta>=0) state.settings.cashAccount.krw=(state.settings.cashAccount.krw||0)+delta;
   else drawFromCashAccount(-delta);
 }
-/* 예수금 합계 — 자산군별 예수금(원화 환산) + 현금 계정(원화 환산) */
-function cashByClassKRW(){
-  const fx=state.settings.fxRate, cb=state.settings.cashByClass||{};
-  let s=0; for (const k in cb){ s += (cb[k].krw||0) + (cb[k].usd||0)*fx; }
+/* 예수금 합계 — 계좌별 예수금(원화 환산). (구 cashByClass → cashByAccount 전환, 총액 동일) */
+function cashByAccountKRW(){
+  const fx=state.settings.fxRate, cb=state.settings.cashByAccount||{};
+  let s=0; for (const a in cb){ s += (cb[a].krw||0) + (cb[a].usd||0)*fx; }
   return s;
 }
-function totalCash(){ return cashByClassKRW() + cashAccountKRW(); }
+function depositAccountKRW(a){ const d=(state.settings.cashByAccount||{})[a]||{krw:0,usd:0}; return (d.krw||0)+(d.usd||0)*(state.settings.fxRate||0); }
+function cashByClassKRW(){ return cashByAccountKRW(); }   // 호환 별칭(예수금 총액) — 기존 호출부 유지
+function totalCash(){ return cashByAccountKRW() + cashAccountKRW(); }
 /* 미정산금 — 매도 실행했으나 아직 정산(T+2~3) 안 된 돈. 계좌별로 보유(어느 계좌 정산분인지 추적). 총자산엔 포함, '쓸 수 있는 예수금'과는 분리. */
 function pendingAccountKRW(a){ const p=(state.settings.pendingByAccount||{})[a]||{krw:0,usd:0}; return (p.krw||0)+(p.usd||0)*(state.settings.fxRate||0); }
 function pendingSettleKRW(){ return ACCOUNT_ORDER.reduce((t,a)=>t+pendingAccountKRW(a),0); }
@@ -3789,7 +3821,7 @@ function openRiskPlan(){
     const sellSteps=`<b style="color:var(--text)">앱 반영:</b>
       <div style="margin-top:3px">① 증권사에서 실제 매도 체결</div>
       <div>② 하단 <b>입력</b> 탭 → 해당 종목 <b>수량</b>을 줄여 입력 → <b>전체 저장</b></div>
-      <div>③ 회수금은 같은 화면 <b>자산군별 예수금</b>에 더해 입력</div>
+      <div>③ 회수금은 같은 화면 <b>계좌별 예수금</b>에 더해 입력</div>
       <div>④ 하단 <b>거래</b> 탭 → <b>실현손익</b> 입력(세금 자동 반영)</div>
       <div style="margin-top:5px;color:var(--text-3);font-size:11px">↻ 저장 후 아직 과다면 다음 회차 수량이 자동으로 갱신됩니다 — 같은 방식 반복(약 3회)하면 경고가 자동 해제. 직접 나눌 필요 없음.</div>`;
     let how;
@@ -4642,9 +4674,9 @@ function renderHoldingsSummary(){
     </div>`;
   }
   // 현금 — 하나의 자산군처럼 표시: 합계(증권사 예수금 + 현금 계정), 안에서 구분
-  const cb=state.settings.cashByClass||{};
+  const cb=state.settings.cashByAccount||{};
   let cashUSD=0;
-  for (const k in cb){ if(cb[k]) cashUSD += (cb[k].usd||0); }
+  for (const a in cb){ if(cb[a]) cashUSD += (cb[a].usd||0); }
   { const _ca=state.settings.cashAccount; if(_ca&&typeof _ca==='object') cashUSD += (_ca.usd||0); }  // 현금 계정 달러 포함
   const spendableCash=totalCash();                    // 쓸 수 있는 현금(예수금+현금계정)
   const pendingCash=pendingSettleKRW();                // 미정산금(T+2 대기)
@@ -4724,23 +4756,18 @@ function renderAllocation(){
 function computeWithdrawalPlan(amount){
   const s=portfolioStats();
   const keys=Object.keys(CATEGORIES);
-  const cb=state.settings.cashByClass||{};
+  const cbA=state.settings.cashByAccount||{};
   const fx=state.settings.fxRate;
   const total=s.totalWithCash||1;
-  let tgtSum=0; const tgt={};
-  keys.forEach(k=>{ tgt[k]=classTarget(k); tgtSum+=tgt[k]; });
-  const w=k=>tgtSum>0?tgt[k]/tgtSum:0;
-  const dev=k=> s.totals[k].current/total - w(k);
-  const order=keys.slice().sort((a,b)=>dev(b)-dev(a));
   let need=amount;
   const fromCashAcc=Math.min(need,Math.max(0,Math.round(cashAccountKRW())));
   need-=fromCashAcc;
-  const fromClass={};
-  order.forEach(k=>{
+  const fromAccount={};
+  ACCOUNT_ORDER.forEach(a=>{
     if(need<=0) return;
-    const avail=Math.max(0,Math.round((cb[k]&&cb[k].krw)||0));
+    const avail=Math.max(0,Math.round((cbA[a]&&cbA[a].krw)||0));
     const take=Math.min(need,avail);
-    if(take>0){ fromClass[k]=take; need-=take; }
+    if(take>0){ fromAccount[a]=take; need-=take; }
   });
   const shortfall=need;
   let sells=[];
@@ -4769,7 +4796,7 @@ function computeWithdrawalPlan(amount){
       return {h:x.h, sh, proc:sh*x.priceKRW};
     }).filter(Boolean).sort((a,b)=>b.proc-a.proc);
   }
-  return {fromCashAcc, fromClass, sells, shortfall, cashUsed:amount-shortfall};
+  return {fromCashAcc, fromAccount, sells, shortfall, cashUsed:amount-shortfall};
 }
 
 /* 출금 모달 — 금액 입력 → 자동 매도 가이드 + 자동 기록 + 빠른 입력 이동 */
@@ -4805,11 +4832,11 @@ function updateWithdrawPlan(){
       <span class="ds-amt down">−₩${fmtKRW(_withdrawPlan.fromCashAcc)}</span></div>
       <div class="ds-sub">미배정 현금에서 우선 차감</div></div>`;
   }
-  for(const k in _withdrawPlan.fromClass){
+  for(const a in _withdrawPlan.fromAccount){
     html+=`<div class="ds-row"><div class="ds-head">
-      <span class="abar-name"><span class="abar-dot" style="background:${CATEGORIES[k].color}"></span>${CATEGORIES[k].label} 예수금</span>
-      <span class="ds-amt down">−₩${fmtKRW(_withdrawPlan.fromClass[k])}</span></div>
-      <div class="ds-sub">예수금에서 차감 · 목표 초과 자산군 우선</div></div>`;
+      <span class="abar-name"><span class="abar-dot" style="background:${ACCOUNTS[a].color}"></span>${ACCOUNTS[a].label} 예수금</span>
+      <span class="ds-amt down">−₩${fmtKRW(_withdrawPlan.fromAccount[a])}</span></div>
+      <div class="ds-sub">해당 계좌 예수금에서 차감</div></div>`;
   }
   if(_withdrawPlan.sells.length){
     let proceeds=0;
@@ -4833,13 +4860,13 @@ async function confirmWithdraw(){
   const amt=Math.round(parseFloat(document.getElementById('wd-amount').value)||0);
   if(amt<=0) return;
   // 1) 현금 부분 자동 차감
-  const cb=state.settings.cashByClass||{};
+  const cbA=state.settings.cashByAccount||{};
   drawFromCashAccount(_withdrawPlan.fromCashAcc);
-  for(const k in _withdrawPlan.fromClass){
-    if(!cb[k]) cb[k]={krw:0,usd:0};
-    cb[k].krw=Math.max(0,(cb[k].krw||0)-_withdrawPlan.fromClass[k]);
+  for(const a in _withdrawPlan.fromAccount){
+    if(!cbA[a]) cbA[a]={krw:0,usd:0};
+    cbA[a].krw=Math.max(0,(cbA[a].krw||0)-_withdrawPlan.fromAccount[a]);
   }
-  state.settings.cashByClass=cb;
+  state.settings.cashByAccount=cbA;
   // 2) 출금을 state.deposits 이번 달에 음수로 기록 (수익률·XIRR 반영)
   const now=new Date();
   const y=String(now.getFullYear());
@@ -5102,7 +5129,7 @@ function renderStockRebalance(){
       <div style="height:6px;background:var(--bg-2);border-radius:3px;overflow:hidden;margin-bottom:8px"><div style="height:100%;width:${pct}%;background:#1E9E5A;border-radius:3px"></div></div>
       <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:5px">지금 할 일 — <span style="color:#1E9E5A">아래 종목 카드대로 매매 후 입력</span></div>
       <div style="font-size:10.5px;color:var(--text-3);line-height:1.55;margin-bottom:8px">
-        ${g.step}/${g.steps}단계 · 크립토 ${cryptoNow}%→<b style="color:#1E9E5A">${cryptoTo}%</b> · 레버리지 회복연동 청산(신고가 경신 시 매도·빠지면 보류, 마감 ${(()=>{const d=Math.ceil((levDeadlineTs()-Date.now())/86400000);return d>0?'D-'+d:'마감';})()}) · 현금 ${(glideCashPct()*100).toFixed(0)}%
+        ${g.step}/${g.steps}단계 · 크립토 ${cryptoNow}%→<b style="color:#1E9E5A">${cryptoTo}%</b> · 글로벌ETF <b style="color:#3B9EFF">2배속(5단계 청산)</b> · 레버리지 회복연동 청산(신고가 경신 시 매도·빠지면 보류, 마감 ${(()=>{const d=Math.ceil((levDeadlineTs()-Date.now())/86400000);return d>0?'D-'+d:'마감';})()}) · 현금 ${(glideCashPct()*100).toFixed(0)}%
         ${defOn?'<br><span style="color:#E5894D">⚠ 방어 모드 동시 — 레버리지 축소 우선(전환과 같은 방향)</span>':''}</div>
       <div style="font-size:10.5px;color:${btnColor};background:var(--bg-2);border-radius:7px;padding:6px 9px;margin-bottom:8px;line-height:1.5">${guide}</div>
       <div style="display:flex;gap:7px">
@@ -5801,31 +5828,31 @@ window.updateTargetPreview=updateTargetPreview; window.saveTargetReturn=saveTarg
 
 /* === 자산군별 예수금 수정 (원화/달러) === */
 function openCashEditor(){
-  const cb=state.settings.cashByClass||{};
-  const rows=Object.keys(CATEGORIES).map(k=>{
-    const c=cb[k]||{krw:0,usd:0};
+  const cb=state.settings.cashByAccount||{};
+  const rows=ACCOUNT_ORDER.map(a=>{
+    const c=cb[a]||{krw:0,usd:0};
     const kSign=(c.krw||0)<0?'-':'+', uSign=(c.usd||0)<0?'-':'+';
-    return `<div class="field"><label>${CATEGORIES[k].label}</label>
+    return `<div class="field"><label>${ACCOUNTS[a].label} 예수금</label>
       <div class="field-row" style="align-items:center;margin-bottom:6px">
         <div style="display:flex;gap:5px">
-          <button type="button" class="btn ${kSign==='+'?'btn-primary':'btn-secondary'} btn-sm" id="cash-${k}-krw-sp" style="padding:8px 11px" onclick="cashSign('${k}','krw','+')">＋</button>
-          <button type="button" class="btn ${kSign==='-'?'btn-primary':'btn-secondary'} btn-sm" id="cash-${k}-krw-sm" style="padding:8px 11px" onclick="cashSign('${k}','krw','-')">－</button>
+          <button type="button" class="btn ${kSign==='+'?'btn-primary':'btn-secondary'} btn-sm" id="cash-${a}-krw-sp" style="padding:8px 11px" onclick="cashSign('${a}','krw','+')">＋</button>
+          <button type="button" class="btn ${kSign==='-'?'btn-primary':'btn-secondary'} btn-sm" id="cash-${a}-krw-sm" style="padding:8px 11px" onclick="cashSign('${a}','krw','-')">－</button>
         </div>
-        <input id="cash-${k}-krw" type="number" step="1" inputmode="numeric" value="${Math.abs(c.krw||0)||''}" placeholder="원화 ₩" style="flex:1">
-        <input type="hidden" id="cash-${k}-krw-sign" value="${kSign}">
+        <input id="cash-${a}-krw" type="number" step="1" inputmode="numeric" value="${Math.abs(c.krw||0)||''}" placeholder="원화 ₩" style="flex:1">
+        <input type="hidden" id="cash-${a}-krw-sign" value="${kSign}">
       </div>
       <div class="field-row" style="align-items:center">
         <div style="display:flex;gap:5px">
-          <button type="button" class="btn ${uSign==='+'?'btn-primary':'btn-secondary'} btn-sm" id="cash-${k}-usd-sp" style="padding:8px 11px" onclick="cashSign('${k}','usd','+')">＋</button>
-          <button type="button" class="btn ${uSign==='-'?'btn-primary':'btn-secondary'} btn-sm" id="cash-${k}-usd-sm" style="padding:8px 11px" onclick="cashSign('${k}','usd','-')">－</button>
+          <button type="button" class="btn ${uSign==='+'?'btn-primary':'btn-secondary'} btn-sm" id="cash-${a}-usd-sp" style="padding:8px 11px" onclick="cashSign('${a}','usd','+')">＋</button>
+          <button type="button" class="btn ${uSign==='-'?'btn-primary':'btn-secondary'} btn-sm" id="cash-${a}-usd-sm" style="padding:8px 11px" onclick="cashSign('${a}','usd','-')">－</button>
         </div>
-        <input id="cash-${k}-usd" type="number" step="0.01" inputmode="decimal" value="${Math.abs(c.usd||0)||''}" placeholder="달러 $" style="flex:1">
-        <input type="hidden" id="cash-${k}-usd-sign" value="${uSign}">
+        <input id="cash-${a}-usd" type="number" step="0.01" inputmode="decimal" value="${Math.abs(c.usd||0)||''}" placeholder="달러 $" style="flex:1">
+        <input type="hidden" id="cash-${a}-usd-sign" value="${uSign}">
       </div>
       <small>현재 잔액(절댓값)이 채워져 있음 · ＋/− 로 부호 선택 (미결제 시 달러는 −)</small></div>`;
   }).join('');
   openModal(`<h3>예수금 관리</h3>
-    <div class="modal-sub">각 자산군의 현금 잔액 + 미정산금 · 현금 계정은 입력 페이지에서 · 현금 목표 비중은 방어 설정에서</div>
+    <div class="modal-sub">계좌별 예수금 + 미정산금 · 현금 계정은 입력 페이지에서 · 현금 목표 비중은 방어 설정에서</div>
     <div class="field"><label>미정산금 — 매도했으나 정산(T+2~3) 안 된 돈 · 계좌별 (총자산엔 포함, 예수금 아님)</label>
       <div style="font-size:11px;color:var(--text-2);margin-bottom:4px">KB증권</div>
       <div class="field-row" style="gap:8px;margin-bottom:8px">
@@ -5847,14 +5874,14 @@ function openCashEditor(){
 }
 async function saveCashEditor(){
   const cb={};
-  for(const k in CATEGORIES){
-    const sgnK=(document.getElementById('cash-'+k+'-krw-sign')?.value==='-')?-1:1;
-    const sgnU=(document.getElementById('cash-'+k+'-usd-sign')?.value==='-')?-1:1;
-    const vKrw=Math.abs(parseFloat(document.getElementById('cash-'+k+'-krw').value)||0);
-    const vUsd=Math.abs(parseFloat(document.getElementById('cash-'+k+'-usd').value)||0);
-    cb[k]={ krw: sgnK*vKrw, usd: sgnU*vUsd };   // 부호 그대로 저장 (미결제 달러 음수 허용)
-  }
-  state.settings.cashByClass=cb;
+  ACCOUNT_ORDER.forEach(a=>{
+    const sgnK=(document.getElementById('cash-'+a+'-krw-sign')?.value==='-')?-1:1;
+    const sgnU=(document.getElementById('cash-'+a+'-usd-sign')?.value==='-')?-1:1;
+    const vKrw=Math.abs(parseFloat(document.getElementById('cash-'+a+'-krw')?.value)||0);
+    const vUsd=Math.abs(parseFloat(document.getElementById('cash-'+a+'-usd')?.value)||0);
+    cb[a]={ krw: sgnK*vKrw, usd: sgnU*vUsd };   // 부호 그대로 저장 (미결제 달러 음수 허용)
+  });
+  state.settings.cashByAccount=cb;
   // 현금 계정은 입력 페이지 카드에서만 편집 (모달에서 제거 — 여기서 건드리지 않음)
   { const f=id=>Math.max(0,parseFloat(document.getElementById(id)?.value)||0);
     state.settings.pendingByAccount={
@@ -6246,22 +6273,23 @@ function renderTransactions(){
 /* 자산군별 예수금 */
 function renderCashList(){
   const el=document.getElementById('cash-list');
-  const fx=state.settings.fxRate, cb=state.settings.cashByClass||{};
+  const fx=state.settings.fxRate, cb=state.settings.cashByAccount||{};
   let total=0;
-  const rows=Object.keys(CATEGORIES).map(k=>{
-    const c=cb[k]||{krw:0,usd:0};
+  const rows=ACCOUNT_ORDER.map(a=>{
+    const c=cb[a]||{krw:0,usd:0};
     const krwEq=(c.krw||0)+(c.usd||0)*fx;
     total+=krwEq;
+    const col=ACCOUNTS[a].color;
     return `<div class="txn">
-      <div class="txn-icon" style="background:${CATEGORIES[k].color}22;color:${CATEGORIES[k].color}">${CATEGORIES[k].label[0]}</div>
-      <div class="txn-info"><div class="txn-title">${CATEGORIES[k].label}</div>
+      <div class="txn-icon" style="background:${col}22;color:${col}">${ACCOUNTS[a].label[0]}</div>
+      <div class="txn-info"><div class="txn-title">${ACCOUNTS[a].label}</div>
         <div class="txn-date">원화 ${fmtKRWFull(c.krw||0)} · 달러 ${fmtUSD(c.usd||0)}</div></div>
       <div class="txn-amount num" style="color:var(--text)">${fmtKRW(krwEq)}</div></div>`;
   }).join('');
   const acct=cashAccountKRW(), pending=pendingSettleKRW(), grand=total+acct+pending;
   el.innerHTML=rows
     +`<div class="txn" style="border-top:1px solid var(--hairline);margin-top:4px">
-      <div class="txn-info"><div class="txn-title">예수금 합계 <span style="font-size:10.5px;color:var(--text-3);font-weight:400">자산군별</span></div></div>
+      <div class="txn-info"><div class="txn-title">예수금 합계 <span style="font-size:10.5px;color:var(--text-3);font-weight:400">계좌별</span></div></div>
       <div class="txn-amount num" style="color:var(--text)">${fmtKRW(total)}</div></div>`
     +`<div class="txn">
       <div class="txn-icon" style="background:var(--gold-soft);color:var(--gold)">현</div>
@@ -6408,10 +6436,10 @@ function renderQuickEntry(){
   const _ca=state.settings.cashAccount||{krw:0,usd:0};
   { const ek=document.getElementById('qe-cashacc-krw'); if(ek) ek.value=(_ca.krw||0)||''; }
   { const eu=document.getElementById('qe-cashacc-usd'); if(eu) eu.value=(_ca.usd||0)||''; }
-  const _cb=state.settings.cashByClass||{};
+  const _cb=state.settings.cashByAccount||{};
   const _fx=state.settings.fxRate;
   let brokerCash=0;
-  for(const k in _cb) brokerCash += (_cb[k].krw||0) + (_cb[k].usd||0)*_fx;
+  for(const a in _cb) brokerCash += (_cb[a].krw||0) + (_cb[a].usd||0)*_fx;
   const cashAcc=cashAccountKRW();
   const grand=brokerCash+cashAcc;
   const setText=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent='₩'+fmtKRW(v); };
@@ -6560,14 +6588,194 @@ async function saveQuickEntry(){
   const oldQty=new Map(); state.holdings.forEach(h=>oldQty.set(h.id, h.qty||0));
   commitQuickEntry();
   const convMsg=reconcileConversions(oldQty);   // 전환 자동 적용(체결량 기준)
+  // 미정산금(계좌별) 버퍼 반영 — JSON 붙여넣기로 스테이징된 경우만 (종목과 원자적으로 저장)
+  let pendMsg='';
+  if(_qeImportPendingBuf){
+    const pb=state.settings.pendingByAccount||{};
+    Object.keys(_qeImportPendingBuf).forEach(a=>{ pb[a]={krw:_qeImportPendingBuf[a].krw||0, usd:_qeImportPendingBuf[a].usd||0}; });
+    state.settings.pendingByAccount=pb;
+    _qeImportPendingBuf=null; _qeImportPendingStaged=null;
+    pendMsg=' · 미정산금 반영';
+  }
+  // 예수금(계좌별) 버퍼 반영
+  let cashMsg='';
+  if(_qeImportCashBuf){
+    const cb=state.settings.cashByAccount||{};
+    Object.keys(_qeImportCashBuf).forEach(a=>{ cb[a]={krw:_qeImportCashBuf[a].krw||0, usd:_qeImportCashBuf[a].usd||0}; });
+    state.settings.cashByAccount=cb;
+    _qeImportCashBuf=null; _qeImportCashStaged=null;
+    cashMsg=' · 예수금 반영';
+  }
   // 현금 계정 직접 입력 반영 (한화+외화 잔액)
   { const ek=document.getElementById('qe-cashacc-krw'), eu=document.getElementById('qe-cashacc-usd');
     if(ek||eu){ const ak=Math.max(0,parseFloat(ek&&ek.value)||0), au=Math.max(0,parseFloat(eu&&eu.value)||0);
       state.settings.cashAccount={krw:ak,usd:au}; } }
   await saveState();
-  toast('저장 완료'+convMsg);
+  toast('저장 완료'+convMsg+pendMsg+cashMsg);
   qeUnlocked={};   // 저장 후 다시 잠금 (실수 변경 방지)
   renderQuickEntry();
+}
+
+/* ── MTS 캡처 JSON 일괄 입력 ─────────────────────────────
+   state를 직접 수정하지 않음 — 빠른입력 칸을 채우고 기존 저장(saveQuickEntry) 재사용.
+   → levLiq(청산 추적)는 수동입력과 동일하게 자동 보존(방법 A). */
+let _qeImportParsed=null;
+let _qeImportPendingStaged=null, _qeImportPendingBuf=null;   // 미정산금(계좌별) — 미리보기 스테이징 / 전체저장 시 적용 버퍼
+let _qeImportCashStaged=null, _qeImportCashBuf=null;         // 예수금(계좌별) — 동일
+function qeImportToggle(){
+  const b=document.getElementById('qe-import-body'), a=document.getElementById('qe-import-arrow');
+  if(!b) return; const open=b.style.display!=='none';
+  b.style.display=open?'none':'block'; if(a) a.textContent=open?'▾':'▴';
+}
+function qeNormSym(s){ return String(s||'').toUpperCase().replace(/\.(KS|L|KQ)$/,'').trim(); }
+function qeFmtQ(n){ if(n==null||isNaN(n))return'—'; return Number.isInteger(n)?n.toLocaleString('en-US'):n.toLocaleString('en-US',{maximumFractionDigits:6}); }
+function qeFindHolding(sym){ const n=qeNormSym(sym); return state.holdings.find(h=>qeNormSym(h.symbol)===n); }
+function qeImportPreview(){
+  const ta=document.getElementById('qe-import-json');
+  const box=document.getElementById('qe-import-preview');
+  const applyBtn=document.getElementById('qe-import-apply');
+  _qeImportParsed=null; if(applyBtn) applyBtn.disabled=true;
+  const err=m=>`<div style="padding:9px 11px;background:#3a1a1a;border:1px solid #E5663D;border-radius:9px;font-size:12px;color:#ffbbbb">⚠️ ${esc(m)}</div>`;
+  let data; try{ data=JSON.parse(ta.value); }catch(e){ box.innerHTML=err('JSON 형식 오류: '+e.message); return; }
+  const arr=Array.isArray(data)?data:(data.holdings||data.items||[]);
+  const hasPending=data && data.pending && typeof data.pending==='object' && Object.keys(data.pending).length>0;
+  const hasCash=data && data.cash && typeof data.cash==='object' && Object.keys(data.cash).length>0;
+  if((!Array.isArray(arr)||!arr.length) && !hasPending && !hasCash){ box.innerHTML=err('holdings·pending·cash를 찾을 수 없습니다.'); return; }
+  const _arr=Array.isArray(arr)?arr:[];
+  const fx=state.settings.fxRate;
+  const matched=[]; const unmatched=[];
+  _arr.forEach(it=>{
+    const sym=it.symbol||it.sym||it.code||it.ticker;
+    const h=qeFindHolding(sym);
+    const qty=Number(it.qty!=null?it.qty:(it.shares!=null?it.shares:it.quantity));
+    if(!h){ unmatched.push(String(sym||'?')); return; }
+    if(!(qty>=0)){ unmatched.push(String(sym)+' (수량 없음)'); return; }
+    const usdCat=isUSDcat(h.cat);
+    let buyUSD=it.buyUSD!=null?Number(it.buyUSD):(it.avgUSD!=null?Number(it.avgUSD)*qty:null);
+    let buyKRW=it.buyKRW!=null?Number(it.buyKRW):(it.avgKRW!=null?Number(it.avgKRW)*qty:null);
+    let nAvgUSD=null,nAvgFx=null,nAvgKRW=null;
+    if(usdCat){ if(buyUSD!=null&&qty>0)nAvgUSD=buyUSD/qty; if(buyUSD!=null&&buyKRW!=null&&buyUSD>0)nAvgFx=buyKRW/buyUSD; }
+    else { if(buyKRW!=null&&qty>0)nAvgKRW=buyKRW/qty; }
+    matched.push({h,qty,buyUSD,buyKRW,nAvgUSD,nAvgFx,nAvgKRW,usdCat,isLev:isLevCat(h.cat),
+      oQty:h.qty||0,oAvgUSD:h.avgUSD||0,oAvgKRW:h.avgKRW||0,oAvgFx:h.avgFx||fx});
+  });
+  // 미변경(JSON에 없는 보유) 목록
+  const inJson=new Set(matched.map(m=>m.h.id));
+  const missing=state.holdings.filter(h=>!inJson.has(h.id)).map(h=>qeNormSym(h.symbol));
+  // 미정산금(계좌별) 파싱 — data.pending:{kb:{krw,usd}, kiwoom:{...}, upbit:{...}}
+  _qeImportPendingStaged=null; _qeImportPendingBuf=null;
+  _qeImportCashStaged=null; _qeImportCashBuf=null;
+  let pendRows=[];
+  if(data.pending && typeof data.pending==='object'){
+    const pb=state.settings.pendingByAccount||{};
+    const stg={};
+    Object.keys(data.pending).forEach(acc=>{
+      const a=String(acc).toLowerCase();
+      if(!ACCOUNT_ORDER.includes(a)) return;                 // 미지 계좌 무시
+      const v=data.pending[acc]||{};
+      const oK=(pb[a]||{}).krw||0, oU=(pb[a]||{}).usd||0;
+      const nK=v.krw!=null?Number(v.krw):oK, nU=v.usd!=null?Number(v.usd):oU;
+      stg[a]={krw:nK,usd:nU};
+      pendRows.push({a,oKrw:oK,nKrw:nK,oUsd:oU,nUsd:nU});
+    });
+    if(pendRows.length) _qeImportPendingStaged=stg;
+  }
+  // 예수금(계좌별) 파싱 — data.cash:{kb:{krw,usd}, kiwoom:{...}, upbit:{...}}
+  let cashRows=[];
+  if(data.cash && typeof data.cash==='object'){
+    const cbA=state.settings.cashByAccount||{};
+    const stg={};
+    Object.keys(data.cash).forEach(acc=>{
+      const a=String(acc).toLowerCase();
+      if(!ACCOUNT_ORDER.includes(a)) return;
+      const v=data.cash[acc]||{};
+      const oK=(cbA[a]||{}).krw||0, oU=(cbA[a]||{}).usd||0;
+      const nK=v.krw!=null?Number(v.krw):oK, nU=v.usd!=null?Number(v.usd):oU;
+      stg[a]={krw:nK,usd:nU};
+      cashRows.push({a,oKrw:oK,nKrw:nK,oUsd:oU,nUsd:nU});
+    });
+    if(cashRows.length) _qeImportCashStaged=stg;
+  }
+  let html='';
+  if(matched.length){
+    html+=`<div style="font-size:12px;color:var(--text-2);margin-bottom:6px">반영 대상 ${matched.length}종목 — 현재 → 반영후</div>`;
+    html+=`<div style="border:1px solid var(--hairline);border-radius:9px;overflow:hidden">`;
+    matched.forEach((m,i)=>{
+      const sym=qeNormSym(m.h.symbol);
+      const qtyChg=Math.abs(m.qty-m.oQty)>1e-6;
+      const qtyStr=`${qeFmtQ(m.oQty)} → <b style="color:${qtyChg?'#7fd1ff':'var(--text-2)'}">${qeFmtQ(m.qty)}</b>`;
+      let avgStr='',warn='';
+      if(m.usdCat){
+        const chg=m.nAvgUSD!=null&&Math.abs(m.nAvgUSD-m.oAvgUSD)>0.005;
+        avgStr=`평단 $${(m.oAvgUSD||0).toFixed(2)}${m.nAvgUSD!=null?` → <b style="color:${chg?'#7fd1ff':'var(--text-2)'}">$${m.nAvgUSD.toFixed(2)}</b>`:''}`;
+        if(m.isLev && chg) warn=`<div style="font-size:10.5px;color:#ffcf7f;margin-top:2px">⚠️ 레버 평단 변화 — 매도만 했다면 평단은 그대로여야 함 (물타기·오차 확인)</div>`;
+      } else {
+        avgStr=`평단 ₩${fmtKRW(m.oAvgKRW||0)}${m.nAvgKRW!=null?` → <b style="color:#7fd1ff">₩${fmtKRW(m.nAvgKRW)}</b>`:''}`;
+      }
+      const fxStr=(m.usdCat&&m.nAvgFx!=null)?` · 환율 ${m.nAvgFx.toFixed(1)}`:'';
+      html+=`<div style="padding:8px 11px;${i>0?'border-top:1px solid var(--hairline);':''}">
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <span style="font-weight:700;font-size:13px">${esc(sym)}${m.isLev?' <span style="font-size:9px;color:#c9a0ff">LEV</span>':''}</span>
+          <span style="font-size:12px;color:var(--text-2)">수량 ${qtyStr}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text-3);margin-top:2px">${avgStr}${fxStr}</div>${warn}
+      </div>`;
+    });
+    html+=`</div>`;
+  }
+  if(pendRows.length){
+    html+=`<div style="margin-top:10px;font-size:12px;color:var(--text-2);margin-bottom:4px">미정산금 (계좌별) — 현재 → 반영후</div>`;
+    html+=`<div style="border:1px solid var(--hairline);border-radius:9px;overflow:hidden">`;
+    pendRows.forEach((p,i)=>{
+      const lbl={kb:'KB',kiwoom:'키움',upbit:'업비트'}[p.a]||p.a;
+      const chg=Math.abs(p.nKrw-p.oKrw)>1||Math.abs(p.nUsd-p.oUsd)>0.005;
+      html+=`<div style="padding:7px 11px;${i>0?'border-top:1px solid var(--hairline);':''}display:flex;justify-content:space-between;font-size:12px">
+        <span style="font-weight:700">${lbl}</span>
+        <span style="color:var(--text-2)">₩${fmtKRW(p.oKrw)} → <b style="color:${chg?'#7fd1ff':'var(--text-2)'}">₩${fmtKRW(p.nKrw)}</b>${(p.oUsd||p.nUsd)?` · $${p.oUsd.toFixed(2)}→$${p.nUsd.toFixed(2)}`:''}</span>
+      </div>`;
+    });
+    html+=`</div>`;
+  }
+  if(cashRows.length){
+    html+=`<div style="margin-top:10px;font-size:12px;color:var(--text-2);margin-bottom:4px">예수금 (계좌별) — 현재 → 반영후</div>`;
+    html+=`<div style="border:1px solid var(--hairline);border-radius:9px;overflow:hidden">`;
+    cashRows.forEach((p,i)=>{
+      const lbl={kb:'KB',kiwoom:'키움',upbit:'업비트'}[p.a]||p.a;
+      const chg=Math.abs(p.nKrw-p.oKrw)>1||Math.abs(p.nUsd-p.oUsd)>0.005;
+      html+=`<div style="padding:7px 11px;${i>0?'border-top:1px solid var(--hairline);':''}display:flex;justify-content:space-between;font-size:12px">
+        <span style="font-weight:700">${lbl}</span>
+        <span style="color:var(--text-2)">₩${fmtKRW(p.oKrw)} → <b style="color:${chg?'#7fd1ff':'var(--text-2)'}">₩${fmtKRW(p.nKrw)}</b>${(p.oUsd||p.nUsd)?` · $${p.oUsd.toFixed(2)}→$${p.nUsd.toFixed(2)}`:''}</span>
+      </div>`;
+    });
+    html+=`</div>`;
+  }
+  if(unmatched.length) html+=`<div style="margin-top:8px;padding:8px 11px;background:#3a2a1a;border:1px solid #b8863d;border-radius:9px;font-size:11.5px;color:#ffd9a0">매칭 안 됨 (${unmatched.length}): ${esc(unmatched.join(', '))} — 심볼/코드 확인</div>`;
+  if(missing.length) html+=`<div style="margin-top:8px;font-size:11px;color:var(--text-3)">JSON에 없어 미변경(${missing.length}): ${esc(missing.join(', '))}</div>`;
+  if(!matched.length && !pendRows.length && !cashRows.length && !unmatched.length) html=err('반영할 내용이 없습니다.');
+  box.innerHTML=html;
+  _qeImportParsed=matched; if(applyBtn) applyBtn.disabled=(matched.length===0 && pendRows.length===0 && cashRows.length===0);
+}
+function qeImportApply(){
+  const nMatched=_qeImportParsed?_qeImportParsed.length:0;
+  if(!nMatched && !_qeImportPendingStaged && !_qeImportCashStaged) return;
+  _qeImportPendingBuf=_qeImportPendingStaged;                    // 미정산금 버퍼 활성화 → 전체 저장 시 반영
+  _qeImportCashBuf=_qeImportCashStaged;                          // 예수금 버퍼 활성화
+  qeCat='all'; qeFilter='all';                                   // 모든 칸이 DOM에 존재하도록
+  (_qeImportParsed||[]).forEach(m=>{ qeUnlocked[m.h.cat]=true; });// 대상 자산군 잠금 해제
+  renderQuickEntry();                                            // 잠금 해제 상태로 재렌더
+  let n=0;
+  (_qeImportParsed||[]).forEach(m=>{
+    const q=document.getElementById('qe-'+m.h.id+'-qty');
+    const k=document.getElementById('qe-'+m.h.id+'-krw');
+    const u=document.getElementById('qe-'+m.h.id+'-usd');
+    if(q){ q.value=m.qty; n++; }
+    if(k && m.buyKRW!=null) k.value=Math.round(m.buyKRW);
+    if(u && m.buyUSD!=null) u.value=m.buyUSD;
+  });
+  for(const c in CATEGORIES) qeCatSum(c);
+  const extra=[_qeImportCashBuf?'예수금':'',_qeImportPendingBuf?'미정산금':''].filter(Boolean).join('·');
+  try{ toast(n+'종목'+(extra?' + '+extra:'')+' 준비됨 — 그리드 확인 후 아래 전체 저장'); }catch(_){}
+  const list=document.getElementById('qe-list'); if(list&&list.scrollIntoView){ try{ list.scrollIntoView({behavior:'smooth',block:'start'}); }catch(_){} }
 }
 /* 종목 순서 이동 (같은 자산군 내) — 공통 로직 */
 function reorderHolding(id,dir){
@@ -8151,7 +8359,7 @@ document.getElementById('import-file').onchange=function(e){
       </div>
       <div id="imp-full-note" class="info-text" style="margin-bottom:14px">백업 전체로 현재 데이터(거래·자산 추이·설정 포함)를 모두 덮어씁니다. 되돌릴 수 없으니 현재 데이터를 먼저 내보내 두는 것을 권장합니다.</div>
       <div id="imp-partial" style="display:none">
-        <div class="info-text" style="margin-bottom:12px">선택한 자산군의 <b>종목·예수금·목표비중</b>만 백업값으로 교체합니다. 선택하지 않은 자산군과 거래·자산 추이 기록은 그대로 유지됩니다.</div>
+        <div class="info-text" style="margin-bottom:12px">선택한 자산군의 <b>종목·목표비중</b>만 백업값으로 교체합니다. 예수금(계좌별)은 전체 복원에서만 반영됩니다. 선택하지 않은 자산군과 거래·자산 추이 기록은 그대로 유지됩니다.</div>
         ${catRows}
       </div>
       <div class="btn-row">
@@ -8181,15 +8389,12 @@ async function confirmImport(){
     // 해당 자산군의 예수금·목표비중도 함께 복원
     const ps=pendingImport.settings||{};
     cats.forEach(cat=>{
-      if(ps.cashByClass && ps.cashByClass[cat]!=null){
-        state.settings.cashByClass=state.settings.cashByClass||{};
-        state.settings.cashByClass[cat]=ps.cashByClass[cat];
-      }
       if(ps.classTargets && ps.classTargets[cat]!=null){
         state.settings.classTargets=state.settings.classTargets||{};
         state.settings.classTargets[cat]=ps.classTargets[cat];
       }
     });
+    // 예수금은 계좌별(cashByAccount)로 전환됨 — 자산군 단위 부분 복원 대상 아님(전체 복원 사용)
     pendingImport=null;
     normalizeState(); lastFailed=new Set();
     await saveState(); closeModal();

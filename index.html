@@ -206,11 +206,11 @@ input,select,textarea{font-family:inherit;color:inherit}
 .rbx-l1{display:flex;align-items:baseline;gap:6px;min-width:0}
 .rbx-tk{font-size:14px;font-weight:600;letter-spacing:-0.01em;flex-shrink:0}
 .rbx-nm{font-size:11px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-.rbx-wt{font-size:11px;color:var(--text-2);margin-top:3px;font-variant-numeric:tabular-nums}
-.rbx-right{text-align:right;flex-shrink:0}
-.rbx-qty{font-size:14.5px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-0.01em}
+.rbx-wt{font-size:11px;color:var(--text-2);margin-top:3px;font-variant-numeric:tabular-nums;word-break:keep-all;overflow-wrap:break-word}
+.rbx-right{text-align:right;flex-shrink:0;max-width:56%;word-break:keep-all}
+.rbx-qty{font-size:14.5px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-0.01em;word-break:keep-all}
 .rbx-qty.muted{color:var(--text-3)}
-.rbx-sub{font-size:10.5px;color:var(--text-3);margin-top:2px;font-variant-numeric:tabular-nums}
+.rbx-sub{font-size:10.5px;color:var(--text-3);margin-top:2px;font-variant-numeric:tabular-nums;word-break:keep-all}
 
 .txn{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--hairline)}
 .txn:last-child{border-bottom:none}
@@ -1055,7 +1055,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.23';
+const APP_VER = 'v2.10.24';
 const APP_BUILD = '2026-07-01';
 
 const SEED = {

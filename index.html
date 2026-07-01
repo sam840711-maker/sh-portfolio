@@ -1055,7 +1055,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.14';
+const APP_VER = 'v2.10.15';
 const APP_BUILD = '2026-07-01';
 
 const SEED = {
@@ -5476,13 +5476,19 @@ function computeUnifiedPlan(s){
           unit:rr.h.cat==='crypto'?'개':'주'});
         return;
       }
-      // 윈너라이딩 — 상승 가속 국면에선 비레버리지 초과(매도)를 ⅓만 트림(나머지 태움). 트랙: 크립토/트레저리=BTC·ETH, 주식=나스닥, 금=제외
+      // 윈너라이딩 / 청산 분할 — 상승 가속 국면의 비레버 초과(매도) 처리
       if(!lev && rr.adjustShares<0 && wrAllowed(rr.h)){
-        const trimSh=Math.round(rr.adjustShares/3);
-        // 최종 목적지 0%면 '윈너'가 아니라 청산 대상 — 라벨 구분(분할 매도 동작은 동일)
+        // 최종 목적지 0%면 '윈너'가 아니라 청산 대상 — 단계가 이미 분산하므로 단계 목표까지 전량 매도(⅓ 분할 제거)
         const exiting = (rr.h.targetWt||0) <= 0.0001 || finalClassTarget(rr.h.cat) <= 0.0001;
-        if(trimSh<0){ rows.push({sym:rr.h.symbol,cat:rr.h.cat,sh:trimSh,val:rr.adjustVal/3,reason:exiting?'청산 ⅓ 분할(가속 중 천천히)':'윈너라이딩 ⅓ 트림',unit:rr.h.cat==='crypto'?'개':'주'}); }
-        else { holds.push({sym:rr.h.symbol,reason:exiting?'청산 분할 — 이번 차례 보류':'윈너라이딩 — 익절 보류(추세 지속)'}); }
+        if(exiting){
+          rows.push({sym:rr.h.symbol,cat:rr.h.cat,sh:rr.adjustShares,val:rr.adjustVal,
+            reason:'청산 — 단계 목표까지 매도',unit:rr.h.cat==='crypto'?'개':'주'});
+        } else {
+          // 윈너라이딩 — 승자(목표>0)는 초과분 ⅓만 트림(나머지 태움)
+          const trimSh=Math.round(rr.adjustShares/3);
+          if(trimSh<0){ rows.push({sym:rr.h.symbol,cat:rr.h.cat,sh:trimSh,val:rr.adjustVal/3,reason:'윈너라이딩 ⅓ 트림',unit:rr.h.cat==='crypto'?'개':'주'}); }
+          else { holds.push({sym:rr.h.symbol,reason:'윈너라이딩 — 익절 보류(추세 지속)'}); }
+        }
         return;
       }
       rows.push({sym:rr.h.symbol,cat:rr.h.cat,sh:rr.adjustShares,

@@ -40,6 +40,7 @@ input,select,textarea{font-family:inherit;color:inherit}
 .topbar h1{font-size:13px;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:var(--gold)}
 .topbar-brand{display:flex;flex-direction:column;gap:3px;min-width:0}
 .topbar-date{font-size:11px;color:var(--text-2);font-weight:500;letter-spacing:0.01em;font-variant-numeric:tabular-nums}
+.topbar-ver{font-size:9px;color:var(--text-3);letter-spacing:0.02em;font-variant-numeric:tabular-nums;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .topbar-right{display:flex;align-items:center;gap:6px}
 .icon-btn{display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:9px;color:var(--text-2);transition:all .15s}
 .icon-btn:hover,.icon-btn:active{background:var(--surface);color:var(--gold)}
@@ -418,6 +419,7 @@ input,select,textarea{font-family:inherit;color:inherit}
     <div class="topbar-brand">
       <h1>SH Portfolio</h1>
       <div class="topbar-date" id="topbar-date">—</div>
+      <div class="topbar-ver" id="app-ver-top">—</div>
     </div>
     <div class="topbar-right">
       <button class="icon-btn" id="quotes-btn" title="보유 종목 시세" aria-label="보유 종목 시세">
@@ -1038,7 +1040,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.9d';
+const APP_VER = 'v2.10.10';
 const APP_BUILD = '2026-07-01';
 
 const SEED = {
@@ -5047,28 +5049,7 @@ function renderCashGuide(s, plan){
       <div style="font-size:9.5px;color:var(--text-3);line-height:1.5">키움 잔액 ₩${fmtKRW(K.val)} (글로벌ETF ₩${fmtKRW(K.gef)} · BMNU·MST3 ₩${fmtKRW(K.lev)}) → 0이 되면 KB 단독 통합 완료</div>
     </div>`;
   }
-  // [DEBUG 임시] levHeld 진단 — 확인 후 제거
-  let _dbg='';
-  try{
-    const _cashPct=effectiveCashPct(s);
-    const _basis=s.totalWithCash*(1-_cashPct);
-    const _levHeld=levHeldKRW(s);
-    const _nlBudget=Math.max(0,_basis-_levHeld);
-    const _L=state.settings.levLiq;
-    const _remainKeys=_L&&_L.remain?Object.keys(_L.remain):[];
-    const _levSyms=state.holdings.filter(h=>isLevCat(h.cat)).map(h=>h.id).slice(0,8);
-    const _matched=_levSyms.filter(id=>_remainKeys.includes(id)).length;
-    _dbg=`<div style="margin:0 0 10px;padding:9px 11px;background:#3a1a1a;border:1px solid #E5663D;border-radius:9px;font-size:10px;line-height:1.7;color:#ffdddd">
-      🔧 <b>진단(임시)</b><br>
-      NAV ₩${fmtKRW(s.totalWithCash)} · 현금% ${(_cashPct*100).toFixed(1)}% · basis ₩${fmtKRW(_basis)}<br>
-      <b style="color:#ffdd44">레버홀드 ₩${fmtKRW(_levHeld)}</b> ${_levHeld<10000?'⚠️ 0 — 차감 안됨!':'✓ 차감됨'}<br>
-      비레버예산 ₩${fmtKRW(_nlBudget)} · 비레버classTarget합 ${nonLevClassSum().toFixed(4)}<br>
-      levLiq active: ${!!(_L&&_L.active)} · remain 종목수: ${_remainKeys.length}<br>
-      레버보유 종목수: ${_levSyms.length} · remain과 매칭: ${_matched}<br>
-      순매수(플랜) ₩${fmtKRW(plan.net)} · 캡전 목표매수 ₩${fmtKRW(plan.buyTotalFull||0)}
-    </div>`;
-  }catch(e){ _dbg=`<div style="color:#f88;font-size:11px">진단 오류: ${esc(e.message)}</div>`; }
-  el.innerHTML=_dbg+`<div style="margin:0 0 12px;padding:11px 13px;background:var(--bg-2);border:1px solid var(--hairline);border-radius:11px">
+  el.innerHTML=`<div style="margin:0 0 12px;padding:11px 13px;background:var(--bg-2);border:1px solid var(--hairline);border-radius:11px">
     <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
       <span style="font-weight:800;font-size:13px">🏦 계좌별 매매</span>
       <span style="font-size:10px;color:var(--text-3)">KB·키움·업비트</span></div>
@@ -8444,7 +8425,7 @@ function renderCloudUI(){
     renderCloudUI();
   })();
   const _vtxt='SH Portfolio '+APP_VER+' · build '+APP_BUILD;
-  ['app-ver','app-ver-main'].forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent=_vtxt; });
+  ['app-ver','app-ver-main','app-ver-top'].forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent=_vtxt; });
   // 신규 설치 첫 실행 — 드라이브 복구 배너 (버튼 탭 → 팝업 차단 회피)
   try{
     if(!localStorage.getItem('sh_seen')){

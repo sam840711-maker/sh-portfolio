@@ -1055,7 +1055,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.21';
+const APP_VER = 'v2.10.22';
 const APP_BUILD = '2026-07-01';
 
 const SEED = {
@@ -3714,6 +3714,19 @@ function computeActionAlerts(s){
     Object.keys(CATEGORIES).forEach(cat=>{ if(defenseOn&&isLevCat(cat)) return; stockRebalance(cat,'portfolio',s).forEach(rr=>{ if((rr.h.qty||0)>0 && Math.abs((rr.curWtPort||0)-(rr.tgtWtPort||0))>=0.05) drift++; }); });
     if(drift>0) out.push({tag:'리밸런싱',sev:'info',why:`목표비중 ±5%p 이탈 ${drift}종목`,sub:'배분에서 수량 확인 후 매매 → 입력',act:'alloc'});
   }catch(_){}
+  // QLD 편입 리마인더 — 레버리지 청산 종료(2027-01-01, 12.31 마감 다음날) 후 QLD(나스닥100 2x) 편입 검토.
+  //  이미 QLD를 보유(qty>0)하거나 사용자가 끄면 자동 숨김. 신호·리마인더일 뿐 매수권유 아님(편입·비중은 본인 판단).
+  try{
+    const qldTs=new Date('2027-01-01T00:00:00+09:00').getTime();
+    const hasQLD=(state.holdings||[]).some(h=>String(h.symbol||'').toUpperCase().replace(/\.[A-Z]+$/,'')==='QLD' && (h.qty||0)>0);
+    const off=!!(state.settings && state.settings.qldReminderOff);
+    if(Date.now()>=qldTs && !hasQLD && !off){
+      out.push({tag:'QLD 편입',sev:'info',
+        why:'레버리지 청산 종료 — QLD(나스닥100 2x) 편입 검토 시점',
+        sub:'12.31 개별 레버리지(NVDL·TSLL 등) 청산이 끝났고 과세연도·비거주자 전환 이후야. 사전 계획대로 QLD(광의 나스닥100 2x)로 레버 재진입 여부를 검토할 시점 — 편입할지·비중은 본인 판단. QLD를 실제 편입하면 자동으로 사라지고, 탭하면 리마인더를 끌 수 있어. (신호일 뿐 강제 아님) ▸',
+        act:'qldRemind'});
+    }
+  }catch(_){}
   return out;
 }
 function acDispatch(act){
@@ -3721,6 +3734,13 @@ function acDispatch(act){
     if(act==='risk') openRiskPlan();
     else if(act==='resetPeak'){
       if(confirm('레버리지 정리가 끝났으면 고점(peak) 기준을 지금 포트로 리셋합니다.\n· 이후 낙폭·방어가 현재 포트 기준으로 현실화됩니다\n· 설정에서 되돌릴 수 있습니다\n계속할까요?')) window.resetPeakEpoch();
+    }
+    else if(act==='qldRemind'){
+      if(confirm('QLD 편입 리마인더를 끌까요?\n· 다시 표시되지 않습니다\n· QLD를 실제 편입하면 자동으로도 사라집니다')){
+        state.settings.qldReminderOff=true; try{ saveState(); }catch(_){}
+        try{ renderActionCenter(portfolioStats()); }catch(_){}
+        try{ toast('QLD 편입 리마인더 끔'); }catch(_){}
+      }
     }
     else switchView('allocation');
   }catch(_){ switchView('allocation'); }
@@ -3732,7 +3752,7 @@ function renderActionCenter(s){
   if(!acts.length){ el.style.display='none'; el.onclick=null; return; }
   const sev = acts.some(a=>a.sev==='crit')?'crit':(acts.some(a=>a.sev==='warn')?'warn':'');
   el.className='card action-center'+(sev?' '+sev:'');
-  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','크립토 브레이크':'#E5663D','크립토 하드캡':'#E5484D','peak 리셋':'#5AA0A6','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A'};
+  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','크립토 브레이크':'#E5663D','크립토 하드캡':'#E5484D','peak 리셋':'#5AA0A6','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A','QLD 편입':'#3B9EFF'};
   const rows=acts.map(a=>`<div class="ac-row" onclick="event.stopPropagation();acDispatch('${a.act}')" style="cursor:pointer">
     <span class="ac-tag" style="background:${tagColor[a.tag]||'#666'}22;color:${tagColor[a.tag]||'#aaa'}">${a.tag}</span>
     <span style="flex:1;min-width:0"><span style="font-size:11.5px;line-height:1.4;font-weight:600">${esc(a.why)}</span>${a.sub?`<br><span style="font-size:10px;color:var(--text-3);line-height:1.35">${esc(a.sub)}</span>`:''}</span>

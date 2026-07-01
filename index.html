@@ -1055,7 +1055,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.15';
+const APP_VER = 'v2.10.16';
 const APP_BUILD = '2026-07-01';
 
 const SEED = {
@@ -4005,8 +4005,11 @@ function renderAllocChart(s){
   try{ const _p=computeUnifiedPlan(s); [..._p.buys,..._p.sells].forEach(x=>{ planNet[x.cat]=(planNet[x.cat]||0)+x.val; }); }catch(_){}
   const items=[];
   for (const k in CATEGORIES){
-    if(s.totals[k].current>0 || classTarget(k)>0)
-      items.push({k,label:CATEGORIES[k].label,val:s.totals[k].current,color:CATEGORIES[k].color,target:classTarget(k)*(1-cashPct),plan:planNet[k]||0});  // 현금 차감 기준
+    const tgtVal=classTargetValKRW(k,s);   // 엔진과 동일 목표(레버 차감·비레버 정규화·levLiq) → 목표 합 100%
+    if(s.totals[k].current>0 || tgtVal>0 || classTarget(k)>0)
+      items.push({k,label:CATEGORIES[k].label,val:s.totals[k].current,color:CATEGORIES[k].color,
+        target:(total>0?tgtVal/total:0),plan:planNet[k]||0,
+        exiting:(finalClassTarget(k)<=0.0001 && s.totals[k].current>0)});   // 최종 목표 0 = 청산 자산군
   }
   items.sort((a,b)=>b.val-a.val);                  // 자산군만 평가액 내림차순
   // 현금 — 하나의 자산군처럼 목표(cashPct) 표시. 별도 대기자금 버킷 없음.
@@ -4041,8 +4044,9 @@ function renderAllocChart(s){
       ? `<span class="abar-tgt">목표 ${tgtPct.toFixed(2)}%</span>
          <span class="abar-dev ${devCls}">${dev>=0?'+':''}${dev.toFixed(2)}%p ${balanced?'균형':(dev>0?'초과':'부족')}</span>`
       : `<span class="abar-dev muted" style="margin-left:auto">목표 없음</span>`;
+    const exitBadge = it.exiting ? ` <span style="color:var(--text-3);font-weight:500">· 청산 중</span>` : '';
     const actionLine = hasTgt
-      ? `<div class="abar-action ${devCls}">${action}</div>`
+      ? `<div class="abar-action ${devCls}">${action}${exitBadge}</div>`
       : `<div class="abar-action muted">리밸런싱 가용 현금</div>`;
     return `<div class="abar-row">
       <div class="abar-head">
@@ -4932,6 +4936,18 @@ function levHeldKRW(s){
 /* 비레버 자산군 classTarget 합 — 비레버 예산 정규화용 */
 function nonLevClassSum(){
   return Object.keys(CATEGORIES).filter(k=>!isLevCat(k)).reduce((a,k)=>a+classTarget(k),0);
+}
+/* 자산군 목표 금액(KRW) — 리밸런싱 엔진(stockRebalance)과 완전히 동일한 기준.
+   비레버 = nonLevBudget × classTarget/nlSum (레버 홀드 차감 후 비레버끼리 정규화),
+   레버   = levLiq 잔량(글라이드 throttle) 합.
+   전체 자산군 합 = basis(총자산×(1−현금%))라 배분 막대의 목표 합이 정확히 100%가 됨(현금 포함).
+   → 배분 페이지·리밸런싱 페이지가 같은 소스를 봄(글로벌ETF 등 청산 자산군의 가짜 매수 표시 제거). */
+function classTargetValKRW(cat, s){
+  if(isLevCat(cat)) return stockRebalance(cat,'portfolio',s).reduce((a,x)=>a+(x.targetVal||0),0);
+  const basis=(s.totalWithCash||0)*(1-effectiveCashPct(s));
+  const nonLevBudget=Math.max(0, basis - levHeldKRW(s));
+  const nlSum=nonLevClassSum();
+  return nlSum>0 ? nonLevBudget*(classTarget(cat)/nlSum) : 0;
 }
 function stockRebalance(cat, mode, s){
   const fx=state.settings.fxRate;

@@ -1055,7 +1055,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.26';
+const APP_VER = 'v2.10.29';
 const APP_BUILD = '2026-07-01';
 
 const SEED = {
@@ -1505,7 +1505,8 @@ function classTarget(k){
 }
 // 점진 전환(글라이드 패스) — 현재 실제 비중에서 목표까지 N단계로 보간
 /* ── 레버리지 트레일링 회복 청산 ──
-   기간 종속 X. 직전 기준가 대비 +3% 신고가 경신 시에만 그 회복분 비례로 매도(오를수록 더·빠지면 보류),
+   기간 종속 X. 신고가 경신 시에만 그 회복분 비례로 매도(오를수록 더·빠지면 보류).
+   레버텍(NVDL 등): +3% 트리거·gain×3(10~50%). lev_crypto(BMNU·MST3): 상승참여 위해 완만 — +6% 트리거·gain×2(5~25%).
    2026-12-31(거주자 신분·과세연도 마감) 하드 마감일엔 잔량 전량 정리. */
 function levDeadlineTs(){ return new Date('2026-12-31T23:59:59+09:00').getTime(); }
 // 레버리지 정리 완료 판정 — 마감일 경과 + 레버리지 평가액이 NAV의 1% 미만(사실상 청산)
@@ -1551,9 +1552,14 @@ function updateLevLiq(){
     if(past){ L.remain[h.id]=0; return; }                 // 마감일 → 전량 정리
     const cur=(isUSDcat(h.cat)?h.curUSD:h.curKRW)||0;
     const ref=L.refPx[h.id]||cur;
-    if(cur>ref*1.03 && L.remain[h.id]>0){                 // +3% 신고가 경신 시에만 매도
+    // 자산군별 청산 강도 — lev_crypto(BMNU·MST3)는 상승 참여 위해 더 완만하게:
+    //   트리거 +5%(잔물결 무시·추세만), 매도 gain×2·하한 6%·상한 35%. lev_tech(NVDL 등)은 기존대로(+3%·×3·10~50%).
+    const isCry=(h.cat==='lev_crypto');
+    const thr=isCry?1.06:1.03;
+    if(cur>ref*thr && L.remain[h.id]>0){                 // 신고가 경신 시에만 매도
       const gain=cur/ref-1;
-      const frac=Math.min(0.5, Math.max(0.10, gain*3));   // 회복분 비례(+10%→30%, 상한 50%, 하한 10%)
+      const frac=isCry ? Math.min(0.25, Math.max(0.05, gain*2))   // BMNU·MST3 — 완만(+6% 트리거·5~25%)
+                       : Math.min(0.50, Math.max(0.10, gain*3));  // 레버텍 — 기존
       L.remain[h.id]=Math.max(0, L.remain[h.id]*(1-frac));
       L.refPx[h.id]=cur;                                  // 기준가 래칫 업(같은 구간 재매도 방지)
     }

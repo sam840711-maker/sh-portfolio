@@ -1055,7 +1055,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.25';
+const APP_VER = 'v2.10.26';
 const APP_BUILD = '2026-07-01';
 
 const SEED = {
@@ -6070,13 +6070,11 @@ function renderRealizedList(){
       const rows=rpnlYear(y).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(r=>{
         const cls=r.amount>=0?'up':'down';
         const mk=r.market==='overseas'?'해외':'국내';
-        const cat=CATEGORIES[r.account];
-        const acctLabel=cat?cat.label:(r.account||'기타');
-        const color=cat?cat.color:'#888';
+        const color=r.market==='overseas'?'#4A90E2':'#3DBE8B';
         const fxTxt=(r.market==='overseas'&&r.amountFx)?` · $${r.amountFx>=0?'+':'-'}${Math.abs(r.amountFx).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`:'';
         return `<div class="txn" onclick="openRpnlEntry('${y}','${r.id}')" style="cursor:pointer;padding:8px 0">
           <div class="txn-icon" style="background:${color}22;color:${color};font-size:10px">${mk}</div>
-          <div class="txn-info"><div class="txn-title" style="font-size:13px">${acctLabel} <span style="font-size:10px;color:var(--text-3);font-weight:400">${mk}</span></div><div class="txn-date">${r.date}${fxTxt}</div></div>
+          <div class="txn-info"><div class="txn-title" style="font-size:13px">${mk} 실현손익</div><div class="txn-date">${r.date}${fxTxt}</div></div>
           <div class="txn-amount num ${cls}">${r.amount>=0?'+':'-'}${fmtKRW(Math.abs(r.amount))}</div></div>`;
       }).join('');
       detail=`<div class="tax-line"><span>해외 실현손익</span><span class="num ${ov>=0?'up':'down'}">${ov>=0?'+':'-'}${fmtKRW(Math.abs(ov))}</span></div>
@@ -6102,20 +6100,13 @@ function openRpnlEntry(year,id){
   const rec=id?rpnlYear(y).find(r=>r.id===id):null;
   const date=rec?rec.date:today;
   const market=rec?rec.market:'';        // 무조건 직접 선택
-  const acct=rec?rec.account:'us_stock';
   const sign=rec?(rec.amount<0?'-':'+'):'+';
   const amount=rec?Math.abs(rec.amount):'';
   const amountFx=rec&&rec.amountFx?Math.abs(rec.amountFx):'';
   const delBtn=rec?`<button class="btn btn-danger btn-sm" onclick="deleteRpnl('${y}','${id}')">삭제</button>`:'';
-  const acctChips=Object.keys(CATEGORIES).map(k=>
-    `<button type="button" class="btn ${acct===k?'btn-primary':'btn-secondary'} btn-sm" style="flex:0 0 auto" onclick="rpnlSetAcct('${k}')" id="rpnl-acct-${k}">${CATEGORIES[k].label}</button>`).join('');
   openModal(`<h3>실현손익 ${rec?'수정':'기록'}</h3>
-    <div class="modal-sub">매도로 확정한 손익을 계좌별로 기록하세요. 증권사 「실현손익합계」를 그대로 입력 — 해외는 원화·외화 둘 다, 국내는 원화만.</div>
+    <div class="modal-sub">매도로 확정한 손익을 시장(해외/국내)별로 기록하세요. 증권사 「실현손익합계」를 그대로 입력 — 해외는 원화·외화 둘 다, 국내는 원화만.</div>
     <div class="field"><label>날짜</label><input id="rpnl-date" type="date" value="${date}"></div>
-    <div class="field"><label>계좌 (자산군)</label>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:5px">${acctChips}</div>
-      <input type="hidden" id="rpnl-acct" value="${acct}">
-    </div>
     <div class="field"><label>시장 (과세 구분) — 직접 선택</label>
       <div style="display:flex;gap:8px;margin-top:4px">
         <button type="button" class="btn ${market==='overseas'?'btn-primary':'btn-secondary'}" style="flex:1" onclick="rpnlSetMkt('overseas')" id="rpnl-mkt-ov">해외</button>
@@ -6143,13 +6134,6 @@ function rpnlSetSign(s){
   document.getElementById('rpnl-sign-p').className='btn '+(s==='+'?'btn-primary':'btn-secondary');
   document.getElementById('rpnl-sign-m').className='btn '+(s==='-'?'btn-primary':'btn-secondary');
 }
-function rpnlSetAcct(k){
-  document.getElementById('rpnl-acct').value=k;
-  Object.keys(CATEGORIES).forEach(c=>{
-    const b=document.getElementById('rpnl-acct-'+c);
-    if(b) b.className='btn '+(c===k?'btn-primary':'btn-secondary')+' btn-sm';
-  });
-}
 function rpnlSetMkt(mk){
   document.getElementById('rpnl-mkt').value=mk;
   document.getElementById('rpnl-mkt-ov').className='btn '+(mk==='overseas'?'btn-primary':'btn-secondary');
@@ -6159,7 +6143,6 @@ function rpnlSetMkt(mk){
 async function saveRpnl(origYear,id){
   const date=document.getElementById('rpnl-date').value||new Date().toISOString().slice(0,10);
   const market=document.getElementById('rpnl-mkt').value||'';
-  const account=document.getElementById('rpnl-acct').value||'us_stock';
   const sgn=(document.getElementById('rpnl-sign').value==='-')?-1:1;
   const amount=sgn*Math.round(Math.abs(parseFloat(document.getElementById('rpnl-amt').value)||0));
   const amountFx=(market==='overseas')?(sgn*Math.abs(parseFloat(document.getElementById('rpnl-amtfx').value)||0)):0;
@@ -6169,7 +6152,7 @@ async function saveRpnl(origYear,id){
   if(!state.realizedPnl) state.realizedPnl={};
   if(id){ for(const yy in state.realizedPnl) state.realizedPnl[yy]=state.realizedPnl[yy].filter(r=>r.id!==id); }
   if(!state.realizedPnl[y]) state.realizedPnl[y]=[];
-  state.realizedPnl[y].push({id:id||('rp'+Date.now()), date, account, market, amount, amountFx:amountFx||null});
+  state.realizedPnl[y].push({id:id||('rp'+Date.now()), date, market, amount, amountFx:amountFx||null});
   for(const yy in state.realizedPnl){ if(!state.realizedPnl[yy].length) delete state.realizedPnl[yy]; }
   await saveState(); closeModal(); toast('실현손익 저장됨'); switchView('transactions');
 }
@@ -6180,7 +6163,7 @@ async function deleteRpnl(year,id){
   }
   await saveState(); closeModal(); toast('기록 삭제됨'); switchView('transactions');
 }
-window.openRpnlEntry=openRpnlEntry; window.rpnlSetMkt=rpnlSetMkt; window.rpnlSetAcct=rpnlSetAcct; window.rpnlSetSign=rpnlSetSign;
+window.openRpnlEntry=openRpnlEntry; window.rpnlSetMkt=rpnlSetMkt; window.rpnlSetSign=rpnlSetSign;
 window.saveRpnl=saveRpnl; window.deleteRpnl=deleteRpnl;
 
 

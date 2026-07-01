@@ -1055,7 +1055,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.22';
+const APP_VER = 'v2.10.23';
 const APP_BUILD = '2026-07-01';
 
 const SEED = {
@@ -5230,9 +5230,13 @@ function renderStockRebalance(){
     const tk=h.symbol.replace('.KS','').replace('.L','');
     const qtyAfter=h.qty+(heldReason?0:sh);
     const qtyTxt = heldReason ? '보류' : (hold ? (isExiting?'청산 중':'균형') : `${buy?'+':'−'}${fmtQ(sh)}${unit} ${buy?'매수':'매도'}`);
+    // 예상 체결 단가 — 현재 시세 기준(실제 체결가는 다를 수 있음). 미국=USD, 국장·코인=KRW
+    const _isUSDpx=isUSDcat(h.cat);
+    const _px=_isUSDpx?(h.curUSD||0):(h.curKRW||0);
+    const pxTxt=(_px>0)?(_isUSDpx?('@'+fmtUSD(_px)):('@₩'+fmtKRW(_px))):'';
     const subTxt = heldReason ? esc(heldReason)
       : hold ? (isExiting ? `최종 0% · 청산 중 · 이후 ${fmtQ(qtyAfter)}${unit}` : `이후 ${fmtQ(qtyAfter)}${unit}`)
-      : `₩${fmtKRW(Math.abs(val))} · 이후 ${fmtQ(qtyAfter)}${unit}`;
+      : `${pxTxt?pxTxt+' · ':''}₩${fmtKRW(Math.abs(val))} · 이후 ${fmtQ(qtyAfter)}${unit}`;
     const isConv = !!(reasonTxt && reasonTxt.includes('전환'));
     const isDefCut = useUni && isLevCat(h.cat) && sh<0 && reasonTxt && /켈리|축소|방어|플로어|추세/.test(reasonTxt);
     const wtLine = (isConv && (r.tgtWtPort||0) < 0.001)

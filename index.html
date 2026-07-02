@@ -1057,7 +1057,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.41';
+const APP_VER = 'v2.10.42';
 const APP_BUILD = '2026-07-02';
 
 const SEED = {
@@ -4727,6 +4727,14 @@ function holdingRowHTML(h, moveInfo){
         <span class="hd-ret ${cls}">${fmtPctSigned(pct)}</span>
         ${dayHtml}
       </div>
+      ${(function(){
+        const isUSD=isUSDcat(h.cat);
+        if(isUSD && (h.curUSD||0)>0){ const ev='$'+Math.round(h.curUSD*h.qty).toLocaleString('en-US');
+          return `<div style="font-size:10px;color:var(--text-3);margin-top:2px;font-variant-numeric:tabular-nums">${ev} <span style="color:var(--text-3)">· 적용가 ${fmtUSD(h.curUSD)}</span></div>`; }
+        if(!isUSD && (h.curKRW||0)>0){
+          return `<div style="font-size:10px;color:var(--text-3);margin-top:2px;font-variant-numeric:tabular-nums">적용가 ₩${fmtKRW(h.curKRW)}</div>`; }
+        return '';
+      })()}
     </div>${moveHtml}</div>`;
 }
 /* 종합 내역 — 자산군별 매입·평가·수익률 (카테고리 필터와 무관, 전체 기준) */

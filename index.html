@@ -1055,7 +1055,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.32';
+const APP_VER = 'v2.10.34';
 const APP_BUILD = '2026-07-02';
 
 const SEED = {
@@ -5156,6 +5156,20 @@ function renderStockRebalance(){
     const g=state.settings.glide;
     if(!g||!g.active){ ge.innerHTML=''; return; }
     const pct=Math.round(Math.min(1,g.step/g.steps)*100);
+    // 이번 단계 매매 완료 판단 — '지금 당장 실행 가능한' 매매만 잔여로.
+    //   업비트(BTC·ETH) 매수는 원화 이체(T+2) 후 가능 → 즉시 실행 불가라 잔여에서 제외하고 '이체분 별도'로 표시.
+    let _residPct=0,_residKRW=0,_upPendKRW=0;
+    try{ const _gs=portfolioStats(); const _gp=computeUnifiedPlan(_gs);
+      [..._gp.buys,..._gp.sells].forEach(x=>{
+        const v=Math.abs(x.val||0);
+        if((x.val||0)>0 && accountOfCat(x.cat)==='upbit') _upPendKRW+=v;   // 이체대기 매수 — 완료 판단서 제외
+        else _residKRW+=v;                                                 // 증거금 계좌 매매 = 당장 실행 가능
+      });
+      _residPct=(_gs.totalWithCash>0)?(_residKRW/_gs.totalWithCash*100):0;
+    }catch(_){}
+    const _done=_residPct<=1.0;
+    const _upNote=_upPendKRW>10000?` · 크립토 이체분 ₩${fmtKRW(_upPendKRW)} 별도`:'';
+    const _doneBadge=`<div style="font-size:11px;font-weight:700;border-radius:7px;padding:7px 10px;margin-bottom:8px;background:${_done?'rgba(30,158,90,0.14)':'rgba(90,107,122,0.12)'};color:${_done?'#1E9E5A':'var(--text-2)'}">${_done?`✅ 이번 단계 매매 완료 · 잔여 ₩${fmtKRW(_residKRW)} (${_residPct.toFixed(1)}% · 노이즈만)${_upNote}`:`⏳ 매매 진행 중 · 잔여 ₩${fmtKRW(_residKRW)} (총자산 ${_residPct.toFixed(1)}%)${_upNote}`}</div>`;
     const cryptoNow=(classTarget('crypto')*100).toFixed(0), cryptoTo=((g.to.crypto||0)*100).toFixed(0);
     const levcNow=(classTarget('lev_crypto')*100).toFixed(0);
     const defOn=(function(){ try{ const r=computeRiskStatus(portfolioStats()); return r&&r.level&&r.level!=='near'; }catch(_){return false;} })();
@@ -5175,6 +5189,7 @@ function renderStockRebalance(){
         <span style="font-weight:800;font-size:13px;color:#1E9E5A">⏩ 공격 다이얼 점진 전환</span>
         <span style="font-size:12px;font-weight:700;color:var(--text-2)">${g.step} / ${g.steps} 단계</span></div>
       <div style="height:6px;background:var(--bg-2);border-radius:3px;overflow:hidden;margin-bottom:8px"><div style="height:100%;width:${pct}%;background:#1E9E5A;border-radius:3px"></div></div>
+      ${_doneBadge}
       <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:5px">지금 할 일 — <span style="color:#1E9E5A">아래 종목 카드대로 매매 후 입력</span></div>
       <div style="font-size:10.5px;color:var(--text-3);line-height:1.55;margin-bottom:8px">
         ${g.step}/${g.steps}단계 · 크립토 ${cryptoNow}%→<b style="color:#1E9E5A">${cryptoTo}%</b> · 글로벌ETF <b style="color:#3B9EFF">2배속(5단계 청산)</b> · 레버리지 회복연동 청산(신고가 경신 시 매도·빠지면 보류, 마감 ${(()=>{const d=Math.ceil((levDeadlineTs()-Date.now())/86400000);return d>0?'D-'+d:'마감';})()}) · 현금 ${(glideCashPct()*100).toFixed(0)}%

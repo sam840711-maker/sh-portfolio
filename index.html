@@ -1055,7 +1055,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.31';
+const APP_VER = 'v2.10.32';
 const APP_BUILD = '2026-07-02';
 
 const SEED = {
@@ -1195,21 +1195,6 @@ function normalizeState(){
   }
   // 마감일이 과거(데이터 오래됨)거나 누락 시 보정
   if(state.settings.levLiq && !state.settings.levLiq.deadline) state.settings.levLiq.deadline=levDeadlineTs();
-  // [1회 마이그레이션] lev_crypto(BMNU·MST3) 청산 remain 리셋 — 손실게이트(v2.10.30) 소급 적용.
-  //   옛 로직으로 이미 깎인 remain(과잉 손실확정)을 현재 보유량 기준 1.0으로 되돌리고 기준가를 현재가로 재설정.
-  //   → 깊은손실 종목은 새 게이트(+10% 트리거)로 재계산되어 즉시 대량매도가 사라짐. 플래그로 정확히 1회만 실행(재실행·소급 없음).
-  if(state.settings.levLiq && !state.settings._levCryptoResetV1){
-    const L=state.settings.levLiq;
-    (state.holdings||[]).forEach(h=>{
-      if(h.cat==='lev_crypto' && L.remain[h.id]!=null){
-        L.origQty[h.id]=h.qty;                                   // 현재 보유량을 원(原)기준으로
-        L.remain[h.id]=1;                                        // 잔량 100% 복원
-        const px=(isUSDcat(h.cat)?h.curUSD:h.curKRW)||h.avgUSD||0;
-        if(px>0) L.refPx[h.id]=px;                               // 기준가=현재가(신고가 기준 재설정, px 없으면 기존 유지)
-      }
-    });
-    state.settings._levCryptoResetV1=true;
-  }
   pruneDefenseExempt();   // 이미 청산된(보유 0) 제외 종목 제거 — 6단계 청산 완료 후 재진입 시 방어 자동 부활
   if(!Array.isArray(state.riskLog)) state.riskLog=[];   // 하방 신호 전환 로그(영속)
   if(!state.riskState) state.riskState={};               // 직전 신호 상태(전환 감지용)

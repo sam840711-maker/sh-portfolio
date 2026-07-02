@@ -489,7 +489,8 @@ input,select,textarea{font-family:inherit;color:inherit}
         </div>
         <div class="hcard">
           <div class="hcard-title">현금 · 세금</div>
-          <div class="hcard-row"><span>예수금</span><span class="num" id="hero-cash">—</span></div>
+          <div class="hcard-row"><span>현금</span><span class="num" id="hero-cash">—</span></div>
+          <div style="font-size:9.5px;color:var(--text-3);margin:-3px 0 4px;text-align:right" id="hero-cash-sub"></div>
           <div class="hcard-row"><span>누적 이자·세금</span><span class="num" id="hero-itax">—</span></div>
         </div>
       </div>
@@ -1056,7 +1057,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.37';
+const APP_VER = 'v2.10.38';
 const APP_BUILD = '2026-07-02';
 
 const SEED = {
@@ -2678,7 +2679,9 @@ function renderDashboard(){
     `<span class="num ${sign}">${s.pnl>=0?'+':''}${fmtKRW(s.pnl)}</span> <span style="font-size:12px">평가손익</span>`;
 
   document.getElementById('hero-invested').textContent=fmtKRW(s.invested);
-  document.getElementById('hero-cash').textContent=fmtKRW(s.cash);
+  const _pend=Math.max(0,s.pendingSettle||0);
+  document.getElementById('hero-cash').textContent=fmtKRW(Math.max(0,s.cash||0)+_pend);
+  { const sub=document.getElementById('hero-cash-sub'); if(sub) sub.textContent=`예수금 ${fmtKRW(s.cash)} · 미정산 ${fmtKRW(_pend)}`; }
   document.getElementById('hero-deposits').textContent=fmtKRW(totalDeposits);
   const totalItax=itaxTotal();
   const itaxEl=document.getElementById('hero-itax');

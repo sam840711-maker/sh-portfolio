@@ -1057,7 +1057,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.40';
+const APP_VER = 'v2.10.41';
 const APP_BUILD = '2026-07-02';
 
 const SEED = {
@@ -1194,22 +1194,6 @@ function normalizeState(){
   if(state.settings.glide){
     if(!state.settings.glide.speed || typeof state.settings.glide.speed!=='object') state.settings.glide.speed={};
     if(state.settings.glide.speed.global_etf==null) state.settings.glide.speed.global_etf=2;
-  }
-  // [1회 마이그레이션] TSLL·PLTU(깊은 손실 lev_tech) 청산 remain 리셋 — lev_tech 손실게이트(v2.10.39) 소급 적용.
-  //   옛 로직(+3%·10~50%)으로 이미 깎인 remain을 현재 보유량 기준 1.0으로 되돌리고 기준가를 현재가로 재설정.
-  //   → 깊은손실 종목이 새 게이트(문턱↑·강도↓)로 재계산되어 즉시 대량매도가 사라짐. 플래그로 정확히 1회만.
-  if(state.settings.levLiq && !state.settings._levTechResetV1){
-    const L=state.settings.levLiq;
-    (state.holdings||[]).forEach(h=>{
-      const sym=String(h.symbol||'').toUpperCase().replace(/\.[A-Z]+$/,'');
-      if(h.cat==='lev_tech' && (sym==='TSLL'||sym==='PLTU') && L.remain[h.id]!=null){
-        L.origQty[h.id]=h.qty;                                   // 현재 보유량을 원(原)기준으로
-        L.remain[h.id]=1;                                        // 잔량 100% 복원
-        const px=(isUSDcat(h.cat)?h.curUSD:h.curKRW)||h.avgUSD||0;
-        if(px>0) L.refPx[h.id]=px;                               // 기준가=현재가(신고가 기준 재설정)
-      }
-    });
-    state.settings._levTechResetV1=true;
   }
   // 마감일이 과거(데이터 오래됨)거나 누락 시 보정
   if(state.settings.levLiq && !state.settings.levLiq.deadline) state.settings.levLiq.deadline=levDeadlineTs();

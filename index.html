@@ -1056,7 +1056,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.36';
+const APP_VER = 'v2.10.37';
 const APP_BUILD = '2026-07-02';
 
 const SEED = {
@@ -3744,6 +3744,20 @@ function computeActionAlerts(s){
         act:'qldRemind'});
     }
   }catch(_){}
+  // 구글 백업 지연 알림 — 자동백업 ON·연결됨인데 마지막 드라이브 백업이 3일 이상 밀림.
+  //   보통 구글 토큰 만료로 자동백업이 조용히 멈춘 상태(백그라운드는 재로그인 창을 못 띄움).
+  try{
+    const c=state.settings&&state.settings.cloud;
+    if(c && c.auto && (typeof gdriveLinked==='function'&&gdriveLinked()) && c.last){
+      const days=Math.floor((Date.now()-c.last)/86400000);
+      if(days>=3){
+        out.push({tag:'백업 지연',sev:days>=7?'warn':'info',
+          why:`구글 드라이브 자동백업 ${days}일째 멈춤 — 재로그인 필요할 수 있어요`,
+          sub:'자동백업은 구글 토큰이 만료되면 조용히 멈춰요(백그라운드는 재로그인 창을 못 띄웁니다). 설정 → 데이터 관리에서 "드라이브 백업"을 한 번 눌러 재로그인하면 다시 자동으로 돌아갑니다. 탭하면 설정으로 이동. ▸',
+          act:'backup'});
+      }
+    }
+  }catch(_){}
   return out;
 }
 function acDispatch(act){
@@ -3751,6 +3765,9 @@ function acDispatch(act){
     if(act==='risk') openRiskPlan();
     else if(act==='resetPeak'){
       if(confirm('레버리지 정리가 끝났으면 고점(peak) 기준을 지금 포트로 리셋합니다.\n· 이후 낙폭·방어가 현재 포트 기준으로 현실화됩니다\n· 설정에서 되돌릴 수 있습니다\n계속할까요?')) window.resetPeakEpoch();
+    }
+    else if(act==='backup'){
+      try{ document.querySelectorAll('.view').forEach(el=>el.classList.add('hidden')); document.getElementById('view-settings').classList.remove('hidden'); renderSettings(); }catch(_){ switchView('allocation'); }
     }
     else if(act==='qldRemind'){
       if(confirm('QLD 편입 리마인더를 끌까요?\n· 다시 표시되지 않습니다\n· QLD를 실제 편입하면 자동으로도 사라집니다')){
@@ -3775,7 +3792,7 @@ function renderActionCenter(s){
   if(!acts.length){ el.style.display='none'; el.onclick=null; return; }
   const sev = acts.some(a=>a.sev==='crit')?'crit':(acts.some(a=>a.sev==='warn')?'warn':'');
   el.className='card action-center'+(sev?' '+sev:'');
-  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','크립토 브레이크':'#E5663D','크립토 하드캡':'#E5484D','peak 리셋':'#5AA0A6','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A','QLD 편입':'#3B9EFF'};
+  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','크립토 브레이크':'#E5663D','크립토 하드캡':'#E5484D','peak 리셋':'#5AA0A6','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A','QLD 편입':'#3B9EFF','백업 지연':'#E8A23D'};
   window._acOpen = window._acOpen || new Set();   // 펼친 항목(태그 기준) — 메모리만, 앱 새로 열면 초기화(기본 접힘)
   const rows=acts.map(a=>{
     const open=window._acOpen.has(a.tag);

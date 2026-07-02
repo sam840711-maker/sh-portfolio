@@ -547,7 +547,9 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div class="seg trend-seg" id="idx-sym-seg" style="margin-bottom:10px">
         <button data-xsym="spx" class="active" onclick="setIdxSym('spx',this)">S&amp;P 500</button>
         <button data-xsym="ndx" onclick="setIdxSym('ndx',this)">나스닥 100</button>
+        <button data-xsym="vix" onclick="setIdxSym('vix',this)">VIX</button>
       </div>
+      <div id="idx-view">
       <div style="display:flex;align-items:baseline;gap:10px;margin:2px 0 4px">
         <span class="num" id="idx-val" style="font-size:26px;font-weight:700">—</span>
         <span class="num" id="idx-chg" style="font-size:13px;font-weight:600">—</span>
@@ -565,6 +567,26 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div class="chart-wrap" style="height:150px"><canvas id="chart-idx"></canvas></div>
       <div class="chart-note" id="idx-note"></div>
       <div style="font-size:10.5px;color:var(--text-3);margin-top:7px;line-height:1.5;text-align:center" id="idx-foot">풀가속 기준: 200일선 <b style="color:#1E9E5A">+3%</b> 초과 &amp; 12개월 모멘텀 <b style="color:#1E9E5A">+8%</b> 초과 · <span style="color:#E2C285">━ 200일 이평선</span><br>엔진은 S&amp;P500·나스닥100 중 <b>더 강한 쪽</b>으로 국면 판정</div>
+      </div><!-- /idx-view -->
+      <div id="vix-view" style="display:none">
+        <div style="display:flex;align-items:baseline;gap:10px;margin:2px 0 8px">
+          <span class="num" id="vix-val" style="font-size:26px;font-weight:700">—</span>
+          <span class="num" id="vix-chg" style="font-size:13px;font-weight:600">—</span>
+          <span class="ses-badge ses-closed" id="vix-ses" style="display:none"></span>
+          <span id="vix-zone" style="font-size:11px;margin-left:auto"></span>
+        </div>
+        <div class="seg trend-seg" id="vix-seg" style="margin-bottom:8px">
+          <button data-vr="1mo" onclick="setVixRange('1mo',this)">1M</button>
+          <button data-vr="3mo" class="active" onclick="setVixRange('3mo',this)">3M</button>
+          <button data-vr="6mo" onclick="setVixRange('6mo',this)">6M</button>
+          <button data-vr="1y" onclick="setVixRange('1y',this)">1Y</button>
+          <button data-vr="5y" onclick="setVixRange('5y',this)">5Y</button>
+          <button data-vr="max" onclick="setVixRange('max',this)">전체</button>
+        </div>
+        <div class="chart-wrap" style="height:150px"><canvas id="chart-vix"></canvas></div>
+        <div class="chart-note" id="vix-note"></div>
+        <div style="font-size:10.5px;color:var(--text-3);margin-top:7px;text-align:center">S&amp;P500 옵션 내재변동성 — 20 미만 안정 · 20~30 경계 · 30 이상 공포 (본장에만 산출)</div>
+      </div>
     </div>
 
     <div class="card">
@@ -589,27 +611,6 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div class="chart-wrap" style="height:150px"><canvas id="chart-fx"></canvas></div>
       <div class="chart-note" id="fx-note"></div>
       <div style="font-size:10.5px;color:var(--text-3);margin-top:7px;text-align:center" id="fx-foot">DXY · 주요 6개 통화 대비 달러 가치 — 상승 시 달러 강세</div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">VIX 변동성 지수</div>
-      <div style="display:flex;align-items:baseline;gap:10px;margin:2px 0 8px">
-        <span class="num" id="vix-val" style="font-size:26px;font-weight:700">—</span>
-        <span class="num" id="vix-chg" style="font-size:13px;font-weight:600">—</span>
-        <span class="ses-badge ses-closed" id="vix-ses" style="display:none"></span>
-        <span id="vix-zone" style="font-size:11px;margin-left:auto"></span>
-      </div>
-      <div class="seg trend-seg" id="vix-seg" style="margin-bottom:8px">
-        <button data-vr="1mo" onclick="setVixRange('1mo',this)">1M</button>
-        <button data-vr="3mo" class="active" onclick="setVixRange('3mo',this)">3M</button>
-        <button data-vr="6mo" onclick="setVixRange('6mo',this)">6M</button>
-        <button data-vr="1y" onclick="setVixRange('1y',this)">1Y</button>
-        <button data-vr="5y" onclick="setVixRange('5y',this)">5Y</button>
-        <button data-vr="max" onclick="setVixRange('max',this)">전체</button>
-      </div>
-      <div class="chart-wrap" style="height:150px"><canvas id="chart-vix"></canvas></div>
-      <div class="chart-note" id="vix-note"></div>
-      <div style="font-size:10.5px;color:var(--text-3);margin-top:7px;text-align:center">S&P500 옵션 내재변동성 — 20 미만 안정 · 20~30 경계 · 30 이상 공포 (본장에만 산출)</div>
     </div>
 
     <div class="card">
@@ -1055,7 +1056,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.34';
+const APP_VER = 'v2.10.36';
 const APP_BUILD = '2026-07-02';
 
 const SEED = {
@@ -2428,7 +2429,11 @@ const IDX_SYMS={
   ndx:{ yahoo:'^NDX',  title:'나스닥 100 (^NDX)', color:'#9B7EDE', rgb:'155,126,222' }
 };
 let idxSym='spx'; let idxRange='3mo'; let chartIdx=null; let _idxCache={};
-function setIdxSym(s,btn){ idxSym=s; document.querySelectorAll('#idx-sym-seg button').forEach(b=>b.classList.toggle('active',b===btn)); const t=document.getElementById('idx-card-title'); if(t)t.textContent=IDX_SYMS[s].title; renderIdx(); }
+function setIdxSym(s,btn){ idxSym=s; document.querySelectorAll('#idx-sym-seg button').forEach(b=>b.classList.toggle('active',b===btn));
+  const t=document.getElementById('idx-card-title'); const iv=document.getElementById('idx-view'), vv=document.getElementById('vix-view');
+  if(s==='vix'){ if(t)t.textContent='VIX 변동성 지수'; if(iv)iv.style.display='none'; if(vv)vv.style.display='block'; try{ renderVix(); }catch(_){} }
+  else { if(t)t.textContent=IDX_SYMS[s].title; if(iv)iv.style.display='block'; if(vv)vv.style.display='none'; renderIdx(); }
+}
 function setIdxRange(r,btn){ idxRange=r; document.querySelectorAll('#idx-seg button').forEach(b=>b.classList.toggle('active',b===btn)); renderIdx(); }
 window.setIdxSym=setIdxSym; window.setIdxRange=setIdxRange;
 async function renderIdx(){
@@ -3758,6 +3763,12 @@ function acDispatch(act){
   }catch(_){ switchView('allocation'); }
 }
 window.acDispatch=acDispatch;
+function acToggle(tag){
+  window._acOpen = window._acOpen || new Set();
+  if(window._acOpen.has(tag)) window._acOpen.delete(tag); else window._acOpen.add(tag);
+  try{ renderActionCenter(portfolioStats()); }catch(_){}
+}
+window.acToggle=acToggle;
 function renderActionCenter(s){
   const el=document.getElementById('action-center'); if(!el) return;
   const acts=computeActionAlerts(s);
@@ -3765,13 +3776,19 @@ function renderActionCenter(s){
   const sev = acts.some(a=>a.sev==='crit')?'crit':(acts.some(a=>a.sev==='warn')?'warn':'');
   el.className='card action-center'+(sev?' '+sev:'');
   const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','크립토 브레이크':'#E5663D','크립토 하드캡':'#E5484D','peak 리셋':'#5AA0A6','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A','QLD 편입':'#3B9EFF'};
-  const rows=acts.map(a=>`<div class="ac-row" onclick="event.stopPropagation();acDispatch('${a.act}')" style="cursor:pointer">
+  window._acOpen = window._acOpen || new Set();   // 펼친 항목(태그 기준) — 메모리만, 앱 새로 열면 초기화(기본 접힘)
+  const rows=acts.map(a=>{
+    const open=window._acOpen.has(a.tag);
+    const goLink=a.act?` <span onclick="event.stopPropagation();acDispatch('${a.act}')" style="color:var(--gold);font-weight:600">바로가기 ▸</span>`:'';
+    const tapAct=a.sub?`acToggle('${a.tag}')`:`acDispatch('${a.act}')`;   // 세부 있으면 펼치기, 없으면 바로 이동
+    return `<div class="ac-row" onclick="event.stopPropagation();${tapAct}" style="cursor:pointer">
     <span class="ac-tag" style="background:${tagColor[a.tag]||'#666'}22;color:${tagColor[a.tag]||'#aaa'}">${a.tag}</span>
-    <span style="flex:1;min-width:0"><span style="font-size:11.5px;line-height:1.4;font-weight:600">${esc(a.why)}</span>${a.sub?`<br><span style="font-size:10px;color:var(--text-3);line-height:1.35">${esc(a.sub)}</span>`:''}</span>
-    <span style="font-size:11px;color:var(--text-3);align-self:center">▸</span></div>`).join('');
+    <span style="flex:1;min-width:0"><span style="font-size:11.5px;line-height:1.4;font-weight:600">${esc(a.why)}</span>${(open&&a.sub)?`<br><span style="font-size:10px;color:var(--text-3);line-height:1.35">${esc(a.sub)}${goLink}</span>`:''}</span>
+    <span style="font-size:11px;color:var(--text-3);align-self:center">${a.sub?(open?'▾':'▸'):'▸'}</span></div>`;
+  }).join('');
   el.innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
       <span style="font-size:13px;font-weight:700">🔔 할 일 ${acts.length}건</span>
-      <span style="margin-left:auto;font-size:10px;color:var(--text-3)">각 항목 탭 ▸</span></div>
+      <span style="margin-left:auto;font-size:10px;color:var(--text-3)">탭해서 펼치기 ▾</span></div>
     ${rows}`;
   el.onclick=null;
   el.style.display='block';

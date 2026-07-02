@@ -1057,7 +1057,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.38';
+const APP_VER = 'v2.10.40';
 const APP_BUILD = '2026-07-02';
 
 const SEED = {
@@ -1194,6 +1194,22 @@ function normalizeState(){
   if(state.settings.glide){
     if(!state.settings.glide.speed || typeof state.settings.glide.speed!=='object') state.settings.glide.speed={};
     if(state.settings.glide.speed.global_etf==null) state.settings.glide.speed.global_etf=2;
+  }
+  // [1회 마이그레이션] TSLL·PLTU(깊은 손실 lev_tech) 청산 remain 리셋 — lev_tech 손실게이트(v2.10.39) 소급 적용.
+  //   옛 로직(+3%·10~50%)으로 이미 깎인 remain을 현재 보유량 기준 1.0으로 되돌리고 기준가를 현재가로 재설정.
+  //   → 깊은손실 종목이 새 게이트(문턱↑·강도↓)로 재계산되어 즉시 대량매도가 사라짐. 플래그로 정확히 1회만.
+  if(state.settings.levLiq && !state.settings._levTechResetV1){
+    const L=state.settings.levLiq;
+    (state.holdings||[]).forEach(h=>{
+      const sym=String(h.symbol||'').toUpperCase().replace(/\.[A-Z]+$/,'');
+      if(h.cat==='lev_tech' && (sym==='TSLL'||sym==='PLTU') && L.remain[h.id]!=null){
+        L.origQty[h.id]=h.qty;                                   // 현재 보유량을 원(原)기준으로
+        L.remain[h.id]=1;                                        // 잔량 100% 복원
+        const px=(isUSDcat(h.cat)?h.curUSD:h.curKRW)||h.avgUSD||0;
+        if(px>0) L.refPx[h.id]=px;                               // 기준가=현재가(신고가 기준 재설정)
+      }
+    });
+    state.settings._levTechResetV1=true;
   }
   // 마감일이 과거(데이터 오래됨)거나 누락 시 보정
   if(state.settings.levLiq && !state.settings.levLiq.deadline) state.settings.levLiq.deadline=levDeadlineTs();
@@ -1508,8 +1524,8 @@ function classTarget(k){
 // 점진 전환(글라이드 패스) — 현재 실제 비중에서 목표까지 N단계로 보간
 /* ── 레버리지 트레일링 회복 청산 ──
    기간 종속 X. 신고가 경신 시에만 그 회복분 비례로 매도(오를수록 더·빠지면 보류).
-   레버텍(NVDL 등): +3% 트리거·gain×3(10~50%). lev_crypto(BMNU·MST3): 상승참여+손실보호 —
-     본전권(>-20%) +6%·5~25% / 손실(-50~-20%) +8%·3~15% / 깊은손실(≤-50%) +10%·2~10%. 깊이 물릴수록 손실확정 최소화.
+   lev_crypto(BMNU·MST3, 3x): >-20% +6%·5~25% / -50~-20% +8%·3~15% / ≤-50% +10%·2~10%.
+   lev_tech(NVDL 등, 2x): >-20% +4%·8~30% / -50~-20% +6%·4~18% / ≤-50% +8%·3~12%. 깊이 물릴수록 손실확정 최소화·회복 시 정상청산.
    2026-12-31(거주자 신분·과세연도 마감) 하드 마감일엔 잔량 전량 정리. */
 function levDeadlineTs(){ return new Date('2026-12-31T23:59:59+09:00').getTime(); }
 // 레버리지 정리 완료 판정 — 마감일 경과 + 레버리지 평가액이 NAV의 1% 미만(사실상 청산)
@@ -1556,15 +1572,23 @@ function updateLevLiq(){
     const cur=(isUSDcat(h.cat)?h.curUSD:h.curKRW)||0;
     const ref=L.refPx[h.id]||cur;
     const isCry=(h.cat==='lev_crypto');
-    // lev_crypto(BMNU·MST3) 손실 게이트 — 깊이 물린 종목은 반등에도 손실 확정 최소화(트리거↑·강도↓),
-    //   회복돼 본전권 오면 정상 청산. 달러 평단 대비 수익률 3구간. lev_tech(NVDL 등)은 종전 유지.
+    const isLevT=(h.cat==='lev_tech');
+    // 손실 게이트 — 깊이 물릴수록 반등에도 손실 확정 최소화(트리거↑·강도↓), 회복돼 본전권 오면 정상 청산.
+    //   lev_crypto(3x·고변동): >-20% +6%·5~25% / -50~-20% +8%·3~15% / ≤-50% +10%·2~10%
+    //   lev_tech(2x): 변동성 낮아 문턱 살짝 낮게 — >-20% +4%·8~30% / -50~-20% +6%·4~18% / ≤-50% +8%·3~12%
     let thr, fmin, fmax, fmul;
-    if(isCry){
+    if(isCry || isLevT){
       const pnl=(h.avgUSD>0)?(cur/h.avgUSD-1):0;                          // 달러 기준 수익률
-      if(pnl<=-0.50){      thr=1.10; fmul=1.0; fmin=0.02; fmax=0.10; }    // 깊은 손실(≤-50%) — 거의 보류
-      else if(pnl<=-0.20){ thr=1.08; fmul=1.5; fmin=0.03; fmax=0.15; }    // 손실(-50~-20%) — 살살
-      else {               thr=1.06; fmul=2.0; fmin=0.05; fmax=0.25; }    // 본전권~수익(>-20%) — 정상
-    } else {               thr=1.03; fmul=3.0; fmin=0.10; fmax=0.50; }    // 레버텍 — 기존(+3%·10~50%)
+      if(isCry){
+        if(pnl<=-0.50){      thr=1.10; fmul=1.0; fmin=0.02; fmax=0.10; }
+        else if(pnl<=-0.20){ thr=1.08; fmul=1.5; fmin=0.03; fmax=0.15; }
+        else {               thr=1.06; fmul=2.0; fmin=0.05; fmax=0.25; }
+      } else { // lev_tech
+        if(pnl<=-0.50){      thr=1.08; fmul=1.5; fmin=0.03; fmax=0.12; }  // 깊은 손실(PLTU 등)
+        else if(pnl<=-0.20){ thr=1.06; fmul=2.0; fmin=0.04; fmax=0.18; }  // 손실(TSLL 등)
+        else {               thr=1.04; fmul=2.5; fmin=0.08; fmax=0.30; }  // 본전권~수익(NVDL·GGLL)
+      }
+    } else { thr=1.03; fmul=3.0; fmin=0.10; fmax=0.50; }                  // 그 외(예비) — 기존
     if(cur>ref*thr && L.remain[h.id]>0){                 // 신고가 경신 시에만 매도
       const gain=cur/ref-1;
       const frac=Math.min(fmax, Math.max(fmin, gain*fmul));

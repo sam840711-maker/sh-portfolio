@@ -1057,7 +1057,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.43';
+const APP_VER = 'v2.10.44';
 const APP_BUILD = '2026-07-04';
 
 const SEED = {
@@ -4144,7 +4144,7 @@ function renderAllocChart(s){
         <span class="abar-cur" style="color:${it.color}">${pct.toFixed(2)}%</span>
         ${statsRight}
       </div>
-      ${it.isCash?`<div style="font-size:10.5px;color:var(--text-3);margin:1px 0 4px;letter-spacing:-0.2px">예수금 ₩${fmtKRW(it.cashDep)} · 현금계정 ₩${fmtKRW(it.cashAcct)}${(it.cashPending>0)?` · <span style="color:#B7791F">미정산 ₩${fmtKRW(it.cashPending)}</span>`:''}</div>`:''}
+      ${it.isCash?`<div style="font-size:10.5px;color:var(--text-3);margin:1px 0 2px;letter-spacing:-0.2px">예수금 ₩${fmtKRW(it.cashDep)} · 현금계정 ₩${fmtKRW(it.cashAcct)}${(it.cashPending>0)?` · <span style="color:#B7791F">미정산 ₩${fmtKRW(it.cashPending)}</span>`:''}</div><div style="font-size:10px;color:var(--text-3);margin:0 0 4px;letter-spacing:-0.2px">원화 ₩${fmtKRW(cashSplit().krw)} · 달러 ${fmtUSD(cashSplit().usd)}</div>`:''}
       <div class="abar-track">
         <div class="abar-fill" style="width:${Math.min(pct,100)}%;background:${it.color}"></div>
         ${(hasTgt && dev>0.01)?`<div class="abar-over" style="left:${Math.min(tgtPct,100)}%;width:${Math.min(pct,100)-Math.min(tgtPct,100)}%"></div>`:''}

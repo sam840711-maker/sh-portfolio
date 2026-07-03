@@ -1057,8 +1057,8 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.42';
-const APP_BUILD = '2026-07-02';
+const APP_VER = 'v2.10.43';
+const APP_BUILD = '2026-07-04';
 
 const SEED = {
   settings: {
@@ -1694,6 +1694,15 @@ function categoryTotals(){
 function cashAccountKRW(){
   const ca=state.settings.cashAccount||{krw:0,usd:0};
   return (ca.krw||0) + (ca.usd||0)*(state.settings.fxRate||0);
+}
+/* 총 현금(예수금+현금계정+미정산)의 원화분·달러분 분리 집계 — 화면 표시용 */
+function cashSplit(){
+  const cb=state.settings.cashByAccount||{}, pb=state.settings.pendingByAccount||{}, ca=state.settings.cashAccount||{krw:0,usd:0};
+  let krw=0,usd=0;
+  for(const a in cb){ krw+=cb[a].krw||0; usd+=cb[a].usd||0; }
+  for(const a in pb){ krw+=pb[a].krw||0; usd+=pb[a].usd||0; }
+  krw+=ca.krw||0; usd+=ca.usd||0;
+  return {krw, usd};
 }
 /* 현금 계정에서 KRW 환산액만큼 차감 (KRW 먼저, 부족분 USD 환산) — 실제 차감된 KRW 반환 */
 function drawFromCashAccount(amtKRW){
@@ -2689,7 +2698,8 @@ function renderDashboard(){
   document.getElementById('hero-invested').textContent=fmtKRW(s.invested);
   const _pend=Math.max(0,s.pendingSettle||0);
   document.getElementById('hero-cash').textContent=fmtKRW(Math.max(0,s.cash||0)+_pend);
-  { const sub=document.getElementById('hero-cash-sub'); if(sub) sub.textContent=`예수금 ${fmtKRW(s.cash)} · 미정산 ${fmtKRW(_pend)}`; }
+  { const sub=document.getElementById('hero-cash-sub'); if(sub){ const cs=cashSplit();
+      sub.innerHTML=`예수금 ${fmtKRW(s.cash)} · 미정산 ${fmtKRW(_pend)}<br>원화 ₩${fmtKRW(cs.krw)} · 달러 ${fmtUSD(cs.usd)}`; } }
   document.getElementById('hero-deposits').textContent=fmtKRW(totalDeposits);
   const totalItax=itaxTotal();
   const itaxEl=document.getElementById('hero-itax');
@@ -6420,7 +6430,7 @@ function renderCashList(){
       <div class="txn-info"><div class="txn-title">미정산금 <span style="font-size:10.5px;color:var(--text-3);font-weight:400">T+2 정산대기</span></div><div class="txn-date">원화 ${fmtKRWFull(pKrw)} · 달러 ${fmtUSD(pUsd)} <span style="color:var(--text-3)">· 정산 시 예수금 이동</span></div></div>
       <div class="txn-amount num" style="color:#B7791F">${fmtKRW(pending)}</div></div>`:'')
     +`<div class="txn" style="border-top:2px solid var(--hairline);margin-top:2px">
-      <div class="txn-info"><div class="txn-title" style="font-weight:700">총 현금 합계</div><div class="txn-date">예수금 + 현금 계정${pending>0?' + 미정산금':''} · 배분 '현금'과 동일</div></div>
+      <div class="txn-info"><div class="txn-title" style="font-weight:700">총 현금 합계</div><div class="txn-date">원화 ₩${fmtKRWFull((function(){const c=cashSplit();return c.krw;})())} · 달러 ${fmtUSD((function(){const c=cashSplit();return c.usd;})())} <span style="color:var(--text-3)">· 배분 '현금'과 동일</span></div></div>
       <div class="txn-amount num" style="color:var(--gold);font-weight:700">${fmtKRW(grand)}</div></div>`;
 }
 /* 이자 · 세금 */

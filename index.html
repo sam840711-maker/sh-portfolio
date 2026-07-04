@@ -832,6 +832,15 @@ input,select,textarea{font-family:inherit;color:inherit}
     </div>
 
     <div class="card">
+      <div class="card-title">🧭 정착 포트 로드맵 <span style="font-size:10.5px;color:var(--text-3);font-weight:400">2026-07 확정 · B안(균형 성장)</span></div>
+      <div class="info-text" style="line-height:1.7"><b>정착 포트 (T1 도달 시):</b> BTC <b>30%</b> · ETH <b>10%</b> · 나스닥100 현물(QQQM) <b>25%</b> · <b style="color:var(--gold)">QLD 10%</b>(2x·조건부) · 프런티어 개별주 <b>5%</b> · 금 <b>10%</b> · 현금 <b>10%</b></div>
+      <div class="info-text" style="margin-top:8px;line-height:1.7"><b>T1 전환 조건 (셋 다 충족 시 재글라이드 5단계·2주 간격):</b><br>① 레버리지 청산 완료(12/31) · ② 비거주자 전환 확정 · ③ <b>세무사 클리어</b><br>크립토 재편 BTC:ETH = 75:25 (전환 시점 ETH/BTC 200일선 위 회복 시 ETH 12~15% 재량)</div>
+      <div class="info-text" style="margin-top:8px;line-height:1.7"><b>QLD 운용 규칙:</b> 나스닥100 <b>200일선 위에서만</b> 보유 · 이탈 2일 확인 → <b>QQQM 대피 전환</b>(현금화 아님) · 회복 시 복귀 · ½켈리 상한 · levLiq·마감 면제</div>
+      <div class="info-text" style="margin-top:8px;line-height:1.7"><b>골인 래더 연동:</b> 10억→인덱스(QQQM+QLD 합산) 30% · 15억→50%+<b>QLD 축소 시작</b> · 20억→70%·<b>QLD 0</b>·S&P 혼합 · 27억→인덱스+현금(게임 종료)<br><span style="color:var(--text-3)">원칙: 공격 상향(QLD 도입)은 조건 3개 필요, 하향(래더)은 NAV 하나로 자동 — 비대칭이 의도. 유포리아에서 재협상 금지.</span></div>
+      <div class="info-text" style="margin-top:8px;font-size:10.5px;color:var(--text-3)">※ 실무 확인(T1 전 세무사 안건): 비거주자의 업비트 현물 유지 가능 여부(불가 시 BTC→IBIT 등 ETF로 대체) · 전환 매매 과세 타이밍</div>
+    </div>
+
+    <div class="card">
       <div class="card-title">세금 인지 리밸런싱</div>
       <div class="info-text" id="taxaware-summary" style="margin-bottom:4px"></div>
     </div>
@@ -1055,7 +1064,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.47';
+const APP_VER = 'v2.10.50';
 const APP_BUILD = '2026-07-04';
 
 const SEED = {
@@ -3830,6 +3839,37 @@ function computeActionAlerts(s){
         act:''});
     }
   }catch(_){}
+  // [골인 래더] 마일스톤 도달 알림 — 이긴 만큼 인덱스로 잠그는 사전 약속(2026-07 확정 방향).
+  //   10억→나스닥100계열 30% / 15억→50% / 20억→70%(S&P 혼합·수비 전환) / 27억(10년 목표)→인덱스+현금 위주.
+  //   각 계단 1회 알림(확인 시 그 계단 끔). 구체 비중은 도달 시점에 재확정 가능 — 방향의 기록이 목적.
+  try{
+    const LADDER=[[1.0e9,'1단 — 인덱스(나스닥100 계열) 30% 전환 검토'],
+                  [1.5e9,'2단 — 인덱스 50%로'],
+                  [2.0e9,'3단 — 인덱스 70% · S&P 혼합 시작(수비 전환)'],
+                  [2.7e9,'골인 — 10년 목표 도달 · 인덱스+현금 위주, 게임 종료']];
+    const ack=state.settings._ladderAck||[];
+    const nav=(s&&s.totalWithCash)||0;
+    let hit=null;
+    for(const [th,txt] of LADDER){ if(nav>=th && !ack.includes(th)) hit=[th,txt]; }   // 도달한 최고 미확인 계단
+    if(hit){
+      out.push({tag:'골인 래더',sev:'warn',
+        why:`🏁 골인 래더 ${hit[1]} (NAV ₩${fmtKRW(hit[0])} 돌파)`,
+        sub:`2026-07에 냉정할 때 정해둔 사전 약속이에요: 이긴 만큼 인덱스로 잠급니다. 지금이 유포리아일수록 이 규칙이 필요한 순간 — 재협상하지 말고 전환 계획을 세우세요. 구체 비중은 검토 후 확정. 탭하면 이 계단 확인 처리 ▸`,
+        act:'ladder'});
+    }
+  }catch(_){}
+  // [T1 정착 전환] 반자동 — 앱이 감지 가능한 조건(①레버 청산 완료 + 2027년 진입) 충족 시 상시 알림.
+  //   ②비거주자 확정 ③세무사 클리어는 사람만 아는 사실 → 탭 후 체크리스트 확인을 거쳐 B안 재글라이드 자동 시작.
+  //   완전 자동을 일부러 막음: ③은 전환매매 세금사고 방지 관문. 확인 전까지 알림은 계속 유지(까먹기 방지).
+  try{
+    const nowK=new Date(Date.now()+9*3600*1000);
+    if(!state.settings._t1Done && nowK.getUTCFullYear()>=2027 && levLiquidationDone()){
+      out.push({tag:'정착 전환',sev:'warn',
+        why:'🧭 T1 도달 — 정착 포트(B안) 전환 점검',
+        sub:'①레버리지 청산 완료 확인됨. 남은 관문: ②비거주자 전환 확정 ③세무사 클리어. 둘 다 됐으면 탭 → 체크리스트 확인 → B안(BTC30·ETH10·QQQM25·QLD10·프런티어5·금10·현금10) 재글라이드 5단계·2주 간격이 자동 시작됩니다. 확인 전까지 이 알림은 계속 떠요 ▸',
+        act:'t1'});
+    }
+  }catch(_){}
   return out;
 }
 function acDispatch(act){
@@ -3837,6 +3877,26 @@ function acDispatch(act){
     if(act==='risk') openRiskPlan();
     else if(act==='resetPeak'){
       if(confirm('레버리지 정리가 끝났으면 고점(peak) 기준을 지금 포트로 리셋합니다.\n· 이후 낙폭·방어가 현재 포트 기준으로 현실화됩니다\n· 설정에서 되돌릴 수 있습니다\n계속할까요?')) window.resetPeakEpoch();
+    }
+    else if(act==='t1'){
+      if(confirm('T1 체크리스트\n\n② 비거주자 전환 확정됐나요?\n③ 세무사 클리어(전환매매 과세 타이밍) 받았나요?\n\n둘 다 YES면 [확인] — 정착 포트 B안 재글라이드(5단계·2주)를 시작합니다.\n아니면 [취소] — 알림은 유지됩니다.')){
+        const B={us_stock:0.055, us_etf:0.278, lev_tech:0.111, lev_crypto:0, global_etf:0, crypto:0.445, gold:0.111};
+        startGlide(B, 5, 0.10);
+        try{ if(state.settings.levLiq) state.settings.levLiq.active=false; }catch(_){}   // QLD는 levLiq·마감 면제 — 재가동 방지(startGlide 뒤에 꺼야 함)
+        state.settings._t1Done=true;
+        try{ saveState(); }catch(_){}
+        try{ renderActionCenter(portfolioStats()); switchView('allocation'); }catch(_){}
+        try{ toast('🧭 정착 포트 전환 시작 — 5단계·2주 간격 · QLD 세부 규칙은 편입 시 함께 점검'); }catch(_){}
+      }
+    }
+    else if(act==='ladder'){
+      const s2=portfolioStats(); const nav=(s2&&s2.totalWithCash)||0;
+      const L=[1.0e9,1.5e9,2.0e9,2.7e9]; const ack=state.settings._ladderAck||[];
+      let th=null; for(const t of L){ if(nav>=t && !ack.includes(t)) th=t; }
+      if(th && confirm('골인 래더 이 계단을 확인 처리할까요?\n· 이 계단 알림은 다시 뜨지 않습니다\n· 전환 실행은 배분/목표수정에서 직접')){
+        ack.push(th); state.settings._ladderAck=ack; try{ saveState(); }catch(_){}
+        try{ renderActionCenter(portfolioStats()); }catch(_){}
+      }
     }
     else if(act==='reweigh'){ state.settings._twAckTs=Date.now(); try{ saveState(); }catch(_){} openTargetProposal(); }
     else if(act==='cashman'){ try{ openCashEditor(); }catch(_){ switchView('quickentry'); } }
@@ -3870,7 +3930,7 @@ function renderActionCenter(s){
   if(!acts.length){ el.style.display='none'; el.onclick=null; return; }
   const sev = acts.some(a=>a.sev==='crit')?'crit':(acts.some(a=>a.sev==='warn')?'warn':'');
   el.className='card action-center'+(sev?' '+sev:'');
-  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','크립토 브레이크':'#E5663D','크립토 하드캡':'#E5484D','peak 리셋':'#5AA0A6','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A','QLD 편입':'#3B9EFF','백업 지연':'#E8A23D','목표 재검토':'#C44ED9','정산 확인':'#B7791F','세금 통산':'#3B9EFF','과세 구간':'#E8A23D'};
+  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','크립토 브레이크':'#E5663D','크립토 하드캡':'#E5484D','peak 리셋':'#5AA0A6','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A','QLD 편입':'#3B9EFF','백업 지연':'#E8A23D','목표 재검토':'#C44ED9','정산 확인':'#B7791F','세금 통산':'#3B9EFF','과세 구간':'#E8A23D','골인 래더':'#1E9E5A','정착 전환':'#C9A66B'};
   window._acOpen = window._acOpen || new Set();   // 펼친 항목(태그 기준) — 메모리만, 앱 새로 열면 초기화(기본 접힘)
   const rows=acts.map(a=>{
     const open=window._acOpen.has(a.tag);

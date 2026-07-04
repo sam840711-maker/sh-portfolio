@@ -838,8 +838,6 @@ input,select,textarea{font-family:inherit;color:inherit}
 
     <div class="card">
       <div class="card-title">데이터 관리</div>
-      <button class="btn btn-primary" style="width:100%;margin-bottom:8px" id="backup-btn">☁ 구글 드라이브에 백업</button>
-      <div id="backup-meta" style="font-size:11px;text-align:center;margin-bottom:14px"></div>
 
       <div style="border-top:1px solid var(--line);margin:2px 0 12px;padding-top:12px">
         <div style="font-size:12px;font-weight:600;margin-bottom:6px">구글 드라이브 자동 동기화</div>
@@ -1057,7 +1055,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.44';
+const APP_VER = 'v2.10.46';
 const APP_BUILD = '2026-07-04';
 
 const SEED = {
@@ -3996,7 +3994,14 @@ function openRiskEditor(){
 
     <div class="info-text" style="margin-bottom:6px;font-weight:700">③ 트레일링 백스톱 (고점 대비 낙폭 방어)</div>
     <div class="info-text" style="margin-bottom:6px">전고점 대비 이 % 이상 하락 시 <b>레버리지 절반</b>을 방어적으로 매도(현금 디리스크) 권장. 0 = 미사용</div>
-    <div class="field" style="margin-bottom:16px"><label>백스톱 −% (낙폭)</label><input id="rk-backstop" type="number" step="1" value="${rk.backstop!=null?(rk.backstop*100).toFixed(0):'0'}" style="${inSt}"></div>
+    <div class="field" style="margin-bottom:8px"><label>백스톱 −% (낙폭)</label><input id="rk-backstop" type="number" step="1" value="${rk.backstop!=null?(rk.backstop*100).toFixed(0):'0'}" style="${inSt}"></div>
+    <div style="margin-bottom:16px;padding:9px 11px;background:var(--bg-2);border-radius:8px">
+      <div style="font-size:12px;font-weight:700;margin-bottom:3px">고점(peak) 기준일</div>
+      <div style="font-size:11px;color:var(--text-2);line-height:1.5;margin-bottom:7px">${rk.peakEpoch?`<b style="color:var(--gold)">${rk.peakEpoch}</b> 이후 고점으로 낙폭·방어 계산 중 (MDD 기록은 전체 이력 유지)`:`전체 이력 고점(₩${fmtKRW(peakNavAll())}) 기준 — 청산 예정 레버 고점이 포함돼 낙폭이 과도하게 잡힐 수 있음`}</div>
+      ${rk.peakEpoch
+        ? `<button type="button" class="btn btn-secondary btn-sm" style="width:100%" onclick="if(confirm('peak 리셋을 해제하고 전체 이력 고점 기준으로 되돌릴까요?')){clearPeakEpoch();closeModal();}">리셋 해제 — 전체 이력 기준 복귀</button>`
+        : `<button type="button" class="btn btn-secondary btn-sm" style="width:100%" onclick="if(confirm('고점(peak) 기준을 오늘 이후로 리셋합니다.\\n· 낙폭·방어가 현재 포트 기준으로 현실화\\n· MDD 기록·그래프는 그대로 보존\\n· 언제든 되돌릴 수 있음\\n계속할까요?')){resetPeakEpoch();closeModal();}">오늘 기준으로 peak 리셋</button>`}
+    </div>
 
     <div class="info-text" style="margin-bottom:6px;font-weight:700">④ 절대 플로어 (불가침 하한)</div>
     <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px">
@@ -8415,7 +8420,7 @@ document.getElementById('export-btn').onclick=()=>{
 
 /* === 구글 드라이브 백업 (공유시트) + 리마인더 === */
 function backupFileName(){ return 'SH_Portfolio_'+new Date().toISOString().slice(0,10)+'.json'; }
-function renderBackupMeta(){
+function renderBackupMeta(){ return; // 금색 백업 버튼 제거로 메타 표시도 중단(자동 동기화 섹션이 대표)
   const el=document.getElementById('backup-meta');
   if(!el) return;
   const lb=state.settings&&state.settings.lastBackup;
@@ -8453,7 +8458,7 @@ async function backupToDrive(){
   await markBackup();
   toast('백업 파일이 다운로드됐어요 — 구글 드라이브 앱으로 옮겨주세요');
 }
-document.getElementById('backup-btn').onclick=backupToDrive;
+
 let pendingImport=null;
 let impMode='full';
 document.getElementById('import-btn').onclick=()=>document.getElementById('import-file').click();

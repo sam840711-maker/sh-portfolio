@@ -1064,7 +1064,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v52';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v53';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-04';
 
 const SEED = {
@@ -5695,7 +5695,26 @@ function renderStockRebalance(){
           <div style="font-size:9px;color:var(--text-3);margin-top:4px;line-height:1.5">매수 추천은 동원가능액(예수금+매도정산+미정산) 한도로 우선순위대로 캡 — 실행 가능${trimmed>10000?` · 보류 ₩${fmtKRW(trimmed)}는 다음 회차 이월 또는 입금 시 집행`:''}${ts>10000?` · 매도 ₩${fmtKRW(ts)}는 정산(T+2~3) 후 충당`:''}</div>
         </div>`;
       })()
-        : '<div style="font-size:10px;color:var(--text-3);margin-top:3px;line-height:1.5">매도 잔액 — 예수금으로 남아 다음 회차 재배분 (정수 주 반올림·현금화 포함)</div>'}
+        : (()=>{
+            const netSell=Math.round(ts-tb);   // 순매도 유입액
+            const cashPct=(typeof effectiveCashPct==='function')?effectiveCashPct(_s):(state.settings.reserveTargetPct||0);
+            const cashNow=Math.max(0,Math.round(_s.cash||0))+Math.max(0,Math.round(_s.pendingSettle||0));
+            const cashTarget=Math.round((_s.totalWithCash||0)*cashPct);
+            const shortfall=Math.max(0,cashTarget-cashNow);           // 현금 목표 부족분
+            const leftover=netSell-shortfall;                          // 부족분 채우고 남는 것
+            return `<div style="margin-top:6px;padding-top:6px;border-top:1px dotted var(--hairline)">
+              <div style="display:flex;justify-content:space-between;font-size:10.5px;padding:2px 0">
+                <span style="color:var(--text-2)">순매도 현금 유입</span>
+                <span style="color:var(--up);font-weight:600">₩${fmtKRW(netSell)}</span></div>
+              <div style="display:flex;justify-content:space-between;font-size:10.5px;padding:2px 0">
+                <span style="color:var(--text-2)">현금 목표 부족분 (${(cashPct*100).toFixed(0)}%)</span>
+                <span style="color:#B7791F;font-weight:600">${shortfall>0?'−₩'+fmtKRW(shortfall):'없음 (충족)'}</span></div>
+              <div style="display:flex;justify-content:space-between;font-size:11.5px;padding:4px 0 2px;margin-top:2px;border-top:1px solid var(--hairline);font-weight:700">
+                <span style="color:var(--text)">${leftover>=0?'목표 채우고 남는 현금':'현금 목표 미달'}</span>
+                <span class="${leftover>=0?'down':'up'}">${leftover>=0?'₩'+fmtKRW(leftover):'−₩'+fmtKRW(-leftover)}</span></div>
+              <div style="font-size:9px;color:var(--text-3);margin-top:4px;line-height:1.5">순매도액이 현금 목표 부족분을 메우고 ${leftover>=0?`남는 ₩${fmtKRW(leftover)}는 다음 회차 재배분 여유`:`부족분에 ₩${fmtKRW(-leftover)} 모자람 — 추가 매도 또는 다음 회차`} · 매도분은 정산(T+2) 후 예수금 확정</div>
+            </div>`;
+          })()}
     </div>
   </div>`;
 }

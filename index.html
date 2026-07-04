@@ -1055,7 +1055,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.46';
+const APP_VER = 'v2.10.47';
 const APP_BUILD = '2026-07-04';
 
 const SEED = {
@@ -1331,6 +1331,8 @@ function normalizeState(){
     if(old && typeof old==='object' && ((old.krw||0)>0||(old.usd||0)>0)){ state.settings.pendingByAccount.kb={krw:old.krw||0,usd:old.usd||0}; }
   }
   ACCOUNT_ORDER.forEach(a=>{ const p=state.settings.pendingByAccount[a]; state.settings.pendingByAccount[a]=(p&&typeof p==='object')?{krw:p.krw||0,usd:p.usd||0}:{krw:0,usd:0}; });
+  state.settings.pendingTs=state.settings.pendingTs||{};
+  ACCOUNT_ORDER.forEach(a=>{ const p=state.settings.pendingByAccount[a]; if(((p.krw||0)+(p.usd||0))>0 && !state.settings.pendingTs[a]) state.settings.pendingTs[a]=Date.now(); });
   delete state.settings.pendingSettle;
   if (state.settings.reserveCash==null) state.settings.reserveCash=0;
   if (state.settings.reserveTargetPct==null) state.settings.reserveTargetPct=0.05;   // 현금 목표 비중(NAV 대비)
@@ -3777,6 +3779,57 @@ function computeActionAlerts(s){
       }
     }
   }catch(_){}
+  // [A1] 목표 비중 재검토 권장 — 제안 엔진(변동성 신호)이 현재 목표와 ≥5%p 괴리 제안 시. 확인 후 30일 쿨다운.
+  try{
+    const tp=(typeof computeTargetProposal==='function')?computeTargetProposal():null;
+    if(tp && tp.active){
+      let maxDiff=0,worst='';
+      for(const k in tp.proposed){ const d=Math.abs((tp.proposed[k]||0)-(tp.current[k]||0)); if(d>maxDiff){maxDiff=d;worst=k;} }
+      const ack=state.settings._twAckTs||0;
+      if(maxDiff>=0.05 && (Date.now()-ack)>30*86400000){
+        const lb=(CATEGORIES[worst]&&CATEGORIES[worst].label)||worst;
+        out.push({tag:'목표 재검토',sev:'info',
+          why:`목표 비중 재검토 권장 — ${lb} ${((tp.current[worst]||0)*100).toFixed(0)}%↔제안 ${((tp.proposed[worst]||0)*100).toFixed(0)}%`,
+          sub:'변동성 신호가 크게 바뀌어 목표 비중 조정을 제안합니다. 제안값은 적용 전 직접 수정 가능 — 최종 결정은 항상 당신. 탭하면 재검토 화면 (확인하면 30일간 이 알림 쉼) ▸',
+          act:'reweigh'});
+      }
+    }
+  }catch(_){}
+  // [A2] 미정산 정산 확인 — 미정산 등록 후 3영업일↑ 경과했는데 아직 남아있음 (T+2~3 지남 → 증권사 확인 후 예수금 이동)
+  try{
+    const pb=state.settings.pendingByAccount||{}, pts=state.settings.pendingTs||{};
+    const fx=state.settings.fxRate||0;
+    function bizDays(from){ let n=0,d=new Date(from); const now=Date.now();
+      while(d.getTime()<now){ d.setDate(d.getDate()+1); const w=(new Date(d.getTime()+9*3600*1000)).getUTCDay(); if(w!==0&&w!==6) n++; if(n>30)break; } return n; }
+    const stale=[];
+    for(const a in pb){ const v=(pb[a].krw||0)+(pb[a].usd||0)*fx;
+      if(v>1000 && pts[a] && bizDays(pts[a])>=3) stale.push((typeof ACCOUNTS!=='undefined'&&ACCOUNTS[a]&&ACCOUNTS[a].label)?ACCOUNTS[a].label:a); }
+    if(stale.length){
+      out.push({tag:'정산 확인',sev:'info',
+        why:`미정산 ${stale.join('·')} — 등록 후 3영업일 경과, 정산됐는지 확인`,
+        sub:'T+2~3 정산 기간이 지났어요. 증권사에서 예수금으로 들어왔으면 예수금 관리에서 미정산을 예수금으로 옮겨주세요. 탭하면 예수금 관리 ▸',
+        act:'cashman'});
+    }
+  }catch(_){}
+  // [A4] 연내 통산 리마인더 — 12/31 D-45부터, 올해 해외 실현손익이 마이너스(통산 여력)면. 연도별 1회 끔 가능.
+  // [A5] 과세 구간 진입 — 올해 해외 실현손익이 기본공제 초과 시 (실현이익에 22% 과세 시작)
+  try{
+    const nowK=new Date(Date.now()+9*3600*1000); const y=String(nowK.getUTCFullYear());
+    const ov=rpnlYearMarket(y,'overseas'); const ded=state.settings.overseasDeduction||2500000;
+    const ye=new Date(Date.UTC(nowK.getUTCFullYear(),11,31)); const dLeft=Math.ceil((ye-nowK)/86400000);
+    if(dLeft<=45 && dLeft>=0 && ov<0 && state.settings._taxYEAck!==y){
+      out.push({tag:'세금 통산',sev:'warn',
+        why:`연내 통산 기회 D-${dLeft} — 최대 ₩${fmtKRW(Math.abs(ov)+ded)} 수익실현 비과세`,
+        sub:`올해 해외 실현손실 ₩${fmtKRW(Math.abs(ov))} + 기본공제 ₩${fmtKRW(ded)} = 그만큼의 수익실현이 세금 0으로 흡수돼요. 해외양도세는 이월공제 불가 — 12/31까지 같은 해에만 통산. 레버 청산 익절 계획과 맞물려요. 탭하면 올해 리마인더 끔 ▸`,
+        act:'taxYE'});
+    }
+    if(ov>ded){
+      out.push({tag:'과세 구간',sev:'info',
+        why:`올해 해외 실현이익 공제 초과 — 추가 실현이익에 22% 과세`,
+        sub:`실현손익 +₩${fmtKRW(ov)} > 공제 ₩${fmtKRW(ded)}. 지금부터 파는 수익분엔 양도세 22%가 붙어요(연도 내 손실 매칭 시 통산 가능). 익절 페이스 참고용.`,
+        act:''});
+    }
+  }catch(_){}
   return out;
 }
 function acDispatch(act){
@@ -3784,6 +3837,12 @@ function acDispatch(act){
     if(act==='risk') openRiskPlan();
     else if(act==='resetPeak'){
       if(confirm('레버리지 정리가 끝났으면 고점(peak) 기준을 지금 포트로 리셋합니다.\n· 이후 낙폭·방어가 현재 포트 기준으로 현실화됩니다\n· 설정에서 되돌릴 수 있습니다\n계속할까요?')) window.resetPeakEpoch();
+    }
+    else if(act==='reweigh'){ state.settings._twAckTs=Date.now(); try{ saveState(); }catch(_){} openTargetProposal(); }
+    else if(act==='cashman'){ try{ openCashEditor(); }catch(_){ switchView('quickentry'); } }
+    else if(act==='taxYE'){
+      const y=String(new Date(Date.now()+9*3600*1000).getUTCFullYear());
+      if(confirm('올해('+y+') 연내 통산 리마인더를 끌까요?\n· 올해 안엔 다시 표시되지 않습니다')){ state.settings._taxYEAck=y; try{ saveState(); }catch(_){} try{ renderActionCenter(portfolioStats()); }catch(_){} }
     }
     else if(act==='backup'){
       try{ document.querySelectorAll('.view').forEach(el=>el.classList.add('hidden')); document.getElementById('view-settings').classList.remove('hidden'); renderSettings(); }catch(_){ switchView('allocation'); }
@@ -3811,7 +3870,7 @@ function renderActionCenter(s){
   if(!acts.length){ el.style.display='none'; el.onclick=null; return; }
   const sev = acts.some(a=>a.sev==='crit')?'crit':(acts.some(a=>a.sev==='warn')?'warn':'');
   el.className='card action-center'+(sev?' '+sev:'');
-  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','크립토 브레이크':'#E5663D','크립토 하드캡':'#E5484D','peak 리셋':'#5AA0A6','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A','QLD 편입':'#3B9EFF','백업 지연':'#E8A23D'};
+  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','크립토 브레이크':'#E5663D','크립토 하드캡':'#E5484D','peak 리셋':'#5AA0A6','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A','QLD 편입':'#3B9EFF','백업 지연':'#E8A23D','목표 재검토':'#C44ED9','정산 확인':'#B7791F','세금 통산':'#3B9EFF','과세 구간':'#E8A23D'};
   window._acOpen = window._acOpen || new Set();   // 펼친 항목(태그 기준) — 메모리만, 앱 새로 열면 초기화(기본 접힘)
   const rows=acts.map(a=>{
     const open=window._acOpen.has(a.tag);
@@ -6033,11 +6092,15 @@ async function saveCashEditor(){
   state.settings.cashByAccount=cb;
   // 현금 계정은 입력 페이지 카드에서만 편집 (모달에서 제거 — 여기서 건드리지 않음)
   { const f=id=>Math.max(0,parseFloat(document.getElementById(id)?.value)||0);
+    const _pbOld=JSON.parse(JSON.stringify(state.settings.pendingByAccount||{}));
     state.settings.pendingByAccount={
       kb:{krw:f('pending-kb-krw'),usd:f('pending-kb-usd')},
       kiwoom:{krw:f('pending-kiwoom-krw'),usd:f('pending-kiwoom-usd')},
       upbit:((state.settings.pendingByAccount||{}).upbit)||{krw:0,usd:0}
-    }; }
+    };
+    state.settings.pendingTs=state.settings.pendingTs||{};
+    for(const a in state.settings.pendingByAccount){ const n=state.settings.pendingByAccount[a],o=_pbOld[a]||{};
+      if((n.krw||0)!==(o.krw||0)||(n.usd||0)!==(o.usd||0)) state.settings.pendingTs[a]=Date.now(); } }
   await saveState(); closeModal(); toast('예수금 저장됨'); switchView('quickentry');
 }
 function cashSign(k,cur,s){
@@ -6727,7 +6790,10 @@ async function saveQuickEntry(){
   let pendMsg='';
   if(_qeImportPendingBuf){
     const pb=state.settings.pendingByAccount||{};
-    Object.keys(_qeImportPendingBuf).forEach(a=>{ pb[a]={krw:_qeImportPendingBuf[a].krw||0, usd:_qeImportPendingBuf[a].usd||0}; });
+    state.settings.pendingTs=state.settings.pendingTs||{};
+    Object.keys(_qeImportPendingBuf).forEach(a=>{ const o=pb[a]||{}; const nv={krw:_qeImportPendingBuf[a].krw||0, usd:_qeImportPendingBuf[a].usd||0};
+      if((nv.krw||0)!==(o.krw||0)||(nv.usd||0)!==(o.usd||0)) state.settings.pendingTs[a]=Date.now();
+      pb[a]=nv; });
     state.settings.pendingByAccount=pb;
     _qeImportPendingBuf=null; _qeImportPendingStaged=null;
     pendMsg=' · 미정산금 반영';

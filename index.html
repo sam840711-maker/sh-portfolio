@@ -1064,7 +1064,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v2.10.50';
+const APP_VER = 'v2.10.51';
 const APP_BUILD = '2026-07-04';
 
 const SEED = {
@@ -1332,7 +1332,8 @@ function normalizeState(){
   if (state.settings.cashAccount==null) state.settings.cashAccount={krw:0,usd:0};
   else if (typeof state.settings.cashAccount==='number') state.settings.cashAccount={krw:state.settings.cashAccount,usd:0};  // 구버전(단일 KRW) → {krw,usd} 마이그레이션
   else state.settings.cashAccount={krw:state.settings.cashAccount.krw||0,usd:state.settings.cashAccount.usd||0};
-  // 미정산금(T+2 정산대기) — 계좌별 {krw,usd}. 구버전 통짜 pendingSettle → KB로 이전.
+  // 미정산금 — 건별 리스트(pendingList)가 원천. pendingByAccount({acct:{krw,usd}})는 여기서 파생(기존 소비처 호환).
+  //   구버전 이전: 통짜 pendingSettle → pendingByAccount → pendingList 순으로 흡수.
   if (state.settings.pendingByAccount==null || typeof state.settings.pendingByAccount!=='object'){
     state.settings.pendingByAccount={};
     ACCOUNT_ORDER.forEach(a=>state.settings.pendingByAccount[a]={krw:0,usd:0});
@@ -1340,9 +1341,28 @@ function normalizeState(){
     if(old && typeof old==='object' && ((old.krw||0)>0||(old.usd||0)>0)){ state.settings.pendingByAccount.kb={krw:old.krw||0,usd:old.usd||0}; }
   }
   ACCOUNT_ORDER.forEach(a=>{ const p=state.settings.pendingByAccount[a]; state.settings.pendingByAccount[a]=(p&&typeof p==='object')?{krw:p.krw||0,usd:p.usd||0}:{krw:0,usd:0}; });
-  state.settings.pendingTs=state.settings.pendingTs||{};
-  ACCOUNT_ORDER.forEach(a=>{ const p=state.settings.pendingByAccount[a]; if(((p.krw||0)+(p.usd||0))>0 && !state.settings.pendingTs[a]) state.settings.pendingTs[a]=Date.now(); });
   delete state.settings.pendingSettle;
+  // pendingList 최초 생성 — 기존 계좌별 집계액을 건별 항목으로 변환(정산일은 오늘 기준 자동, 이후 수정 가능)
+  if(!Array.isArray(state.settings.pendingList)){
+    state.settings.pendingList=[];
+    const today=ymdKST(Date.now());
+    ACCOUNT_ORDER.forEach(a=>{ const p=state.settings.pendingByAccount[a]||{};
+      if((p.krw||0)>0) state.settings.pendingList.push({id:'pm_'+a+'_krw_'+Date.now(), acct:a, cur:'krw', amount:p.krw, tradeDate:today, settleDate:calcSettleDate(today,'krw'), note:'기존 이전'});
+      if((p.usd||0)>0) state.settings.pendingList.push({id:'pm_'+a+'_usd_'+Date.now(), acct:a, cur:'usd', amount:p.usd, tradeDate:today, settleDate:calcSettleDate(today,'usd'), note:'기존 이전'});
+    });
+  }
+  // 각 건 필드 정합성 보정
+  state.settings.pendingList=state.settings.pendingList.filter(it=>it&&(+it.amount)>0).map(it=>({
+    id: it.id||('p_'+Math.random().toString(36).slice(2,9)),
+    acct: (it.acct==='kiwoom'||it.acct==='kb')?it.acct:'kb',
+    cur: (it.cur==='usd')?'usd':'krw',
+    amount: +it.amount||0,
+    tradeDate: it.tradeDate||ymdKST(Date.now()),
+    settleDate: it.settleDate||calcSettleDate(it.tradeDate||ymdKST(Date.now()), (it.cur==='usd')?'usd':'krw'),
+    note: it.note||''
+  }));
+  rebuildPendingFromList();   // pendingList → pendingByAccount 동기화
+  delete state.settings.pendingTs;   // 구버전 계좌단위 타임스탬프 폐기(건별 settleDate로 대체)
   if (state.settings.reserveCash==null) state.settings.reserveCash=0;
   if (state.settings.reserveTargetPct==null) state.settings.reserveTargetPct=0.05;   // 현금 목표 비중(NAV 대비)
   // 대기자금(별도 버킷) 개념 폐지 → 현금 비중(%)으로 통합. 기존 reserveCash는 현금계정 KRW로 흡수(총현금 보존).
@@ -1712,6 +1732,40 @@ function cashSplit(){
   for(const a in pb){ krw+=pb[a].krw||0; usd+=pb[a].usd||0; }
   krw+=ca.krw||0; usd+=ca.usd||0;
   return {krw, usd};
+}
+
+/* === 미정산 건별 관리 (pendingList) === */
+// 로컬(KST) 날짜 문자열
+function ymdKST(d){ return new Date((d instanceof Date?d.getTime():d)+9*3600*1000).toISOString().slice(0,10); }
+// 해당 날짜(YYYY-MM-DD)가 영업일인가 — 주말 + 시장 휴장일 제외. market: 'kr'(원화) | 'us'(달러)
+function isBizDay(ymd, market){
+  const dt=new Date(ymd+'T00:00:00+09:00');
+  const wd=new Date(dt.getTime()+9*3600*1000).getUTCDay();   // 0=일,6=토
+  if(wd===0||wd===6) return false;
+  const tbl=(MARKET_HOLIDAYS&&MARKET_HOLIDAYS[market])||{};
+  if(tbl[ymd]) return false;
+  // 달러(해외)는 한국·미국 휴장 둘 다 반영 — 어느 쪽이든 쉬면 정산 지연
+  if(market==='us' && MARKET_HOLIDAYS.kr && MARKET_HOLIDAYS.kr[ymd]) return false;
+  return true;
+}
+// 매매일(ymd)로부터 N영업일 뒤 정산일. 원화·달러 모두 T+2 (달러는 미국 T+1 단축 반영 — 실측 7/1→7/6 기준).
+//   원화: KRX 휴장 기준 / 달러: 미국+한국 휴장 둘 다 반영(어느 쪽이든 쉬면 지연). 근사값 — 실제는 증권사 화면 보고 수정 가능.
+function calcSettleDate(tradeYmd, cur){
+  const market = (cur==='usd') ? 'us' : 'kr';
+  const N = 2;
+  let d=new Date(tradeYmd+'T00:00:00+09:00'), n=0, guard=0;
+  while(n<N && guard<60){ d=new Date(d.getTime()+86400000); guard++; if(isBizDay(ymdKST(d), market)) n++; }
+  return ymdKST(d);
+}
+// pendingList → pendingByAccount({acct:{krw,usd}}) 재계산 (기존 소비처가 이 파생값을 그대로 사용)
+function rebuildPendingFromList(){
+  const list=state.settings.pendingList||[];
+  const agg={}; ACCOUNT_ORDER.forEach(a=>agg[a]={krw:0,usd:0});
+  for(const it of list){
+    const a=it.acct; if(!agg[a]) agg[a]={krw:0,usd:0};
+    if(it.cur==='usd') agg[a].usd+=(+it.amount||0); else agg[a].krw+=(+it.amount||0);
+  }
+  state.settings.pendingByAccount=agg;
 }
 /* 현금 계정에서 KRW 환산액만큼 차감 (KRW 먼저, 부족분 USD 환산) — 실제 차감된 KRW 반환 */
 function drawFromCashAccount(amtKRW){
@@ -3804,19 +3858,15 @@ function computeActionAlerts(s){
       }
     }
   }catch(_){}
-  // [A2] 미정산 정산 확인 — 미정산 등록 후 3영업일↑ 경과했는데 아직 남아있음 (T+2~3 지남 → 증권사 확인 후 예수금 이동)
+  // [A2] 미정산 정산 확인 — 건별 정산예정일(settleDate)이 오늘 이하로 도래한 건이 있으면 알림.
   try{
-    const pb=state.settings.pendingByAccount||{}, pts=state.settings.pendingTs||{};
-    const fx=state.settings.fxRate||0;
-    function bizDays(from){ let n=0,d=new Date(from); const now=Date.now();
-      while(d.getTime()<now){ d.setDate(d.getDate()+1); const w=(new Date(d.getTime()+9*3600*1000)).getUTCDay(); if(w!==0&&w!==6) n++; if(n>30)break; } return n; }
-    const stale=[];
-    for(const a in pb){ const v=(pb[a].krw||0)+(pb[a].usd||0)*fx;
-      if(v>1000 && pts[a] && bizDays(pts[a])>=3) stale.push((typeof ACCOUNTS!=='undefined'&&ACCOUNTS[a]&&ACCOUNTS[a].label)?ACCOUNTS[a].label:a); }
-    if(stale.length){
-      out.push({tag:'정산 확인',sev:'info',
-        why:`미정산 ${stale.join('·')} — 등록 후 3영업일 경과, 정산됐는지 확인`,
-        sub:'T+2~3 정산 기간이 지났어요. 증권사에서 예수금으로 들어왔으면 예수금 관리에서 미정산을 예수금으로 옮겨주세요. 탭하면 예수금 관리 ▸',
+    const list=state.settings.pendingList||[]; const today=ymdKST(Date.now());
+    const due=list.filter(it=>(+it.amount)>0 && it.settleDate && it.settleDate<=today);
+    if(due.length){
+      const parts=due.map(it=>`${(ACCOUNTS[it.acct]&&ACCOUNTS[it.acct].label)||it.acct} ${it.cur==='usd'?fmtUSD(+it.amount):fmtKRWFull(+it.amount)}`);
+      out.push({tag:'정산 확인',sev:'warn',
+        why:`정산 예정일 도래 — ${due.length}건 확인 필요`,
+        sub:`${parts.join(' · ')} 의 정산 예정일이 됐어요. 증권사에서 예수금으로 들어왔으면 예수금 관리에서 각 건 [정산됨]을 눌러 예수금으로 옮기세요. 탭하면 예수금 관리 ▸`,
         act:'cashman'});
     }
   }catch(_){}
@@ -6094,8 +6144,76 @@ async function saveTargetReturn(){
 window.openTargetReturnEditor=openTargetReturnEditor;
 window.updateTargetPreview=updateTargetPreview; window.saveTargetReturn=saveTargetReturn;
 
+/* === 미정산 건별 UI === */
+// 편집 중 임시 리스트(모달 열릴 때 복제 → 저장 시 반영)
+let _pendEdit=null;
+function pendingEditInit(){ _pendEdit=JSON.parse(JSON.stringify(state.settings.pendingList||[])); }
+function renderPendingRows(){
+  if(!_pendEdit) pendingEditInit();
+  if(!_pendEdit.length) return '<div style="font-size:11px;color:var(--text-3);padding:8px 2px">미정산 건 없음 — 매도 후 아래 [＋추가]</div>';
+  const today=ymdKST(Date.now());
+  return _pendEdit.map((it,i)=>{
+    const acctOpts=ACCOUNT_ORDER.filter(a=>a!=='upbit').map(a=>`<option value="${a}" ${it.acct===a?'selected':''}>${ACCOUNTS[a].label}</option>`).join('');
+    const curOpts=`<option value="krw" ${it.cur==='krw'?'selected':''}>₩ 원화</option><option value="usd" ${it.cur==='usd'?'selected':''}>$ 달러</option>`;
+    const settled=(it.settleDate&&it.settleDate<=today);
+    return `<div style="border:1px solid var(--hairline);border-radius:9px;padding:9px;margin-bottom:8px;background:var(--bg-2)">
+      <div class="field-row" style="gap:6px;margin-bottom:6px">
+        <select onchange="pendingSetField(${i},'acct',this.value)" style="flex:1;min-width:0">${acctOpts}</select>
+        <select onchange="pendingSetField(${i},'cur',this.value)" style="flex:1;min-width:0">${curOpts}</select>
+      </div>
+      <div class="field-row" style="gap:6px;margin-bottom:6px">
+        <input type="number" step="${it.cur==='usd'?'0.01':'1'}" inputmode="decimal" value="${it.amount||''}" placeholder="${it.cur==='usd'?'달러 $':'원화 ₩'}" onchange="pendingSetField(${i},'amount',this.value)" style="flex:1.3;min-width:0">
+        <input type="date" value="${it.tradeDate||today}" onchange="pendingSetField(${i},'tradeDate',this.value)" style="flex:1;min-width:0" title="매매일">
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:11px">
+        <span style="color:var(--text-2)">정산일</span>
+        <input type="date" value="${it.settleDate||''}" onchange="pendingSetField(${i},'settleDate',this.value)" style="flex:1;min-width:0" title="정산 예정일(자동·수정가능)">
+        ${settled?`<button type="button" class="btn btn-primary btn-sm" style="padding:5px 9px;white-space:nowrap" onclick="pendingSettle(${i})">정산됨→예수금</button>`:''}
+        <button type="button" class="btn btn-secondary btn-sm" style="padding:5px 9px" onclick="pendingDelRow(${i})">삭제</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function pendingRerender(){ const box=document.getElementById('pending-list-box'); if(box) box.innerHTML=renderPendingRows(); }
+function pendingSetField(i,f,v){
+  if(!_pendEdit[i]) return;
+  if(f==='amount') _pendEdit[i].amount=Math.max(0,parseFloat(v)||0);
+  else _pendEdit[i][f]=v;
+  // 매매일·통화 바뀌면 정산일 자동 재계산 (사용자가 정산일 직접 수정한 뒤엔 그 값 유지)
+  if(f==='tradeDate'||f==='cur'){ _pendEdit[i].settleDate=calcSettleDate(_pendEdit[i].tradeDate||ymdKST(Date.now()), _pendEdit[i].cur); }
+  pendingRerender();
+}
+function pendingAddRow(){
+  if(!_pendEdit) pendingEditInit();
+  const today=ymdKST(Date.now());
+  _pendEdit.push({id:'p_'+Math.random().toString(36).slice(2,9), acct:'kb', cur:'usd', amount:0, tradeDate:today, settleDate:calcSettleDate(today,'usd'), note:''});
+  pendingRerender();
+}
+function pendingDelRow(i){ _pendEdit.splice(i,1); pendingRerender(); }
+// 정산됨 → 해당 건 금액을 그 계좌 예수금으로 이동, 리스트에서 제거 (모달 입력칸에도 즉시 반영)
+function pendingSettle(i){
+  const it=_pendEdit[i]; if(!it) return;
+  const amt=+it.amount||0; if(amt<=0){ pendingDelRow(i); return; }
+  const inp=document.getElementById('cash-'+it.acct+'-'+it.cur);
+  const signEl=document.getElementById('cash-'+it.acct+'-'+it.cur+'-sign');
+  if(inp){ // 현재 예수금 입력칸 값(부호 반영)에 더해줌
+    const sign=(signEl&&signEl.value==='-')?-1:1;
+    const cur=sign*Math.abs(parseFloat(inp.value)||0);
+    const nv=cur+amt;
+    if(signEl) signEl.value=nv<0?'-':'+';
+    inp.value=Math.abs(nv)||'';
+    // 부호 버튼 시각 갱신
+    try{ cashSign(it.acct,it.cur,nv<0?'-':'+'); }catch(_){}
+  }
+  toast(`${ACCOUNTS[it.acct].label} ${it.cur==='usd'?fmtUSD(amt):fmtKRWFull(amt)} 예수금 반영 — 저장 눌러 확정`);
+  _pendEdit.splice(i,1); pendingRerender();
+}
+window.renderPendingRows=renderPendingRows; window.pendingSetField=pendingSetField;
+window.pendingAddRow=pendingAddRow; window.pendingDelRow=pendingDelRow; window.pendingSettle=pendingSettle;
+
 /* === 자산군별 예수금 수정 (원화/달러) === */
 function openCashEditor(){
+  pendingEditInit();
   const cb=state.settings.cashByAccount||{};
   const rows=ACCOUNT_ORDER.map(a=>{
     const c=cb[a]||{krw:0,usd:0};
@@ -6121,18 +6239,10 @@ function openCashEditor(){
   }).join('');
   openModal(`<h3>예수금 관리</h3>
     <div class="modal-sub">계좌별 예수금 + 미정산금 · 현금 계정은 입력 페이지에서 · 현금 목표 비중은 방어 설정에서</div>
-    <div class="field"><label>미정산금 — 매도했으나 정산(T+2~3) 안 된 돈 · 계좌별 (총자산엔 포함, 예수금 아님)</label>
-      <div style="font-size:11px;color:var(--text-2);margin-bottom:4px">KB증권</div>
-      <div class="field-row" style="gap:8px;margin-bottom:8px">
-        <input id="pending-kb-krw" type="number" step="1" inputmode="numeric" value="${((state.settings.pendingByAccount||{}).kb||{}).krw||''}" placeholder="원화 ₩" style="flex:1;min-width:0">
-        <input id="pending-kb-usd" type="number" step="0.01" inputmode="decimal" value="${((state.settings.pendingByAccount||{}).kb||{}).usd||''}" placeholder="달러 $" style="flex:1;min-width:0">
-      </div>
-      <div style="font-size:11px;color:var(--text-2);margin-bottom:4px">키움증권</div>
-      <div class="field-row" style="gap:8px">
-        <input id="pending-kiwoom-krw" type="number" step="1" inputmode="numeric" value="${((state.settings.pendingByAccount||{}).kiwoom||{}).krw||''}" placeholder="원화 ₩" style="flex:1;min-width:0">
-        <input id="pending-kiwoom-usd" type="number" step="0.01" inputmode="decimal" value="${((state.settings.pendingByAccount||{}).kiwoom||{}).usd||''}" placeholder="달러 $" style="flex:1;min-width:0">
-      </div>
-      <small>매도 실행 시 그 계좌의 정산예정액 입력 → 정산되면 예수금으로 옮기고 여기서 줄이세요 · 이체대기 큐가 그 계좌의 '매도정산 여유'에 합산</small></div>
+    <div class="field"><label>미정산금 — 매도했으나 정산(T+2) 안 된 돈 · 건별 관리 (총자산엔 포함, 예수금 아님)</label>
+      <div id="pending-list-box">${renderPendingRows()}</div>
+      <button type="button" class="btn btn-secondary btn-sm" style="width:100%;margin-top:8px" onclick="pendingAddRow()">＋ 미정산 건 추가</button>
+      <small>매도 후 [＋추가] → 계좌·통화·금액·매매일 입력(정산일 자동 T+2) · 정산되면 [정산됨]으로 예수금 자동 이동 · 이체대기 큐가 그 계좌 '매도정산 여유'에 합산</small></div>
     <div style="height:1px;background:var(--hairline);margin:14px 0"></div>
     ${rows}
     <div class="btn-row">
@@ -6150,17 +6260,18 @@ async function saveCashEditor(){
     cb[a]={ krw: sgnK*vKrw, usd: sgnU*vUsd };   // 부호 그대로 저장 (미결제 달러 음수 허용)
   });
   state.settings.cashByAccount=cb;
-  // 현금 계정은 입력 페이지 카드에서만 편집 (모달에서 제거 — 여기서 건드리지 않음)
-  { const f=id=>Math.max(0,parseFloat(document.getElementById(id)?.value)||0);
-    const _pbOld=JSON.parse(JSON.stringify(state.settings.pendingByAccount||{}));
-    state.settings.pendingByAccount={
-      kb:{krw:f('pending-kb-krw'),usd:f('pending-kb-usd')},
-      kiwoom:{krw:f('pending-kiwoom-krw'),usd:f('pending-kiwoom-usd')},
-      upbit:((state.settings.pendingByAccount||{}).upbit)||{krw:0,usd:0}
-    };
-    state.settings.pendingTs=state.settings.pendingTs||{};
-    for(const a in state.settings.pendingByAccount){ const n=state.settings.pendingByAccount[a],o=_pbOld[a]||{};
-      if((n.krw||0)!==(o.krw||0)||(n.usd||0)!==(o.usd||0)) state.settings.pendingTs[a]=Date.now(); } }
+  // 미정산금 — 편집 리스트를 확정(0 이하·필드 정합 정리) → pendingByAccount 재파생
+  state.settings.pendingList=(_pendEdit||[]).filter(it=>(+it.amount)>0).map(it=>({
+    id: it.id||('p_'+Math.random().toString(36).slice(2,9)),
+    acct: (it.acct==='kiwoom'||it.acct==='kb')?it.acct:'kb',
+    cur: (it.cur==='usd')?'usd':'krw',
+    amount: +it.amount||0,
+    tradeDate: it.tradeDate||ymdKST(Date.now()),
+    settleDate: it.settleDate||calcSettleDate(it.tradeDate||ymdKST(Date.now()), (it.cur==='usd')?'usd':'krw'),
+    note: it.note||''
+  }));
+  rebuildPendingFromList();
+  _pendEdit=null;
   await saveState(); closeModal(); toast('예수금 저장됨'); switchView('quickentry');
 }
 function cashSign(k,cur,s){
@@ -6849,12 +6960,17 @@ async function saveQuickEntry(){
   // 미정산금(계좌별) 버퍼 반영 — JSON 붙여넣기로 스테이징된 경우만 (종목과 원자적으로 저장)
   let pendMsg='';
   if(_qeImportPendingBuf){
-    const pb=state.settings.pendingByAccount||{};
-    state.settings.pendingTs=state.settings.pendingTs||{};
-    Object.keys(_qeImportPendingBuf).forEach(a=>{ const o=pb[a]||{}; const nv={krw:_qeImportPendingBuf[a].krw||0, usd:_qeImportPendingBuf[a].usd||0};
-      if((nv.krw||0)!==(o.krw||0)||(nv.usd||0)!==(o.usd||0)) state.settings.pendingTs[a]=Date.now();
-      pb[a]=nv; });
-    state.settings.pendingByAccount=pb;
+    const list=(state.settings.pendingList||[]).slice();
+    const today=ymdKST(Date.now());
+    Object.keys(_qeImportPendingBuf).forEach(a=>{
+      const nv={krw:_qeImportPendingBuf[a].krw||0, usd:_qeImportPendingBuf[a].usd||0};
+      // 캡처 import는 그 계좌의 정산액 '현재 총량' → 해당 계좌 기존 건 제거 후 통화별 단일 건으로 재생성(매매일=오늘 근사)
+      for(let i=list.length-1;i>=0;i--){ if(list[i].acct===a && (list[i].note==='캡처'||list[i].note==='기존 이전')) list.splice(i,1); }
+      if(nv.krw>0) list.push({id:'imp_'+a+'_krw_'+Date.now(), acct:a, cur:'krw', amount:nv.krw, tradeDate:today, settleDate:calcSettleDate(today,'krw'), note:'캡처'});
+      if(nv.usd>0) list.push({id:'imp_'+a+'_usd_'+Date.now(), acct:a, cur:'usd', amount:nv.usd, tradeDate:today, settleDate:calcSettleDate(today,'usd'), note:'캡처'});
+    });
+    state.settings.pendingList=list;
+    rebuildPendingFromList();
     _qeImportPendingBuf=null; _qeImportPendingStaged=null;
     pendMsg=' · 미정산금 반영';
   }

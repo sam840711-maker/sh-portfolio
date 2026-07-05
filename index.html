@@ -1064,7 +1064,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v55';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v56';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -2355,12 +2355,13 @@ async function renderSymCard(P){
             const uk='upbit_'+usym;
             if(!P.cache[uk] || now-P.cache[uk].ts>60*1000){
               const u=await fetchUpbit([usym]);
-              if(u && u[usym] && u[usym].price>0) P.cache[uk]={ts:now,price:u[usym].price};
+              if(u && u[usym] && u[usym].price>0) P.cache[uk]={ts:now,price:u[usym].price,src:u[usym]._src||'upbit'};
             }
             if(P.cache[uk] && P.cache[uk].price>0){
               const up=P.cache[uk].price;
               const prem=(up/conv-1)*100;
-              line+='<br>업비트 '+eok(up);
+              const srcLabel=(P.cache[uk].src==='bithumb')?'빗썸':'업비트';
+              line+='<br>'+srcLabel+' '+eok(up);
               if(isFinite(prem)) line+=` <span class="${prem>=0?'up':'down'}">(김프 ${prem>=0?'+':''}${prem.toFixed(1)}%)</span>`;
             }
           }
@@ -4916,7 +4917,10 @@ function holdingRowHTML(h, moveInfo){
         if(isUSD && (h.curUSD||0)>0){ const ev='$'+Math.round(h.curUSD*h.qty).toLocaleString('en-US');
           return `<div style="font-size:10px;color:var(--text-3);margin-top:2px;font-variant-numeric:tabular-nums">${ev} <span style="color:var(--text-3)">· 적용가 ${fmtUSD(h.curUSD)}</span></div>`; }
         if(!isUSD && (h.curKRW||0)>0){
-          return `<div style="font-size:10px;color:var(--text-3);margin-top:2px;font-variant-numeric:tabular-nums">적용가 ₩${fmtKRW(h.curKRW)}</div>`; }
+          const src=(h.cat==='crypto' && h._mkt && h._mkt._src) ? h._mkt._src : '';
+          const srcTag = src==='bithumb' ? ' <span style="color:#E8863D">· 빗썸</span>'
+                       : src==='upbit'   ? ' <span style="color:#3B9EFF">· 업비트</span>' : '';
+          return `<div style="font-size:10px;color:var(--text-3);margin-top:2px;font-variant-numeric:tabular-nums">적용가 ₩${fmtKRW(h.curKRW)}${srcTag}</div>`; }
         return '';
       })()}
     </div>${moveHtml}</div>`;
@@ -8233,7 +8237,7 @@ async function fetchUpbit(symbols){
   const out={};
   for (const t of arr){
     const sym=t.market.replace('KRW-','');
-    out[sym]={price:t.trade_price,dayChangePct:t.signed_change_rate,prevClose:t.prev_closing_price};
+    out[sym]={price:t.trade_price,dayChangePct:t.signed_change_rate,prevClose:t.prev_closing_price,_src:'upbit'};
   }
   // 업비트가 일부 심볼만 준 경우, 빠진 건 빗썸으로 보충
   const missing=symbols.filter(s=>!out[s.toUpperCase()]);
@@ -8349,7 +8353,7 @@ async function refreshAllPrices(quiet){
       const r=await withTimeout(fetchUpbit(cryptos.map(h=>h.symbol)),8000);
       for (const h of cryptos){
         const p=r[h.symbol.toUpperCase()];
-        if(p){ h.curKRW=p.price; h._mkt={dayChangePct:p.dayChangePct,prevClose:p.prevClose,ts:Date.now()}; ok++; }
+        if(p){ h.curKRW=p.price; h._mkt={dayChangePct:p.dayChangePct,prevClose:p.prevClose,_src:p._src||"upbit",ts:Date.now()}; ok++; }
         else { lastFailed.add(h.symbol); fail++; }
       }
       scheduleLiveRender();   // 코인 일괄 들어오면 즉시 반영
@@ -8369,7 +8373,7 @@ async function refreshAllPrices(quiet){
         const r=await withTimeout(fetchUpbit(fCrypto.map(h=>h.symbol)),8000);
         for(const h of fCrypto){
           const p=r[h.symbol.toUpperCase()];
-          if(p){ h.curKRW=p.price; h._mkt={dayChangePct:p.dayChangePct,prevClose:p.prevClose,ts:Date.now()}; ok++; fail--; lastFailed.delete(h.symbol); }
+          if(p){ h.curKRW=p.price; h._mkt={dayChangePct:p.dayChangePct,prevClose:p.prevClose,_src:p._src||"upbit",ts:Date.now()}; ok++; fail--; lastFailed.delete(h.symbol); }
         }
         scheduleLiveRender();
       }catch(_){}
@@ -8430,7 +8434,7 @@ async function refreshOne(id){
       const r=await fetchUpbit([h.symbol]);
       const p=r[h.symbol.toUpperCase()];
       if(!p) throw new Error('no data');
-      h.curKRW=p.price; h._mkt={dayChangePct:p.dayChangePct,prevClose:p.prevClose,ts:Date.now()};
+      h.curKRW=p.price; h._mkt={dayChangePct:p.dayChangePct,prevClose:p.prevClose,_src:p._src||"upbit",ts:Date.now()};
     } else {
       const q=await fetchYahoo(h.symbol);
       const wantKRW=!isUSDcat(h.cat);

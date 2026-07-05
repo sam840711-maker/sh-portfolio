@@ -1064,7 +1064,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v54';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v55';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -8220,8 +8220,15 @@ async function fetchUpbit(symbols){
     if(!res.ok) throw new Error('HTTP '+res.status);
     arr=await res.json();
   } catch(e){
-    try{ arr=await proxyFetchJson(url); }   // 업비트 CORS/차단 시 프록시
-    catch(e2){ return await fetchBithumb(symbols); }   // 업비트 완전 실패 → 빗썸 폴백
+    try{ arr=await proxyFetchJson(url); }   // 업비트 CORS/차단 시 내 워커 프록시
+    catch(e2){
+      try{   // 공개 CORS 프록시 우회
+        const pub='https://api.allorigins.win/raw?url='+encodeURIComponent(url);
+        const r2=await fetchWithTimeout(pub, 4500);
+        if(!r2.ok) throw new Error('HTTP '+r2.status);
+        arr=JSON.parse(await r2.text());
+      }catch(e3){ return await fetchBithumb(symbols); }   // 최종 빗썸 폴백
+    }
   }
   const out={};
   for (const t of arr){
@@ -8240,12 +8247,21 @@ async function fetchBithumb(symbols){
     const sym=s.toUpperCase();
     const url='https://api.bithumb.com/public/ticker/'+sym+'_KRW';
     let j;
+    // 1) 직접 → 2) 내 워커 프록시 → 3) 공개 CORS 프록시(워커가 빗썸 미허용 시 우회)
     try{
       const res=await fetchWithTimeout(url, 3500);
       if(!res.ok) throw new Error('HTTP '+res.status);
       j=JSON.parse(await res.text());
     }catch(e){
-      try{ j=await proxyFetchJson(url); }catch(e2){ continue; }
+      try{ j=await proxyFetchJson(url); }
+      catch(e2){
+        try{
+          const pub='https://api.allorigins.win/raw?url='+encodeURIComponent(url);
+          const r2=await fetchWithTimeout(pub, 4500);
+          if(!r2.ok) throw new Error('HTTP '+r2.status);
+          j=JSON.parse(await r2.text());
+        }catch(e3){ continue; }
+      }
     }
     if(!j || j.status!=='0000' || !j.data) continue;
     const d=j.data;

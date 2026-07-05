@@ -1064,8 +1064,8 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v53';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
-const APP_BUILD = '2026-07-04';
+const APP_VER = 'v54';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_BUILD = '2026-07-06';
 
 const SEED = {
   settings: {
@@ -8216,16 +8216,42 @@ async function fetchUpbit(symbols){
   const url='https://api.upbit.com/v1/ticker?markets='+markets.join(',');
   let arr;
   try {
-    const res=await fetch(url);
+    const res=await fetchWithTimeout(url, 3500);
     if(!res.ok) throw new Error('HTTP '+res.status);
     arr=await res.json();
   } catch(e){
-    arr=await proxyFetchJson(url);   // CORS fallback
+    try{ arr=await proxyFetchJson(url); }   // 업비트 CORS/차단 시 프록시
+    catch(e2){ return await fetchBithumb(symbols); }   // 업비트 완전 실패 → 빗썸 폴백
   }
   const out={};
   for (const t of arr){
     const sym=t.market.replace('KRW-','');
     out[sym]={price:t.trade_price,dayChangePct:t.signed_change_rate,prevClose:t.prev_closing_price};
+  }
+  // 업비트가 일부 심볼만 준 경우, 빠진 건 빗썸으로 보충
+  const missing=symbols.filter(s=>!out[s.toUpperCase()]);
+  if(missing.length){ try{ const bh=await fetchBithumb(missing); Object.assign(out,bh); }catch(_){} }
+  return out;
+}
+/* 빗썸 폴백 — 업비트 장애 시 BTC·ETH 원화 시세 대체. api.bithumb.com/public/ticker/{SYM}_KRW */
+async function fetchBithumb(symbols){
+  const out={};
+  for(const s of symbols){
+    const sym=s.toUpperCase();
+    const url='https://api.bithumb.com/public/ticker/'+sym+'_KRW';
+    let j;
+    try{
+      const res=await fetchWithTimeout(url, 3500);
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      j=JSON.parse(await res.text());
+    }catch(e){
+      try{ j=await proxyFetchJson(url); }catch(e2){ continue; }
+    }
+    if(!j || j.status!=='0000' || !j.data) continue;
+    const d=j.data;
+    const price=+d.closing_price, prev=+d.prev_closing_price;
+    const rate=(prev>0)?((price-prev)/prev):(+d.fluctate_rate_24H/100||0);
+    out[sym]={price, dayChangePct:rate, prevClose:prev, _src:'bithumb'};
   }
   return out;
 }

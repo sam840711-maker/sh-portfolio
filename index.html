@@ -1060,7 +1060,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v67';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v68';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -5416,7 +5416,7 @@ function renderCashGuide(s, plan){
   el.innerHTML=`<div style="margin:0 0 12px;padding:11px 13px;background:var(--bg-2);border:1px solid var(--hairline);border-radius:11px">
     ${queueHtml}${kiwoomHtml}
     <div style="font-size:9px;color:var(--text-3);margin-top:9px;padding-top:7px;border-top:1px dashed var(--hairline);line-height:1.5">
-      KB·키움은 증거금이라 당일 매수 — <b>이체 불필요</b> · <b>업비트만 실제 원화 이동</b> · 계좌 넘는 자금은 정산(T+2~3) 후 이체 · 계산 도구(자동매매 아님)</div>
+      계산 도구 · 자동매매 아님</div>
   </div>`;
 }
 function renderStockRebalance(){
@@ -5430,12 +5430,7 @@ function renderStockRebalance(){
   const allChip=`<button class="chip ${rbStockCat==='all'?'active':''}" data-rbcat="all">전체</button>`;
   chipsEl.innerHTML=allChip+cats.map(k=>`<button class="chip ${rbStockCat===k?'active':''}" data-rbcat="${k}">${CATEGORIES[k].label}</button>`).join('');
   chipsEl.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{rbStockCat=c.dataset.rbcat;renderStockRebalance();});
-  let _modeNote='';
-  if(rbMode==='portfolio'){
-    const {gap}=computeCagrGap();
-    if(gap>0) _modeNote=` · <span style="color:var(--text-3)">참고용(매매와 무관) · 목표 CAGR 페이스 +₩${fmtKRW(gap)} 앞섬</span>`;
-    else if(gap<0) _modeNote=` · <span style="color:var(--text-3)">참고용(매매와 무관) · 목표 CAGR 페이스 ₩${fmtKRW(-gap)} 뒤짐</span>`;
-  }
+  const _modeNote='';   // 목표 CAGR 페이스는 대시보드 전용 — 실행(배분) 화면에선 노이즈라 제거(v68)
   // 점진 전환(글라이드) 진행 카드
   (function(){ const ge=document.getElementById('rb-glide'); if(!ge) return;
     const g=state.settings.glide;

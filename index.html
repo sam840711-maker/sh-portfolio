@@ -1060,7 +1060,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v68';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v69';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -5430,7 +5430,6 @@ function renderStockRebalance(){
   const allChip=`<button class="chip ${rbStockCat==='all'?'active':''}" data-rbcat="all">전체</button>`;
   chipsEl.innerHTML=allChip+cats.map(k=>`<button class="chip ${rbStockCat===k?'active':''}" data-rbcat="${k}">${CATEGORIES[k].label}</button>`).join('');
   chipsEl.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{rbStockCat=c.dataset.rbcat;renderStockRebalance();});
-  const _modeNote='';   // 목표 CAGR 페이스는 대시보드 전용 — 실행(배분) 화면에선 노이즈라 제거(v68)
   // 점진 전환(글라이드) 진행 카드
   (function(){ const ge=document.getElementById('rb-glide'); if(!ge) return;
     const g=state.settings.glide;
@@ -5480,7 +5479,7 @@ function renderStockRebalance(){
         <button onclick="cancelGlide()" style="padding:9px 13px;border-radius:9px;background:var(--bg-2);color:var(--text-2);font-size:12px;border:1px solid var(--hairline)">취소</button>
       </div></div>`;
   })();
-  document.getElementById('rb-mode-desc').innerHTML = '활성 자산(보유 + 예수금) 기준 — 대기 자금은 평소엔 별도 보관, 미달 시에만 자동 투입' + _modeNote;
+  { const _md=document.getElementById('rb-mode-desc'); if(_md){ _md.innerHTML=''; _md.style.display='none'; } }  // ① 기준 설명 제거 — ②상태 배너만 남김(v68)
 
   // 종합(모든 로직) 결과 — 종목별 최종 매수/매도로 사용 (전체 포트폴리오 모드에서만)
   const useUni = rbMode==='portfolio';

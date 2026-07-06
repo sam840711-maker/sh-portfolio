@@ -1064,7 +1064,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v61';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v62';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -1632,11 +1632,22 @@ function startGlide(toTargets, steps, cashTo){
     started:Date.now(), lastStepAt:Date.now(), intervalDays:14 };
   initLevLiq();   // 레버리지는 단계와 분리 — 트레일링 회복 청산(신고가 경신 시 매도) + 12.31 마감
 }
-/* 종목 목표비중(자산군내) — 글라이드 중이면 현재→최종을 단계 보간, 아니면 최종값 */
+/* 종목 목표비중(자산군내) — 글라이드 중이면 현재→최종을 단계 보간, 아니면 최종값.
+   단, 청산 자산군(최종 목표 0%)은 종목간 리밸런싱 무의미 → 현재 자산군내 비중 유지(전 종목 비례 청산만). */
 function effectiveTargetWt(h){
   const g=state.settings.glide;
   const toW=h.targetWt||0;
   if(!(g&&g.active&&g.fromWt)) return toW;
+  // 청산 자산군: 종목간 비중 맞추지 않고 현재 비중 유지 → 헛된 종목 매수/매도 제거
+  try{
+    if(finalClassTarget(h.cat)<=0.0001){
+      const fx=state.settings.fxRate||1;
+      const arr=state.holdings.filter(x=>x.cat===h.cat && (x.qty||0)>0);
+      let tot=0, mine=0;
+      arr.forEach(x=>{ const v=(isUSDcat(x.cat)?x.curUSD*fx:x.curKRW)*(x.qty||0)||0; tot+=v; if(x.id===h.id) mine=v; });
+      return tot>0 ? mine/tot : (g.fromWt[h.id]!=null?g.fromWt[h.id]:toW);
+    }
+  }catch(_){}
   const p=(g.steps>0)?Math.min(1,(g.step||1)/g.steps):1;
   const fromW=(g.fromWt[h.id]!=null)?g.fromWt[h.id]:toW;
   return fromW+(toW-fromW)*p;

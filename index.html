@@ -1064,7 +1064,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v57';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v58';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -3880,7 +3880,7 @@ function computeActionAlerts(s){
     if(dLeft<=45 && dLeft>=0 && ov<0 && state.settings._taxYEAck!==y){
       out.push({tag:'세금 통산',sev:'warn',
         why:`연내 통산 기회 D-${dLeft} — 최대 ₩${fmtKRW(Math.abs(ov)+ded)} 수익실현 비과세`,
-        sub:`올해 해외 실현손실 ₩${fmtKRW(Math.abs(ov))} + 기본공제 ₩${fmtKRW(ded)} = 그만큼의 수익실현이 세금 0으로 흡수돼요. 해외양도세는 이월공제 불가 — 12/31까지 같은 해에만 통산. 레버 청산 익절 계획과 맞물려요. 탭하면 올해 리마인더 끔 ▸`,
+        sub:`올해 해외 실현손실 ₩${fmtKRW(Math.abs(ov))} + 기본공제 ₩${fmtKRW(ded)} = 그만큼의 수익실현이 세금 0으로 흡수돼요. 해외양도세는 이월공제 불가 — 12/31까지 같은 해에만 통산. 레버 청산 익절 계획과 맞물려요.\n\n※ 양도세는 KB '실현손익(원화기준)'이 정확한 근거예요. 달러기준 손익과 다를 수 있으니(환율 변동분 포함), KB 해외매매손익 → 원화 → 연간 합계를 세금 카드에 반영하세요. 탭하면 올해 리마인더 끔 ▸`,
         act:'taxYE'});
     }
     if(ov>ded){
@@ -3890,7 +3890,17 @@ function computeActionAlerts(s){
         act:''});
     }
   }catch(_){}
-  // [골인 래더] 마일스톤 도달 알림 — 이긴 만큼 인덱스로 잠그는 사전 약속(2026-07 확정 방향).
+  // [A6] 연말 실현손익 확정 리마인더 — D-30부터. 앱의 실현손익은 매도시점 추정치 → KB 원화기준 연간 합계로 세금 근거 확정 권장.
+  try{
+    const nowK=new Date(Date.now()+9*3600*1000); const y=String(nowK.getUTCFullYear());
+    const ye=new Date(Date.UTC(nowK.getUTCFullYear(),11,31)); const dLeft=Math.ceil((ye-nowK)/86400000);
+    if(dLeft<=30 && dLeft>=0 && state.settings._rpnlConfirmAck!==y){
+      out.push({tag:'실현손익 확정',sev:'info',
+        why:`연말 실현손익 확정 D-${dLeft} — KB 원화기준으로 세금 근거 맞추기`,
+        sub:`앱의 실현손익은 매도 시점 추정이라 KB 확정치와 다를 수 있어요(환율·수수료). KB 해외주식 → 매매손익 → 실현손익 → '원화기준' 연간 합계를 확인해 세금 카드 값을 맞추면 양도세 계산이 정확해져요. 달러기준과 원화기준 차이 = 환차손익분. 탭하면 올해 리마인더 끔 ▸`,
+        act:'rpnlConfirm'});
+    }
+  }catch(_){}
   //   10억→나스닥100계열 30% / 15억→50% / 20억→70%(S&P 혼합·수비 전환) / 27억(10년 목표)→인덱스+현금 위주.
   //   각 계단 1회 알림(확인 시 그 계단 끔). 구체 비중은 도달 시점에 재확정 가능 — 방향의 기록이 목적.
   try{
@@ -3951,6 +3961,10 @@ function acDispatch(act){
     }
     else if(act==='reweigh'){ state.settings._twAckTs=Date.now(); try{ saveState(); }catch(_){} openTargetProposal(); }
     else if(act==='cashman'){ try{ openCashEditor(); }catch(_){ switchView('quickentry'); } }
+    else if(act==='rpnlConfirm'){
+      const y=String(new Date(Date.now()+9*3600*1000).getUTCFullYear());
+      if(confirm('올해('+y+') 실현손익 확정 리마인더를 끌까요?\n· KB 원화기준 연간 실현손익으로 세금 카드를 맞춘 뒤 끄세요\n· 올해 안엔 다시 표시되지 않습니다')){ state.settings._rpnlConfirmAck=y; try{ saveState(); }catch(_){} try{ renderActionCenter(portfolioStats()); }catch(_){} }
+    }
     else if(act==='taxYE'){
       const y=String(new Date(Date.now()+9*3600*1000).getUTCFullYear());
       if(confirm('올해('+y+') 연내 통산 리마인더를 끌까요?\n· 올해 안엔 다시 표시되지 않습니다')){ state.settings._taxYEAck=y; try{ saveState(); }catch(_){} try{ renderActionCenter(portfolioStats()); }catch(_){} }
@@ -3981,7 +3995,7 @@ function renderActionCenter(s){
   if(!acts.length){ el.style.display='none'; el.onclick=null; return; }
   const sev = acts.some(a=>a.sev==='crit')?'crit':(acts.some(a=>a.sev==='warn')?'warn':'');
   el.className='card action-center'+(sev?' '+sev:'');
-  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','크립토 브레이크':'#E5663D','크립토 하드캡':'#E5484D','peak 리셋':'#5AA0A6','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A','QLD 편입':'#3B9EFF','백업 지연':'#E8A23D','목표 재검토':'#C44ED9','정산 확인':'#B7791F','세금 통산':'#3B9EFF','과세 구간':'#E8A23D','골인 래더':'#1E9E5A','정착 전환':'#C9A66B'};
+  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','크립토 브레이크':'#E5663D','크립토 하드캡':'#E5484D','peak 리셋':'#5AA0A6','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A','QLD 편입':'#3B9EFF','백업 지연':'#E8A23D','목표 재검토':'#C44ED9','정산 확인':'#B7791F','세금 통산':'#3B9EFF','과세 구간':'#E8A23D','골인 래더':'#1E9E5A','정착 전환':'#C9A66B','실현손익 확정':'#3B9EFF'};
   window._acOpen = window._acOpen || new Set();   // 펼친 항목(태그 기준) — 메모리만, 앱 새로 열면 초기화(기본 접힘)
   const rows=acts.map(a=>{
     const open=window._acOpen.has(a.tag);

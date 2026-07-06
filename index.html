@@ -893,28 +893,14 @@ input,select,textarea{font-family:inherit;color:inherit}
     <div id="qe-list"></div>
     <button class="btn btn-primary" id="qe-save" style="width:100%;margin:4px 0 8px">전체 저장</button>
     <div class="card">
-      <div class="card-title">계좌별 예수금 (현금) <span class="action" id="edit-cash">수정</span></div>
+      <div class="card-title">현금 · 예수금 <span class="action" id="edit-cash">계좌별 예수금 수정</span></div>
       <div id="cash-list"></div>
-    </div>
-    <div class="card">
-      <div class="card-title">현금 계정 (직접 입력)</div>
-      <div class="info-text" style="margin-bottom:10px">자산군에 배정 안 된 순수 현금 · 이자 수익 등은 잔액에 더해 입력 후 <b>전체 저장</b> · 리밸런싱·전환 시 자동 연동</div>
-      <div style="display:flex;gap:8px">
-        <input id="qe-cashacc-krw" type="number" step="1" inputmode="numeric" placeholder="원화 ₩" style="flex:1;min-width:0;background:var(--frame);border:1px solid var(--hairline);border-radius:9px;padding:11px 12px;font-size:15px;font-variant-numeric:tabular-nums;color:var(--text)">
-        <input id="qe-cashacc-usd" type="number" step="0.01" inputmode="decimal" placeholder="달러 $" style="flex:1;min-width:0;background:var(--frame);border:1px solid var(--hairline);border-radius:9px;padding:11px 12px;font-size:15px;font-variant-numeric:tabular-nums;color:var(--text)">
-      </div>
-      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--hairline)">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
-          <span style="font-size:12px;color:var(--text-2)">계좌별 예수금</span>
-          <span class="num" id="qe-sum-broker" style="font-size:13px;color:var(--text)">₩0</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px" id="qe-sum-cashacc-row">
-          <span style="font-size:12px;color:var(--text-2)">현금 계정</span>
-          <span class="num" id="qe-sum-cashacc" style="font-size:13px;color:var(--text)">₩0</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:8px;border-top:1px solid var(--hairline)">
-          <span style="font-size:13px;font-weight:700;color:var(--text)">총 현금 합계</span>
-          <span class="num" id="qe-sum-total" style="font-size:17px;font-weight:700;color:var(--gold)">₩0</span>
+      <div style="margin-top:14px;padding-top:13px;border-top:1px solid var(--hairline)">
+        <div style="font-size:12.5px;font-weight:700;color:var(--text);margin-bottom:3px">현금 계정 직접 입력 <span style="font-size:10.5px;color:var(--text-3);font-weight:400">· 자산군 미배정</span></div>
+        <div class="info-text" style="margin-bottom:10px">자산군에 배정 안 된 순수 현금 · 이자 수익 등은 잔액에 더해 입력 후 <b>전체 저장</b> · 리밸런싱·전환 시 자동 연동</div>
+        <div style="display:flex;gap:8px">
+          <input id="qe-cashacc-krw" type="number" step="1" inputmode="numeric" placeholder="원화 ₩" style="flex:1;min-width:0;background:var(--frame);border:1px solid var(--hairline);border-radius:9px;padding:11px 12px;font-size:15px;font-variant-numeric:tabular-nums;color:var(--text)">
+          <input id="qe-cashacc-usd" type="number" step="0.01" inputmode="decimal" placeholder="달러 $" style="flex:1;min-width:0;background:var(--frame);border:1px solid var(--hairline);border-radius:9px;padding:11px 12px;font-size:15px;font-variant-numeric:tabular-nums;color:var(--text)">
         </div>
       </div>
     </div>
@@ -1060,7 +1046,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v69';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v70';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -6889,23 +6875,10 @@ function renderQuickEntry(){
   renderCashList();
   // 자산군별 매입 합계 (검산용)
   for(const k in CATEGORIES) qeCatSum(k);
-  // 대기 자금 입력 초기화 + 총 현금 합계 표시
+  // 현금 계정 입력칸 초기화 (요약은 위 cash-list가 담당 — 중복 요약 카드 통합됨 v70)
   const _ca=state.settings.cashAccount||{krw:0,usd:0};
   { const ek=document.getElementById('qe-cashacc-krw'); if(ek) ek.value=(_ca.krw||0)||''; }
   { const eu=document.getElementById('qe-cashacc-usd'); if(eu) eu.value=(_ca.usd||0)||''; }
-  const _cb=state.settings.cashByAccount||{};
-  const _fx=state.settings.fxRate;
-  let brokerCash=0;
-  for(const a in _cb) brokerCash += (_cb[a].krw||0) + (_cb[a].usd||0)*_fx;
-  const cashAcc=cashAccountKRW();
-  const grand=brokerCash+cashAcc;
-  const setText=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent='₩'+fmtKRW(v); };
-  setText('qe-sum-broker', brokerCash);
-  setText('qe-sum-cashacc', cashAcc);
-  setText('qe-sum-total', grand);
-  // 현금 계정 0이면 행 숨김
-  const accRow=document.getElementById('qe-sum-cashacc-row');
-  if(accRow) accRow.style.display = cashAcc>0 ? 'flex' : 'none';
 }
 /* 엔터 → 같은 칸(열) 아래 종목으로 이동 (수량 쭉 → 매입금액 쭉) */
 function qeToggleLock(cat){

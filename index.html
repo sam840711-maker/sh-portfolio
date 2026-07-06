@@ -1045,7 +1045,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v74';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v75';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -8928,6 +8928,9 @@ const GOOGLE_CLIENT_ID = '836300793486-tm7ai7ehdllc2031mjev3e248af8mgt1.apps.goo
 const GDRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 let _tokenClient=null, _accessToken=null, _tokenExp=0, _cloudBusy=false, _autoTried=false;
 let _restoreFiles=[], _restoreTok=null;
+const GD_LOGIN_HINT='sam840711@gmail.com';   // 계정 선택창 최소화용 힌트 (틀리면 무시됨)
+const GD_TOKEN_KEY='sh_gdrive_tok';          // 세션 내 토큰 보존 → 재로드해도 재로그인 안 뜸
+(function _gdRestoreTok(){ try{ const o=JSON.parse(sessionStorage.getItem(GD_TOKEN_KEY)||'null'); if(o && o.tok && o.exp>Date.now()+60000){ _accessToken=o.tok; _tokenExp=o.exp; } }catch(_){} })();
 
 function gisReady(){ return !!(window.google && google.accounts && google.accounts.oauth2); }
 function gdriveLinked(){ try{ return localStorage.getItem('sh_gdrive_linked')==='1'; }catch(_){ return false; } }
@@ -8945,15 +8948,24 @@ function ensureToken(interactive){
     if(_accessToken && Date.now() < _tokenExp-60000) return resolve(_accessToken);
     const tc=getTokenClient();
     if(!tc) return reject(new Error('구글 로그인 모듈 로딩 중'));
+    let retried=false;
     tc.callback=(resp)=>{
       if(resp && resp.access_token){
         _accessToken=resp.access_token;
         _tokenExp=Date.now()+((resp.expires_in||3600)*1000);
+        try{ sessionStorage.setItem(GD_TOKEN_KEY, JSON.stringify({tok:_accessToken,exp:_tokenExp})); }catch(_){}
         try{ localStorage.setItem('sh_gdrive_linked','1'); }catch(_){}
         resolve(_accessToken);
-      } else reject(new Error((resp&&resp.error)||'토큰 발급 실패'));
+      } else if(interactive && !retried){
+        // 무음 실패 → 수동 백업일 때만 1회 동의창(계정힌트 포함). 이미 동의돼 있으면 여기까지 안 옴.
+        retried=true;
+        try{ tc.requestAccessToken({ prompt:'', hint:GD_LOGIN_HINT }); }catch(e){ reject(e); }
+      } else {
+        reject(new Error((resp&&resp.error)||'토큰 발급 실패'));
+      }
     };
-    try{ tc.requestAccessToken({ prompt: interactive?'consent':'' }); }
+    // 항상 무음(prompt:none) 먼저 — 이미 동의된 상태면 화면 없이 토큰 발급. 미동의/만료 시에만 위 콜백에서 동의창.
+    try{ tc.requestAccessToken({ prompt:'none', hint:GD_LOGIN_HINT }); }
     catch(e){ reject(e); }
   });
 }
@@ -9058,6 +9070,7 @@ function gdriveDisconnect(){
   try{ if(_accessToken && gisReady()) google.accounts.oauth2.revoke(_accessToken,()=>{}); }catch(_){}
   _accessToken=null; _tokenExp=0;
   try{ localStorage.removeItem('sh_gdrive_linked'); }catch(_){}
+  try{ sessionStorage.removeItem(GD_TOKEN_KEY); }catch(_){}
   toast('구글 연결 해제됨'); renderCloudUI();
 }
 function showRestoreBanner(){

@@ -1064,7 +1064,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v59';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v60';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -6454,9 +6454,10 @@ function renderRealizedList(){
         const mk=r.market==='overseas'?'해외':'국내';
         const color=r.market==='overseas'?'#4A90E2':'#3DBE8B';
         const fxTxt=(r.market==='overseas'&&r.amountFx)?` · $${r.amountFx>=0?'+':'-'}${Math.abs(r.amountFx).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`:'';
+        const acctTxt=r.acct?` · ${r.acct==='kb'?'KB':'키움'}`:'';
         return `<div class="txn" onclick="openRpnlEntry('${y}','${r.id}')" style="cursor:pointer;padding:8px 0">
           <div class="txn-icon" style="background:${color}22;color:${color};font-size:10px">${mk}</div>
-          <div class="txn-info"><div class="txn-title" style="font-size:13px">${mk} 실현손익</div><div class="txn-date">${r.date}${fxTxt}</div></div>
+          <div class="txn-info"><div class="txn-title" style="font-size:13px">${mk} 실현손익${acctTxt}</div><div class="txn-date">${r.date}${fxTxt}</div></div>
           <div class="txn-amount num ${cls}">${r.amount>=0?'+':'-'}${fmtKRW(Math.abs(r.amount))}</div></div>`;
       }).join('');
       detail=`<div class="tax-line"><span>해외 실현손익</span><span class="num ${ov>=0?'up':'down'}">${ov>=0?'+':'-'}${fmtKRW(Math.abs(ov))}</span></div>
@@ -6482,13 +6483,22 @@ function openRpnlEntry(year,id){
   const rec=id?rpnlYear(y).find(r=>r.id===id):null;
   const date=rec?rec.date:today;
   const market=rec?rec.market:'';        // 무조건 직접 선택
+  const acct=rec?(rec.acct||''):'';       // 계좌(kb/kiwoom)
   const sign=rec?(rec.amount<0?'-':'+'):'+';
+  const fxSign=rec?((rec.amountFx!=null&&rec.amountFx<0)?'-':'+'):'+';   // 외화 부호 독립
   const amount=rec?Math.abs(rec.amount):'';
-  const amountFx=rec&&rec.amountFx?Math.abs(rec.amountFx):'';
+  const amountFx=rec&&rec.amountFx!=null?Math.abs(rec.amountFx):'';
   const delBtn=rec?`<button class="btn btn-danger btn-sm" onclick="deleteRpnl('${y}','${id}')">삭제</button>`:'';
   openModal(`<h3>실현손익 ${rec?'수정':'기록'}</h3>
-    <div class="modal-sub">매도로 확정한 손익을 시장(해외/국내)별로 기록하세요. 증권사 「실현손익합계」를 그대로 입력 — 해외는 원화·외화 둘 다, 국내는 원화만.</div>
+    <div class="modal-sub">매도로 확정한 손익을 기록하세요. 증권사 「실현손익합계」 그대로 — <b>세금은 원화 기준</b>이라 원화 부호가 과세 기준이에요. 외화는 참고용(환율 때문에 원화와 부호가 다를 수 있음).</div>
     <div class="field"><label>날짜</label><input id="rpnl-date" type="date" value="${date}"></div>
+    <div class="field"><label>계좌</label>
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <button type="button" class="btn ${acct==='kb'?'btn-primary':'btn-secondary'}" style="flex:1" onclick="rpnlSetAcct('kb')" id="rpnl-acct-kb">KB증권</button>
+        <button type="button" class="btn ${acct==='kiwoom'?'btn-primary':'btn-secondary'}" style="flex:1" onclick="rpnlSetAcct('kiwoom')" id="rpnl-acct-kw">키움증권</button>
+      </div>
+      <input type="hidden" id="rpnl-acct" value="${acct}">
+    </div>
     <div class="field"><label>시장 (과세 구분) — 직접 선택</label>
       <div style="display:flex;gap:8px;margin-top:4px">
         <button type="button" class="btn ${market==='overseas'?'btn-primary':'btn-secondary'}" style="flex:1" onclick="rpnlSetMkt('overseas')" id="rpnl-mkt-ov">해외</button>
@@ -6496,20 +6506,36 @@ function openRpnlEntry(year,id){
       </div>
       <input type="hidden" id="rpnl-mkt" value="${market}">
     </div>
-    <div class="field"><label>구분 (이익 / 손실)</label>
-      <div style="display:flex;gap:8px;margin-top:4px">
+    <div class="field"><label>원화 실현손익 (₩) — 과세 기준</label>
+      <div style="display:flex;gap:8px;margin-top:4px;margin-bottom:6px">
         <button type="button" class="btn ${sign==='+'?'btn-primary':'btn-secondary'}" style="flex:1" onclick="rpnlSetSign('+')" id="rpnl-sign-p">＋ 이익</button>
         <button type="button" class="btn ${sign==='-'?'btn-primary':'btn-secondary'}" style="flex:1" onclick="rpnlSetSign('-')" id="rpnl-sign-m">－ 손실</button>
       </div>
       <input type="hidden" id="rpnl-sign" value="${sign}">
-    </div>
-    <div class="field"><label>원화 실현손익 (₩)</label><input id="rpnl-amt" type="number" step="1" min="0" inputmode="numeric" value="${amount}" placeholder="예: 48166520"></div>
-    <div class="field" id="rpnl-fx-field" style="display:${market==='overseas'?'block':'none'}"><label>외화 실현손익 ($) — 참고용</label><input id="rpnl-amtfx" type="number" step="0.01" min="0" inputmode="decimal" value="${amountFx}" placeholder="예: 29854.06"></div>
+      <input id="rpnl-amt" type="number" step="1" min="0" inputmode="numeric" value="${amount}" placeholder="예: 48166520"></div>
+    <div class="field" id="rpnl-fx-field" style="display:${market==='overseas'?'block':'none'}"><label>외화 실현손익 ($) — 참고용 (부호 독립)</label>
+      <div style="display:flex;gap:8px;margin-top:4px;margin-bottom:6px">
+        <button type="button" class="btn ${fxSign==='+'?'btn-primary':'btn-secondary'}" style="flex:1" onclick="rpnlSetFxSign('+')" id="rpnl-fxsign-p">＋ 이익</button>
+        <button type="button" class="btn ${fxSign==='-'?'btn-primary':'btn-secondary'}" style="flex:1" onclick="rpnlSetFxSign('-')" id="rpnl-fxsign-m">－ 손실</button>
+      </div>
+      <input type="hidden" id="rpnl-fxsign" value="${fxSign}">
+      <input id="rpnl-amtfx" type="number" step="0.01" min="0" inputmode="decimal" value="${amountFx}" placeholder="예: 1529.38">
+      <small style="color:var(--text-3)">달러로는 손실이어도 환율이 올랐으면 원화는 이익일 수 있어요 — 각각 실제 부호로 입력.</small></div>
     <div class="btn-row">
       ${delBtn}
       <button class="btn btn-secondary" onclick="closeModal()">취소</button>
       <button class="btn btn-primary" onclick="saveRpnl('${y}','${id||''}')">저장</button>
     </div>`);
+}
+function rpnlSetAcct(a){
+  document.getElementById('rpnl-acct').value=a;
+  document.getElementById('rpnl-acct-kb').className='btn '+(a==='kb'?'btn-primary':'btn-secondary');
+  document.getElementById('rpnl-acct-kw').className='btn '+(a==='kiwoom'?'btn-primary':'btn-secondary');
+}
+function rpnlSetFxSign(s){
+  document.getElementById('rpnl-fxsign').value=s;
+  document.getElementById('rpnl-fxsign-p').className='btn '+(s==='+'?'btn-primary':'btn-secondary');
+  document.getElementById('rpnl-fxsign-m').className='btn '+(s==='-'?'btn-primary':'btn-secondary');
 }
 function rpnlSetSign(s){
   document.getElementById('rpnl-sign').value=s;
@@ -6525,16 +6551,18 @@ function rpnlSetMkt(mk){
 async function saveRpnl(origYear,id){
   const date=document.getElementById('rpnl-date').value||new Date().toISOString().slice(0,10);
   const market=document.getElementById('rpnl-mkt').value||'';
+  const acct=document.getElementById('rpnl-acct').value||'';
   const sgn=(document.getElementById('rpnl-sign').value==='-')?-1:1;
+  const fxSgn=(document.getElementById('rpnl-fxsign')&&document.getElementById('rpnl-fxsign').value==='-')?-1:1;
   const amount=sgn*Math.round(Math.abs(parseFloat(document.getElementById('rpnl-amt').value)||0));
-  const amountFx=(market==='overseas')?(sgn*Math.abs(parseFloat(document.getElementById('rpnl-amtfx').value)||0)):0;
+  const amountFx=(market==='overseas')?(fxSgn*Math.abs(parseFloat(document.getElementById('rpnl-amtfx').value)||0)):0;   // 외화 부호 독립(환율로 원화와 다를 수 있음)
   if(!market){ toast('시장(해외/국내)을 선택하세요'); return; }
   if(!amount){ toast('원화 실현손익을 입력하세요'); return; }
   const y=date.slice(0,4);
   if(!state.realizedPnl) state.realizedPnl={};
   if(id){ for(const yy in state.realizedPnl) state.realizedPnl[yy]=state.realizedPnl[yy].filter(r=>r.id!==id); }
   if(!state.realizedPnl[y]) state.realizedPnl[y]=[];
-  state.realizedPnl[y].push({id:id||('rp'+Date.now()), date, market, amount, amountFx:amountFx||null});
+  state.realizedPnl[y].push({id:id||('rp'+Date.now()), date, market, acct:acct||null, amount, amountFx:amountFx||null});
   for(const yy in state.realizedPnl){ if(!state.realizedPnl[yy].length) delete state.realizedPnl[yy]; }
   await saveState(); closeModal(); toast('실현손익 저장됨'); switchView('transactions');
 }

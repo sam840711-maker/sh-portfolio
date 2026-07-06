@@ -1064,7 +1064,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v56';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v57';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -6222,7 +6222,8 @@ function pendingSettle(i){
   if(inp){ // 현재 예수금 입력칸 값(부호 반영)에 더해줌
     const sign=(signEl&&signEl.value==='-')?-1:1;
     const cur=sign*Math.abs(parseFloat(inp.value)||0);
-    const nv=cur+amt;
+    let nv=cur+amt;
+    nv = (it.cur==='usd') ? Math.round(nv*100)/100 : Math.round(nv);   // 부동소수점 오차 제거(달러 2자리·원화 정수)
     if(signEl) signEl.value=nv<0?'-':'+';
     inp.value=Math.abs(nv)||'';
     // 부호 버튼 시각 갱신
@@ -6280,7 +6281,7 @@ async function saveCashEditor(){
     const sgnU=(document.getElementById('cash-'+a+'-usd-sign')?.value==='-')?-1:1;
     const vKrw=Math.abs(parseFloat(document.getElementById('cash-'+a+'-krw')?.value)||0);
     const vUsd=Math.abs(parseFloat(document.getElementById('cash-'+a+'-usd')?.value)||0);
-    cb[a]={ krw: sgnK*vKrw, usd: sgnU*vUsd };   // 부호 그대로 저장 (미결제 달러 음수 허용)
+    cb[a]={ krw: sgnK*Math.round(vKrw), usd: sgnU*(Math.round(vUsd*100)/100) };   // 부호 유지 + 부동소수점 오차 제거(원화 정수·달러 2자리)
   });
   state.settings.cashByAccount=cb;
   // 미정산금 — 편집 리스트를 확정(0 이하·필드 정합 정리) → pendingByAccount 재파생

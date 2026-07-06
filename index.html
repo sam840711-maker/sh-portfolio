@@ -1064,7 +1064,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v58';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v59';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -3743,7 +3743,21 @@ function computeActionAlerts(s){
       out.push({tag:'상승가속',sev:'info', why, sub:sub,act:'alloc'});
     }
   }catch(_){}
-  // 급락 경고 — 전일 대비 −10% 이상 하락 시 즉시 알림(14일 글라이드와 별개, 빠른 대응용)
+  // [글라이드 단계] 다음 단계 시기 도래 — 마지막 단계 후 권장간격(14일) 경과 & 아직 완료 전이면 알림.
+  try{
+    const g=state.settings.glide;
+    if(g && g.active && (g.step||1)<g.steps){
+      const intv=g.intervalDays||14;
+      const dLeft=Math.ceil(intv-(Date.now()-(g.lastStepAt||g.started||Date.now()))/86400000);
+      const nextN=Math.min((g.step||1)+1,g.steps);
+      if(dLeft<=0){
+        out.push({tag:'글라이드 단계',sev:'info',
+          why:`글라이드 다음 단계 시기 — ${nextN}/${g.steps}단계 진행 권장`,
+          sub:`점진 전환 권장 간격(${intv}일)이 지났어요. 배분 페이지에서 ${g.step}단계 매매를 마쳤으면 ${nextN}단계로 넘어가세요. 강제는 아니고 타이밍 분산용 — 급하면 미뤄도 돼요. 탭하면 배분 페이지 ▸`,
+          act:'glideStep'});
+      }
+    }
+  }catch(_){}
   try{ const dc=dailyChange();
     if(dc && dc.pct<=-0.10){
       out.push({tag:'급락 경고',sev:'risk',
@@ -3961,6 +3975,7 @@ function acDispatch(act){
     }
     else if(act==='reweigh'){ state.settings._twAckTs=Date.now(); try{ saveState(); }catch(_){} openTargetProposal(); }
     else if(act==='cashman'){ try{ openCashEditor(); }catch(_){ switchView('quickentry'); } }
+    else if(act==='glideStep'){ try{ switchView('allocation'); }catch(_){} }
     else if(act==='rpnlConfirm'){
       const y=String(new Date(Date.now()+9*3600*1000).getUTCFullYear());
       if(confirm('올해('+y+') 실현손익 확정 리마인더를 끌까요?\n· KB 원화기준 연간 실현손익으로 세금 카드를 맞춘 뒤 끄세요\n· 올해 안엔 다시 표시되지 않습니다')){ state.settings._rpnlConfirmAck=y; try{ saveState(); }catch(_){} try{ renderActionCenter(portfolioStats()); }catch(_){} }
@@ -3995,7 +4010,7 @@ function renderActionCenter(s){
   if(!acts.length){ el.style.display='none'; el.onclick=null; return; }
   const sev = acts.some(a=>a.sev==='crit')?'crit':(acts.some(a=>a.sev==='warn')?'warn':'');
   el.className='card action-center'+(sev?' '+sev:'');
-  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','크립토 브레이크':'#E5663D','크립토 하드캡':'#E5484D','peak 리셋':'#5AA0A6','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A','QLD 편입':'#3B9EFF','백업 지연':'#E8A23D','목표 재검토':'#C44ED9','정산 확인':'#B7791F','세금 통산':'#3B9EFF','과세 구간':'#E8A23D','골인 래더':'#1E9E5A','정착 전환':'#C9A66B','실현손익 확정':'#3B9EFF'};
+  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','크립토 브레이크':'#E5663D','크립토 하드캡':'#E5484D','peak 리셋':'#5AA0A6','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A','QLD 편입':'#3B9EFF','백업 지연':'#E8A23D','목표 재검토':'#C44ED9','정산 확인':'#B7791F','세금 통산':'#3B9EFF','과세 구간':'#E8A23D','골인 래더':'#1E9E5A','정착 전환':'#C9A66B','실현손익 확정':'#3B9EFF','글라이드 단계':'#43B77E'};
   window._acOpen = window._acOpen || new Set();   // 펼친 항목(태그 기준) — 메모리만, 앱 새로 열면 초기화(기본 접힘)
   const rows=acts.map(a=>{
     const open=window._acOpen.has(a.tag);

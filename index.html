@@ -1060,7 +1060,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v66';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v67';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -5356,6 +5356,7 @@ function renderCashGuide(s, plan){
     const brokerCash=Math.max(0,Math.round(cashByAccountKRW()));  // 예수금(계좌별)
     const cashAcc=Math.max(0,Math.round(cashAccountKRW()));       // 현금 계정(직접입력·자산군 미배정)
     const delayed=Math.max(0, Q.pool-Q.cashNow);   // 매도정산분(미정산 포함) = T+2~3 후
+    const covered=Q.cashNeed<=immediate;            // 즉시현금만으로 커버되면 상세 접음
     const destRows=Q.cashDests.map(d=>{ const A=ACCOUNTS[d.a];
       return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
         <span style="font-size:13px;font-weight:700"><b style="color:${A.color}">${A.label}</b>로 이체</span>
@@ -5379,11 +5380,8 @@ function renderCashGuide(s, plan){
       return `<div style="display:flex;justify-content:space-between;gap:8px;padding:1.5px 0">
         <span style="font-size:10.5px;color:var(--text-2)">${A.label} 매도정산분${pendNote}</span>
         <span style="font-size:10.5px;font-weight:600;color:var(--up)">₩${fmtKRW(d.free)}</span></div>`; }).join('');
-    queueHtml=`<div style="padding:11px 12px;background:rgba(183,121,31,0.06);border:1px solid rgba(183,121,31,0.30);border-radius:10px">
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-        <span style="font-size:12px;font-weight:800">🔁 업비트 이체 대기</span>${badge}</div>
-      ${destRows}
-      <div style="margin-top:9px;padding-top:8px;border-top:1px dashed var(--hairline)">
+    // 상세 내역(조달원) — ✅ 즉시 커버 시엔 접고, ⏳/❌(즉시현금 부족)일 때만 펼침
+    const detailHtml=`<div style="margin-top:9px;padding-top:8px;border-top:1px dashed var(--hairline)">
         <div style="font-size:9.5px;color:#1E9E5A;font-weight:700;margin-bottom:3px">지금 가능 · 즉시</div>
         <div style="display:flex;justify-content:space-between;gap:8px;padding:1.5px 0">
           <span style="font-size:10.5px;color:var(--text-2)">예수금 <span style="color:var(--text-3);font-size:8.5px">계좌별</span></span>
@@ -5392,7 +5390,12 @@ function renderCashGuide(s, plan){
           <span style="font-size:10.5px;color:var(--text-2)">현금 계정 <span style="color:var(--text-3);font-size:8.5px">자산군 미배정</span></span>
           <span style="font-size:11px;font-weight:700;color:var(--up)">₩${fmtKRW(cashAcc)}</span></div>`:''}
         ${delayed>Q.TH?`<div style="font-size:9.5px;color:var(--text-3);font-weight:700;margin:6px 0 3px">정산 후 · T+2~3</div>${srcRows}`:''}
-      </div>
+      </div>`;
+    queueHtml=`<div style="padding:11px 12px;background:rgba(183,121,31,0.06);border:1px solid rgba(183,121,31,0.30);border-radius:10px">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+        <span style="font-size:12px;font-weight:800">🔁 업비트 이체 대기</span>${badge}</div>
+      ${destRows}
+      ${covered?'':detailHtml}
       ${verdict}
     </div>`;
   }

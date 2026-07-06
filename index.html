@@ -1060,7 +1060,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v63';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v64';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -3780,8 +3780,8 @@ function computeActionAlerts(s){
     if(cb.length && !(_rr.level&&_rr.level!=='near')){   // 이미 방어(플로어/추세/레버) 중이면 중복 표시 안 함
       if(cryptoBrakeOn()){
         out.push({tag:'크립토 브레이크',sev:'warn',
-          why:`크립토 소프트 브레이크 발동 — ${cb.join('·')} 200일선 2일↑ 이탈`,
-          sub:`크립토(50% 비중) 추세 이탈 2거래일 확인 → 가속 추가투입 보류 + 현금 버퍼 ${(CRYPTO_BRAKE_CASH*100).toFixed(0)}%로 상향. 글라이드 기본 매집(DCA)은 유지 — 칼날 잡기(추가 현금투입)만 차단. 추세 회복 시 자동 해제. ▸`,
+          why:`크립토 소프트 브레이크 — ${cb.join('·')} 추세이탈 · 가속만 정지, 기본 매집(DCA)은 유지`,
+          sub:`${cb.join('·')} 200일선 2일↑ 이탈. 조치 = 가속(윈너라이딩) 추가투입만 보류 + 현금버퍼 ${(CRYPTO_BRAKE_CASH*100).toFixed(0)}%↑. 배분탭에 뜨는 소액 BTC·ETH 매수는 '기본 글라이드 매집(DCA)'이라 그대로 진행이 맞아 — 방어와 모순 아님. 대기현금을 급락에 몰아넣는 '칼날 잡기'만 차단하는 거야. 추세 회복 시 자동 해제. ▸`,
           act:'alloc'});
       } else {
         out.push({tag:'크립토 추세',sev:'warn',

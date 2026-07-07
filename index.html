@@ -1046,7 +1046,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v86';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v87';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -5715,22 +5715,20 @@ function renderStockRebalance(){
       <div class="rbsum-l2"><span class="down">매수 ₩${fmtKRW(tb)}</span> · <span class="up">매도 ₩${fmtKRW(ts)}</span></div>
       <div class="rbsum-net ${netT>=0?'down':'up'}">순 ${netT>=0?'매수':'매도'} ₩${fmtKRW(Math.abs(netT))}</div>
       ${netT>=0 ? (()=>{
-        const cashNow=Math.max(0,Math.round(_s.cash||0));
+        const brokerCash=Math.max(0,Math.round(cashByAccountKRW()));
+        const cashAcc=Math.max(0,Math.round(cashAccountKRW()));
         const pend=Math.max(0,Math.round(_s.pendingSettle||0));
-        const fromCash=Math.min(netT,cashNow);
-        const fromPend=Math.max(0,Math.min(netT-cashNow, pend));
+        const fromBroker=Math.min(netT, brokerCash);
+        const fromCashAcc=Math.max(0,Math.min(netT-fromBroker, cashAcc));
+        const fromPend=Math.max(0,Math.min(netT-fromBroker-fromCashAcc, pend));
         const trimmed=(useUni&&_uniPlan&&_uniPlan.capped)?Math.round(_uniPlan.capTrimmed):0;
+        const fRow=(lbl,amt,col)=>`<div style="display:flex;justify-content:space-between;font-size:10.5px;padding:2px 0"><span style="color:var(--text-2)">${lbl}</span><span style="color:${col};font-weight:600">₩${fmtKRW(amt)}</span></div>`;
         return `<div style="margin-top:6px;padding-top:6px;border-top:1px dotted var(--hairline)">
-          <div style="display:flex;justify-content:space-between;font-size:10.5px;padding:2px 0">
-            <span style="color:var(--text-2)">예수금에서 충당</span>
-            <span style="color:var(--up);font-weight:600">₩${fmtKRW(fromCash)}</span></div>
-          ${fromPend>10000?`<div style="display:flex;justify-content:space-between;font-size:10.5px;padding:2px 0">
-            <span style="color:var(--text-2)">미정산금에서 충당</span>
-            <span style="color:#B7791F;font-weight:600">₩${fmtKRW(fromPend)}</span></div>`:''}
+          ${fromBroker>0?fRow('예수금에서 충당', fromBroker, 'var(--up)'):''}
+          ${fromCashAcc>0?fRow('현금계정에서 충당', fromCashAcc, 'var(--up)'):''}
+          ${fromPend>10000?fRow('미정산금에서 충당 <span style="font-size:9px;color:var(--text-3)">· T+2 후</span>', fromPend, '#B7791F'):''}
           ${trimmed>10000
-            ? `<div style="display:flex;justify-content:space-between;font-size:10.5px;padding:2px 0">
-                 <span style="color:var(--text-3);font-weight:600">목표까지 보류 (자금 한도)</span>
-                 <span style="color:var(--text-3);font-weight:600">₩${fmtKRW(trimmed)}</span></div>`
+            ? fRow('목표까지 보류 (자금 한도)', trimmed, 'var(--text-3)')
             : `<div style="font-size:10px;color:var(--up);padding:2px 0">전액 충당 — 목표 비중 도달</div>`}
           <div style="font-size:9px;color:var(--text-3);margin-top:4px;line-height:1.5">매수 추천은 동원가능액(예수금+매도정산+미정산) 한도로 우선순위대로 캡 — 실행 가능${trimmed>10000?` · 보류 ₩${fmtKRW(trimmed)}는 다음 회차 이월 또는 입금 시 집행`:''}${ts>10000?` · 매도 ₩${fmtKRW(ts)}는 정산(T+2~3) 후 충당`:''}</div>
         </div>`;

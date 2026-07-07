@@ -1046,7 +1046,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v84';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v85';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -5590,6 +5590,7 @@ function renderStockRebalance(){
     });
   };
   let html='';
+  const _fx=state.settings.fxRate||1;   // 달러 소계 환산(종목 priceKRW와 동일 환율)
   let allRows=[];
   if(rbStockCat==='all'){
     // 카테고리별 그룹 HTML + 합계를 먼저 만들고, 계좌(KB·키움·업비트) 헤더 아래로 묶는다
@@ -5610,12 +5611,14 @@ function renderStockRebalance(){
         rows.forEach(r=>{ const amt=r.adjustShares*r.priceKRW; if(amt>0) gb+=amt; else if(amt<0) gs-=amt; });
       }
       const gnet=gb-gs;
-      const gsumLine=`<div style="font-size:10.5px;margin:-2px 0 9px 16px">`
+      const _usd=isUSDcat(k);
+      const gsumLine=`<div style="font-size:10.5px;margin:-2px 0 ${_usd?'0':'9px'} 16px">`
         +`<span class="${gnet>=0?'down':'up'}" style="font-weight:600">순 ${gnet>=0?'매수':'매도'} ₩${fmtKRW(Math.abs(gnet))}</span>`
         +`<span style="color:var(--text-3)"> · 매수 ${gb>0?'₩'+fmtKRW(gb):'—'} · 매도 ${gs>0?'₩'+fmtKRW(gs):'—'}</span></div>`;
+      const usdLine=_usd?`<div style="font-size:9.5px;color:var(--text-3);margin:0 0 9px 16px">달러 · 순 ${fmtUSD(Math.abs(gnet)/_fx)} · 매수 ${gb>0?fmtUSD(gb/_fx):'—'} · 매도 ${gs>0?fmtUSD(gs/_fx):'—'}</div>`:'';
       catBlock[k]={gb,gs,hasRows:true,html:`<div class="rbx-group">
         <div class="rbx-group-head"><span class="abar-dot" style="background:${CATEGORIES[k].color}"></span>${CATEGORIES[k].label}${wtWarn}</div>
-        ${gsumLine}
+        ${gsumLine}${usdLine}
         ${groupRows.map(buildRow).join('')}
       </div>`};
     }
@@ -5624,18 +5627,20 @@ function renderStockRebalance(){
       const A=ACCOUNTS[acct];
       const acctCats=cats.filter(k=>accountOfCat(k)===acct && catBlock[k] && catBlock[k].hasRows);
       if(!acctCats.length) continue;
-      let aB=0,aS=0, inner='';
-      acctCats.forEach(k=>{ aB+=catBlock[k].gb; aS+=catBlock[k].gs; inner+=catBlock[k].html; });
-      const aNet=aB-aS;
+      let aB=0,aS=0, inner='', aUsdB=0,aUsdS=0;
+      acctCats.forEach(k=>{ aB+=catBlock[k].gb; aS+=catBlock[k].gs; inner+=catBlock[k].html; if(isUSDcat(k)){ aUsdB+=catBlock[k].gb; aUsdS+=catBlock[k].gs; } });
+      const aNet=aB-aS; const aUsdNet=aUsdB-aUsdS;
+      const aUsdLine=(aUsdB+aUsdS>1)?`<div style="font-size:9.5px;color:var(--text-3);margin:-6px 0 10px">달러분 · 순 ${fmtUSD(Math.abs(aUsdNet)/_fx)} · 매수 ${aUsdB>0?fmtUSD(aUsdB/_fx):'—'} · 매도 ${aUsdS>0?fmtUSD(aUsdS/_fx):'—'}</div>`:'';
       html+=`<div style="margin-bottom:16px;border:1px solid var(--hairline);border-left:3px solid ${A.color};border-radius:10px;padding:11px 12px 4px">
         <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:2px">
           <span style="font-size:13.5px;font-weight:800;color:${A.color}">${A.label}</span>
           <span style="font-size:9.5px;color:var(--text-3);font-weight:500">${A.note}</span>
         </div>
-        <div style="font-size:10.5px;margin-bottom:10px">
+        <div style="font-size:10.5px;margin-bottom:${aUsdLine?'4px':'10px'}">
           <span class="${aNet>=0?'down':'up'}" style="font-weight:700">순 ${aNet>=0?'매수':'매도'} ₩${fmtKRW(Math.abs(aNet))}</span>
           <span style="color:var(--text-3)"> · 매수 ${aB>0?'₩'+fmtKRW(aB):'—'} · 매도 ${aS>0?'₩'+fmtKRW(aS):'—'}</span>
         </div>
+        ${aUsdLine}
         ${inner}
       </div>`;
     }
@@ -5650,11 +5655,13 @@ function renderStockRebalance(){
       rows.forEach(r=>{ const amt=r.adjustShares*r.priceKRW; if(amt>0) gb+=amt; else if(amt<0) gs-=amt; });
     }
     const gnet=gb-gs;
-    const gsumLine=`<div style="font-size:11px;margin:0 0 12px 0;padding-bottom:9px;border-bottom:1px solid var(--hairline)">`
+    const _usdS=isUSDcat(rbStockCat);
+    const gsumLine=`<div style="font-size:11px;margin:0 0 ${_usdS?'2px':'12px'} 0;${_usdS?'':'padding-bottom:9px;border-bottom:1px solid var(--hairline);'}">`
       +`<span class="abar-dot" style="background:${CATEGORIES[rbStockCat].color}"></span>`
       +`<span class="${gnet>=0?'down':'up'}" style="font-weight:600">순 ${gnet>=0?'매수':'매도'} ₩${fmtKRW(Math.abs(gnet))}</span>`
       +`<span style="color:var(--text-3)"> · 매수 ${gb>0?'₩'+fmtKRW(gb):'—'} · 매도 ${gs>0?'₩'+fmtKRW(gs):'—'}</span></div>`;
-    html=gsumLine+allRows.map(buildRow).join('');
+    const usdLineS=_usdS?`<div style="font-size:9.5px;color:var(--text-3);margin:0 0 12px 0;padding-bottom:9px;border-bottom:1px solid var(--hairline)">달러 · 순 ${fmtUSD(Math.abs(gnet)/_fx)} · 매수 ${gb>0?fmtUSD(gb/_fx):'—'} · 매도 ${gs>0?fmtUSD(gs/_fx):'—'}</div>`:'';
+    html=gsumLine+usdLineS+allRows.map(buildRow).join('');
   }
   // 모드 배너 — 종합 결과임을 명시 (경고 시 방어 모드 강조)
   let banner='';

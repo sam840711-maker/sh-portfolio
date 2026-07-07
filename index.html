@@ -984,7 +984,7 @@ const CATEGORIES = {
   us_etf:     {label:'US ETF',     color:'#2FB985', currency:'USD', target:0.22},
   lev_tech:   {label:'Lev Tech 2x',   color:'#E5663D', currency:'USD', target:0.00},
   lev_crypto: {label:'Lev Crypto', color:'#C44ED9', currency:'USD', target:0.00},
-  global_etf: {label:'Global ETF', color:'#4A90E2', currency:'KRW', target:0.00},
+  global_etf: {label:'국내ETF(해외)', color:'#4A90E2', currency:'KRW', target:0.00},
   crypto:     {label:'Crypto',     color:'#9B7BD8', currency:'KRW', target:0.55},
   gold:       {label:'Gold (금)',  color:'#D4AF37', currency:'USD', target:0.05},
 };
@@ -1046,7 +1046,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v82';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v83';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -6016,7 +6016,7 @@ function computeTargetProposal(){
         proposed.lev_crypto=Math.max(0, lc-cut*(lc/levSum));
         proposed.lev_tech  =Math.max(0, lt-cut*(lt/levSum));
         proposed.global_etf=(proposed.global_etf||0)+cut;
-        reasons.push(`변동성 ${(vol*100).toFixed(0)}%가 기준선 ${(base*100).toFixed(0)}% 대비 +25% 초과 — 레버리지 −${(cut*100).toFixed(0)}%p를 Global ETF로 이전 제안`);
+        reasons.push(`변동성 ${(vol*100).toFixed(0)}%가 기준선 ${(base*100).toFixed(0)}% 대비 +25% 초과 — 레버리지 −${(cut*100).toFixed(0)}%p를 국내ETF(해외)로 이전 제안`);
         changed=true;
       }
     } else if(vol<base*0.75){
@@ -7382,7 +7382,7 @@ function renderTax(){
   </div>`;
 
   // 자산군별 양도세 추정
-  html+=`<div class="card"><div class="card-title">자산군별 양도세 추정 <span class="action" id="tax-edit">세율 설정 ▸</span></div>`;
+  html+=`<div class="card"><div class="card-title">자산군별 양도세 추정 <span style="font-size:10.5px;color:var(--text-3);font-weight:400">미실현·현 보유분</span> <span class="action" id="tax-edit">세율 설정 ▸</span></div>`;
   for (const r of est.rows){
     const gCls=r.gain>=0?'up':'down';
     const meta=['세율 '+fmtRate(r.rate)];
@@ -7393,7 +7393,7 @@ function renderTax(){
         <span class="num">예상세금 ${r.tax>0?fmtKRW(r.tax)+'원':'없음'}</span>
       </div>
       <div class="tax-row-sub">
-        <span>평가손익 <b class="num ${gCls}">${r.gain>=0?'+':'-'}${fmtKRW(Math.abs(r.gain))}</b></span>
+        <span>${Math.abs(r.gain)<1?`보유 없음 <span style="font-size:10px;color:var(--text-3)">· 실현은 아래 참조</span>`:`평가손익 <b class="num ${gCls}">${r.gain>=0?'+':'-'}${fmtKRW(Math.abs(r.gain))}</b>`}</span>
         <span>${meta.join(' · ')}</span>
       </div>
     </div>`;

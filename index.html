@@ -891,6 +891,7 @@ input,select,textarea{font-family:inherit;color:inherit}
     </div>
     <div id="qe-list"></div>
     <button class="btn btn-primary" id="qe-save" style="width:100%;margin:4px 0 8px">전체 저장</button>
+    <button class="btn btn-secondary" id="qe-cleanup" style="width:100%;margin:0 0 8px;border-color:var(--down);color:var(--down)" onclick="openHoldingCleanup()">종목 정리·삭제</button>
     <div class="card">
       <div class="card-title">현금 · 예수금 <span class="action" id="edit-cash">계좌별 예수금 수정</span></div>
       <div id="cash-list"></div>
@@ -1045,7 +1046,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v80';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v82';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -6913,6 +6914,10 @@ function renderQuickEntry(){
   const _ca=state.settings.cashAccount||{krw:0,usd:0};
   { const ek=document.getElementById('qe-cashacc-krw'); if(ek) ek.value=(_ca.krw||0)||''; }
   { const eu=document.getElementById('qe-cashacc-usd'); if(eu) eu.value=(_ca.usd||0)||''; }
+  // 종목 정리·삭제 버튼 — 항상 표시, 0 수량 있으면 개수 힌트
+  { const zc=state.holdings.filter(h=>!(Math.abs(h.qty||0)>1e-6)).length;
+    const cb=document.getElementById('qe-cleanup');
+    if(cb){ cb.style.display='block'; cb.textContent = zc>0?`종목 정리·삭제 · 청산완료 ${zc}개`:'종목 정리·삭제'; } }
 }
 /* 엔터 → 같은 칸(열) 아래 종목으로 이동 (수량 쭉 → 매입금액 쭉) */
 function qeToggleLock(cat){
@@ -7883,6 +7888,58 @@ async function deleteHolding(id){
   await saveState(); closeModal(); toast(h.symbol+' 삭제됨'); switchView(currentView);
 }
 window.openHoldingDetail=openHoldingDetail; window.saveHoldingDetail=saveHoldingDetail; window.deleteHolding=deleteHolding;
+async function cleanupZeroHoldings(){
+  const eps=1e-6;
+  const zeros=state.holdings.filter(h=>!(Math.abs(h.qty||0)>eps));
+  if(!zeros.length){ toast('정리할 0 수량 종목이 없습니다'); return; }
+  const names=zeros.map(h=>h.symbol||h.name).join(', ');
+  if(!confirm(`수량 0인 종목 ${zeros.length}개 삭제:\n${names}\n\n보유목록에서 제거됩니다 (거래·세금 기록은 유지). 진행할까요?`)) return;
+  const ids=new Set(zeros.map(h=>h.id));
+  state.holdings=state.holdings.filter(h=>!ids.has(h.id));
+  await saveState(); toast(`${zeros.length}개 종목 정리됨`); switchView(currentView);
+}
+window.cleanupZeroHoldings=cleanupZeroHoldings;
+/* 종목 선택 삭제 — 체크박스 멀티선택 (0 수량 기본 체크) */
+function openHoldingCleanup(){
+  const eps=1e-6;
+  const hs=[...state.holdings].sort((a,b)=>{
+    const za=!(Math.abs(a.qty||0)>eps), zb=!(Math.abs(b.qty||0)>eps);
+    if(za!==zb) return za?-1:1;                       // 0 수량 먼저
+    return (a.cat||'').localeCompare(b.cat||'')||(a.symbol||'').localeCompare(b.symbol||'');
+  });
+  if(!hs.length){ toast('종목이 없습니다'); return; }
+  const rows=hs.map(h=>{
+    const z=!(Math.abs(h.qty||0)>eps);
+    const sym=(h.symbol||'').replace('.KS','').replace('.L','');
+    const q=h.cat==='crypto'?(h.qty||0):Math.round(h.qty||0);
+    const cl=CATEGORIES[h.cat]?CATEGORIES[h.cat].label:h.cat;
+    return `<label style="display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--hairline);cursor:pointer">
+      <input type="checkbox" class="hc-chk" data-id="${h.id}" ${z?'checked':''} onchange="hcCount()">
+      <span style="flex:1;min-width:0">
+        <span style="font-weight:700;font-size:13px">${esc(sym)}</span> <span style="font-size:10px;color:var(--text-3)">${esc(cl)}</span>
+        <div style="font-size:10.5px;color:${z?'var(--down)':'var(--text-3)'}">${z?'수량 0 · 청산완료':'보유 '+q}</div>
+      </span></label>`;
+  }).join('');
+  openModal(`<h3>종목 선택 삭제</h3>
+    <div class="modal-sub">지울 종목을 체크하세요 · 수량 0은 기본 선택됨 · <span id="hc-count">0</span>개 선택</div>
+    <div style="max-height:46vh;overflow-y:auto;margin:4px 0 12px">${rows}</div>
+    <div class="btn-row">
+      <button class="btn btn-danger" onclick="hcDelete()">선택 삭제</button>
+      <button class="btn btn-secondary" onclick="closeModal()">취소</button>
+    </div>`);
+  hcCount();
+}
+function hcCount(){ const el=document.getElementById('hc-count'); if(el) el.textContent=document.querySelectorAll('.hc-chk:checked').length; }
+async function hcDelete(){
+  const ids=Array.from(document.querySelectorAll('.hc-chk:checked')).map(c=>c.dataset.id);
+  if(!ids.length){ toast('선택된 종목이 없습니다'); return; }
+  const idset=new Set(ids);
+  const names=state.holdings.filter(h=>idset.has(h.id)).map(h=>h.symbol||h.name).join(', ');
+  if(!confirm(`종목 ${ids.length}개 삭제:\n${names}\n\n보유목록에서 제거됩니다 (거래·세금 기록은 유지). 진행할까요?`)) return;
+  state.holdings=state.holdings.filter(h=>!idset.has(h.id));
+  await saveState(); closeModal(); toast(`${ids.length}개 종목 삭제됨`); switchView(currentView);
+}
+window.openHoldingCleanup=openHoldingCleanup; window.hcCount=hcCount; window.hcDelete=hcDelete;
 
 /* 미사용 종목 자동 정리 — 0주 + 실효 최종목표 0%(targetWt×최종 클래스목표)면 목록에서 제거.
    MAGS·ARKK·BTC·ETH는 목표>0이라 0주여도 보존, 매도 진행 중(주수>0)인 종목도 보존. */

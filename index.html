@@ -1046,7 +1046,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v85';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v86';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -6765,7 +6765,14 @@ function renderCashList(){
     +(pending>0?`<div class="txn">
       <div class="txn-icon" style="background:rgba(183,121,31,0.15);color:#B7791F">정</div>
       <div class="txn-info"><div class="txn-title">미정산금 <span style="font-size:10.5px;color:var(--text-3);font-weight:400">T+2 정산대기</span></div><div class="txn-date">원화 ${fmtKRWFull(pKrw)} · 달러 ${fmtUSD(pUsd)} <span style="color:var(--text-3)">· 정산 시 예수금 이동</span></div></div>
-      <div class="txn-amount num" style="color:#B7791F">${fmtKRW(pending)}</div></div>`:'')
+      <div class="txn-amount num" style="color:#B7791F">${fmtKRW(pending)}</div></div>`
+      + ACCOUNT_ORDER.map(a=>{ const p=(state.settings.pendingByAccount||{})[a]||{}; const pk=p.krw||0,pu=p.usd||0; const eq=pk+pu*fx; if(eq<=0) return '';
+        const col=ACCOUNTS[a].color;
+        return `<div class="txn" style="padding:3px 0 3px 40px">
+          <div class="txn-info"><div class="txn-title" style="font-size:12px;font-weight:500;color:${col}">└ ${ACCOUNTS[a].label}</div><div class="txn-date" style="font-size:10px">원화 ${fmtKRWFull(pk)} · 달러 ${fmtUSD(pu)}</div></div>
+          <div class="txn-amount num" style="color:#B7791F;font-size:12.5px">${fmtKRW(eq)}</div></div>`;
+      }).join('')
+    :'')
     +`<div class="txn" style="border-top:2px solid var(--hairline);margin-top:2px">
       <div class="txn-info"><div class="txn-title" style="font-weight:700">총 현금 합계</div><div class="txn-date">원화 ₩${fmtKRWFull((function(){const c=cashSplit();return c.krw;})())} · 달러 ${fmtUSD((function(){const c=cashSplit();return c.usd;})())} <span style="color:var(--text-3)">· 배분 '현금'과 동일</span></div></div>
       <div class="txn-amount num" style="color:var(--gold);font-weight:700">${fmtKRW(grand)}</div></div>`;

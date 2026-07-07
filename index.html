@@ -1045,7 +1045,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v75';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v76';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -7357,7 +7357,7 @@ function renderTax(){
     <div class="card-title">전체 정리 시 온핸드</div>
     <div class="tax-onhand">${fmtKRWFull(onhand)}</div>
     <div class="tax-line"><span>현재 총자산 (예수금 포함)</span><span class="num">${fmtKRW(s.totalWithCash)}</span></div>
-    <div class="tax-line"><span>예상 양도소득세</span><span class="num down">${est.totalTax>0?'-'+fmtKRW(est.totalTax):'0'}</span></div>
+    <div class="tax-line"><span>납부 세금 예상액</span><span class="num">${est.totalTax>0?fmtKRW(est.totalTax):'0'}</span></div>
     <div class="tax-line tax-line-sum"><span>온핸드 예상액</span><span class="num">${fmtKRW(onhand)}</span></div>
   </div>`;
 
@@ -7378,8 +7378,8 @@ function renderTax(){
       </div>
     </div>`;
   }
-  html+=`<div class="tax-row-sum"><span class="tax-row-name">예상 양도세 합계</span>`
-    +`<span class="num down">${est.totalTax>0?'-'+fmtKRW(est.totalTax)+'원':'0원'}</span></div></div>`;
+  html+=`<div class="tax-row-sum"><span class="tax-row-name">납부 세금 예상액</span>`
+    +`<span class="num">${est.totalTax>0?fmtKRW(est.totalTax)+'원':'0원'}</span></div></div>`;
 
   // 연도별 실현 양도세 (확정 손익 기준)
   const rYears=rpnlYears();

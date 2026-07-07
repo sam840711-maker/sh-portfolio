@@ -1046,7 +1046,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v83';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v84';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -5533,7 +5533,7 @@ function renderStockRebalance(){
     const pxTxt=(_px>0)?(_isUSDpx?('@'+fmtUSD(_px)):('@₩'+fmtKRW(_px))):'';
     const subTxt = heldReason ? esc(heldReason)
       : hold ? (isExiting ? `최종 0% · 청산 중 · 이후 ${fmtQ(qtyAfter)}${unit}` : `이후 ${fmtQ(qtyAfter)}${unit}`)
-      : `${pxTxt?pxTxt+' · ':''}₩${fmtKRW(Math.abs(val))} · 이후 ${fmtQ(qtyAfter)}${unit}`;
+      : `${pxTxt?pxTxt+' · ':''}${(_isUSDpx&&_px>0)?fmtUSD(Math.abs(sh)*_px)+' · ':''}₩${fmtKRW(Math.abs(val))} · 이후 ${fmtQ(qtyAfter)}${unit}`;
     const isConv = !!(reasonTxt && reasonTxt.includes('전환'));
     const isDefCut = useUni && isLevCat(h.cat) && sh<0 && reasonTxt && /켈리|축소|방어|플로어|추세/.test(reasonTxt);
     const wtLine = (isConv && (r.tgtWtPort||0) < 0.001)

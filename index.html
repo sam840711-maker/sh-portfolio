@@ -1045,7 +1045,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v76';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v80';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -1178,10 +1178,10 @@ function normalizeState(){
   }
   // 구버전 단계래칫 잔재 정리
   if(state.settings.glide){ delete state.settings.glide.levRemain; delete state.settings.glide.levOrigQty; delete state.settings.glide.levLastPx; }
-  // 자산군별 청산/전환 속도 배수 — 글로벌ETF는 기본 가속(2x)으로 다른 자산군보다 빠르게 청산
+  // 자산군별 청산/전환 속도 배수 — 글로벌ETF는 전량 즉시 청산(speed 99 → 이번 단계에 target 0). 구 2배속 값도 마이그레이션.
   if(state.settings.glide){
     if(!state.settings.glide.speed || typeof state.settings.glide.speed!=='object') state.settings.glide.speed={};
-    if(state.settings.glide.speed.global_etf==null) state.settings.glide.speed.global_etf=2;
+    if(state.settings.glide.speed.global_etf==null || state.settings.glide.speed.global_etf===2) state.settings.glide.speed.global_etf=99;
   }
   // 마감일이 과거(데이터 오래됨)거나 누락 시 보정
   if(state.settings.levLiq && !state.settings.levLiq.deadline) state.settings.levLiq.deadline=levDeadlineTs();
@@ -1818,6 +1818,11 @@ function taxEstimate(){
   }
   const totalTax=rows.reduce((s,x)=>s+x.tax,0);
   return { rows, totalTax };
+}
+/* 국내상장 해외ETF 실현분 배당세 역산 추정 (자동) — min(차익,과표증분) 대신 차익×15.4% 상한 근사 */
+function rpnlDivTaxEst(){
+  const r=(state.settings.taxRates&&state.settings.taxRates.global_etf)||0.154;
+  return rpnlYears().reduce((s,y)=>s+Math.round(Math.max(0,rpnlYearMarket(y,'domestic'))*r),0);
 }
 
 /* ================================================================
@@ -2757,7 +2762,7 @@ function renderDashboard(){
   { const sub=document.getElementById('hero-cash-sub'); if(sub){ const cs=cashSplit();
       sub.innerHTML=`예수금 ${fmtKRW(cashByAccountKRW())} · 현금계정 ${fmtKRW(cashAccountKRW())} · 미정산 ${fmtKRW(_pend)}<br>원화 ₩${fmtKRW(cs.krw)} · 달러 ${fmtUSD(cs.usd)}`; } }
   document.getElementById('hero-deposits').textContent=fmtKRW(totalDeposits);
-  const totalItax=itaxTotal();
+  const totalItax=itaxTotal()+rpnlDivTaxEst();   // 수동 이자·세금 + 국내ETF 배당세 자동 추정
   const itaxEl=document.getElementById('hero-itax');
   itaxEl.textContent=fmtKRW(totalItax);
   itaxEl.className='hm-val num';
@@ -5449,16 +5454,18 @@ function renderStockRebalance(){
     else if(dLeft>0){ btnLabel=`${moveTxt} (D-${dLeft})`; btnColor='#5A6B7A'; guide=`아래 버튼 = <b>${nextN}단계</b>로 넘어가는 버튼 — <b>지금 누를 필요 없음</b>. ${intv}일 간격 권장, ${dLeft}일 남음.`; }
     else { btnLabel=`${moveTxt} 준비됨 ✓`; btnColor='#1E9E5A'; guide=`<b>${g.step}단계</b> 매매·입력 다 끝났으면 → 아래 버튼으로 <b>${isLast?'전환 완료':nextN+'단계'}</b> 진행.`; }
     ge.innerHTML=`<div style="margin:0 0 12px;padding:11px 13px;background:rgba(30,158,90,0.10);border:1px solid #1E9E5A;border-radius:11px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <span style="font-weight:800;font-size:13px;color:#1E9E5A">⏩ 공격 다이얼 점진 전환</span>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;cursor:pointer" onclick="toggleGlideCard()">
+        <span style="font-weight:800;font-size:13px;color:#1E9E5A;display:inline-flex;align-items:center;gap:6px"><span id="glide-chev" style="color:var(--text-3);font-size:11px">${_glideFold?'▸':'▾'}</span>⏩ 공격 다이얼 점진 전환</span>
         <span style="font-size:12px;font-weight:700;color:var(--text-2)">${g.step} / ${g.steps} 단계</span></div>
       <div style="height:6px;background:var(--bg-2);border-radius:3px;overflow:hidden;margin-bottom:8px"><div style="height:100%;width:${pct}%;background:#1E9E5A;border-radius:3px"></div></div>
       ${_doneBadge}
+      <div id="glide-collapse" style="display:${_glideFold?'none':'block'}">
       <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:5px">지금 할 일 — <span style="color:#1E9E5A">아래 종목 카드대로 매매 후 입력</span></div>
       <div style="font-size:10.5px;color:var(--text-3);line-height:1.55;margin-bottom:8px">
-        ${g.step}/${g.steps}단계 · 크립토 ${cryptoNow}%→<b style="color:#1E9E5A">${cryptoTo}%</b> · 글로벌ETF <b style="color:#3B9EFF">2배속(5단계 청산)</b> · 레버리지 회복연동 청산(신고가 경신 시 매도·빠지면 보류, 마감 ${(()=>{const d=Math.ceil((levDeadlineTs()-Date.now())/86400000);return d>0?'D-'+d:'마감';})()}) · 현금 ${(glideCashPct()*100).toFixed(0)}%
+        ${g.step}/${g.steps}단계 · 크립토 ${cryptoNow}%→<b style="color:#1E9E5A">${cryptoTo}%</b> · 글로벌ETF <b style="color:#3B9EFF">전량 즉시 청산</b> · 레버리지 회복연동 청산(신고가 경신 시 매도·빠지면 보류, 마감 ${(()=>{const d=Math.ceil((levDeadlineTs()-Date.now())/86400000);return d>0?'D-'+d:'마감';})()}) · 현금 ${(glideCashPct()*100).toFixed(0)}%
         ${defOn?'<br><span style="color:#E5894D">⚠ 방어 모드 동시 — 레버리지 축소 우선(전환과 같은 방향)</span>':''}</div>
       <div style="font-size:10.5px;color:${btnColor};background:var(--bg-2);border-radius:7px;padding:6px 9px;margin-bottom:8px;line-height:1.5">${guide}</div>
+      </div>
       <div style="display:flex;gap:7px">
         <button onclick="tryAdvanceGlide()" style="flex:1;padding:9px;border-radius:9px;background:${btnColor};color:#fff;font-size:12px;font-weight:700;border:none">${btnLabel}</button>
         <button onclick="cancelGlide()" style="padding:9px 13px;border-radius:9px;background:var(--bg-2);color:var(--text-2);font-size:12px;border:1px solid var(--hairline)">취소</button>
@@ -6755,6 +6762,14 @@ function renderCashList(){
       <div class="txn-info"><div class="txn-title" style="font-weight:700">총 현금 합계</div><div class="txn-date">원화 ₩${fmtKRWFull((function(){const c=cashSplit();return c.krw;})())} · 달러 ${fmtUSD((function(){const c=cashSplit();return c.usd;})())} <span style="color:var(--text-3)">· 배분 '현금'과 동일</span></div></div>
       <div class="txn-amount num" style="color:var(--gold);font-weight:700">${fmtKRW(grand)}</div></div>`;
 }
+/* === 다이얼(글라이드) 전환 카드 접기 — 기본 접힘, 상태/버튼은 항상 표시 (세션 내 유지) === */
+let _glideFold=true;
+function toggleGlideCard(){
+  _glideFold=!_glideFold;
+  const c=document.getElementById('glide-collapse'); if(c) c.style.display=_glideFold?'none':'block';
+  const ch=document.getElementById('glide-chev'); if(ch) ch.textContent=_glideFold?'▸':'▾';
+}
+window.toggleGlideCard=toggleGlideCard;
 /* === 거래 탭 연도 리스트 접기 — 기본 접힘, 누적값은 항상 표시 (세션 내 유지) === */
 let _txFold={itax:true,rpnl:true,dep:true};
 function toggleTx(k){
@@ -7387,9 +7402,11 @@ function renderTax(){
   if(rYears.length){
     const ded=state.settings.overseasDeduction||2500000;
     const rate=(state.settings.taxRates&&state.settings.taxRates.overseas)||0.22;
+    const divRate=(state.settings.taxRates&&state.settings.taxRates.global_etf)||0.154;   // 국내상장 해외ETF 배당세율
     for(const y of rYears){
       const ov=rpnlYearMarket(y,'overseas'), dm=rpnlYearMarket(y,'domestic');
       const base=Math.max(0,ov-ded);
+      const dmTax=Math.round(Math.max(0,dm)*divRate);   // 국내상장 해외ETF 배당세 역산 추정 (매매차익 기준 상한)
       const tax=rpnlOverseasTax(y);
       html+=`<div class="tax-row">
         <div class="tax-row-top">
@@ -7397,7 +7414,7 @@ function renderTax(){
           <span class="num down">예상 납부 ${tax>0?fmtKRW(tax)+'원':'없음'}</span>
         </div>
         <div class="tax-row-sub"><span>해외 실현손익 <b class="num ${ov>=0?'up':'down'}">${ov>=0?'+':'-'}${fmtKRW(Math.abs(ov))}</b></span><span>기본공제 ${fmtKRW(ded)} · ${(rate*100).toFixed(0)}%</span></div>
-        <div class="tax-row-sub"><span>과세표준 <b class="num">${fmtKRW(base)}</b></span><span>국내 ${dm>=0?'+':'-'}${fmtKRW(Math.abs(dm))} · 비과세</span></div>
+        <div class="tax-row-sub"><span>과세표준 <b class="num">${fmtKRW(base)}</b></span><span>국내 ${dm>=0?'+':'-'}${fmtKRW(Math.abs(dm))} · ${dm>0?`배당세 추정 ~₩${fmtKRW(dmTax)}`:'비과세'}</span></div>
       </div>`;
     }
     const totTax=rYears.reduce((s,y)=>s+rpnlOverseasTax(y),0);
@@ -7410,16 +7427,20 @@ function renderTax(){
   // 기 납부 이자·세금
   const years=Object.keys(state.itax||{}).filter(y=>itaxYearTotal(y)>0).sort((a,b)=>b.localeCompare(a));
   html+=`<div class="card"><div class="card-title">기 납부 이자·세금 <span class="action" id="tax-itax">거래에서 수정 ▸</span></div>`;
+  html+=`<div style="font-size:10.5px;color:var(--text-3);margin:-2px 0 8px;line-height:1.5">이자·배당 원천징수세 — <b>국내상장 해외ETF 배당세(15.4%)</b> 포함. 실현 카드에 배당세 추정치가 자동 표시되며, 정확한 값은 키움·KB 원천징수 내역 보고 입력.</div>`;
   if (years.length){
     for (const y of years)
       html+=`<div class="tax-line"><span>${y}년</span><span class="num">${fmtKRW(itaxYearTotal(y))}원</span></div>`;
-    html+=`<div class="tax-line tax-line-sum"><span>누적 합계</span><span class="num">${fmtKRW(itaxTotal())}원</span></div>`;
   } else {
-    html+=`<div style="color:var(--text-2);font-size:13px;padding:6px 0">기록된 내역이 없습니다.</div>`;
+    html+=`<div style="color:var(--text-2);font-size:13px;padding:6px 0">기록된 이자·세금 입력 내역이 없습니다.</div>`;
+  }
+  { const _divEst=rpnlDivTaxEst();
+    if(_divEst>0) html+=`<div class="tax-line"><span>배당세 원천징수 <span style="color:var(--text-3);font-size:10px">추정·자동</span></span><span class="num">~${fmtKRW(_divEst)}원</span></div>`;
+    if(years.length || _divEst>0) html+=`<div class="tax-line tax-line-sum"><span>누적 합계</span><span class="num">${fmtKRW(itaxTotal()+_divEst)}원</span></div>`;
   }
   html+=`</div>`;
 
-  html+=`<div class="tax-note">※ 예상 세금은 추정치입니다. 실제 세액은 보유기간, 종목 유형(국내주식형 ETF는 매매차익 비과세 등), 다른 소득과의 합산, 매도 시점 환율, 거래·환전 수수료에 따라 달라집니다. 해외주식 양도소득은 1년간 손익을 합산해 기본공제(현행 250만원)를 뺀 금액에 과세됩니다. 암호화폐 양도차익은 2026년 현재 비과세이며 2027년 1월부터 과세(연 250만원 공제, 22%)될 예정입니다. 정확한 세금은 세무 전문가나 국세청에 확인하세요.</div>`;
+  html+=`<div class="tax-note">※ 예상 세금은 추정치입니다. 실제 세액은 보유기간, 종목 유형(국내주식형 ETF는 비과세 · 국내상장 해외ETF는 배당소득 15.4% 원천징수), 다른 소득과의 합산, 매도 시점 환율, 거래·환전 수수료에 따라 달라집니다. 국내상장 해외ETF 매매차익은 배당소득이라, 다른 이자·배당과 합산해 연 2천만원 초과 시 금융소득종합과세 대상이 될 수 있습니다. 해외주식 양도소득은 1년간 손익을 합산해 기본공제(현행 250만원)를 뺀 금액에 과세됩니다. 암호화폐 양도차익은 2026년 현재 비과세이며 2027년 1월부터 과세(연 250만원 공제, 22%)될 예정입니다. 정확한 세금은 세무 전문가나 국세청에 확인하세요.</div>`;
 
   document.getElementById('tax-body').innerHTML=html;
   document.getElementById('tax-edit').onclick=openTaxRateEditor;

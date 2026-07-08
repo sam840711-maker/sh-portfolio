@@ -1046,7 +1046,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v91';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v92';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -4324,10 +4324,12 @@ function renderAllocChart(s){
     const deferred = !it.isCash && !buyEmpty && gap < -1e6 && Math.abs(gap) > Math.abs(adjust)+10000;   // 초과(매도) 쪽이 윈너라이딩 트림·levLiq로 일부만/보류일 때만
     const deferNote = deferred ? ' <span style="color:var(--text-3);font-weight:500">· 일부만(가속/청산 보류)</span>' : '';
     const addNote = (buyEmpty && noHolding) ? ' <span style="color:var(--text-3);font-weight:500">· 종목 추가</span>' : '';
+    const gapNote = (!it.isCash && adjust>0 && gap > Math.abs(adjust)+100000)
+      ? ` <span style="color:var(--text-3);font-weight:500">· 목표까지 +${fmtKRW(gap)}</span>` : '';
     const action=Math.abs(adjust)>10000
       ? (it.isCash
           ? (adjust>0?`${fmtKRW(adjust)} 현금 확보 필요(매도)`:`${fmtKRW(-adjust)} 투입 가능`)
-          : (adjust>0?`+${fmtKRW(adjust)} 매수${addNote}`:`${fmtKRW(adjust)} 매도`)+deferNote)
+          : (adjust>0?`+${fmtKRW(adjust)} 매수${addNote}${gapNote}`:`${fmtKRW(adjust)} 매도`)+deferNote)
       : (deferred ? `보류 <span style="color:var(--text-3);font-weight:500">· 가속/청산</span>` : '균형 상태');
     const devLabel = it.exiting ? '청산 진행' : (balanced?'균형':(dev>0?'초과':'부족'));
     const statsRight = hasTgt

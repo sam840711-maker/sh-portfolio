@@ -1046,7 +1046,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v87';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v88';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -6857,6 +6857,28 @@ function renderQuickEntry(){
   const sug={};
   for (const k in CATEGORIES){ for (const r of stockRebalance(k)) sug[r.h.id]=r.adjustShares; }
   let html='';
+  if(qeCat==='all'){
+    // 계좌별 총 매입액 요약 (증권사 화면 대조용) — 전체 모드에서만
+    const acctSum={};
+    state.holdings.forEach(h=>{ const a=holdingAccount(h); const q=h.qty||0;
+      let krw=0,usd=0;
+      if(isUSDcat(h.cat)){ usd=q*(h.avgUSD||0); krw=usd*(h.avgFx||fx); } else { krw=q*(h.avgKRW||0); }
+      if(!acctSum[a])acctSum[a]={krw:0,usd:0}; acctSum[a].krw+=krw; acctSum[a].usd+=usd;
+    });
+    let tKrw=0,tUsd=0;
+    const rowsH=['kb','kiwoom','upbit'].filter(a=>acctSum[a]).map(a=>{ const s=acctSum[a]; tKrw+=s.krw; tUsd+=s.usd; const A=ACCOUNTS[a];
+      return `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;border-top:1px solid var(--hairline)">
+        <span style="font-size:12.5px;font-weight:700;color:${A.color}">${A.label}</span>
+        <span style="font-size:12px;text-align:right">₩${fmtKRW(Math.round(s.krw))}${s.usd>0.5?` <span style="color:var(--text-3)">· ${fmtUSD(s.usd)}</span>`:''}</span></div>`;
+    }).join('');
+    html+=`<div class="card" style="margin-bottom:14px">
+      <div class="card-title">계좌별 총 매입액 <span style="font-size:10.5px;color:var(--text-3);font-weight:400">증권사 화면과 대조용</span></div>
+      ${rowsH}
+      <div style="display:flex;justify-content:space-between;align-items:baseline;padding:7px 0 0;margin-top:3px;border-top:1px solid var(--hairline)">
+        <span style="font-size:13px;font-weight:800">합계</span>
+        <span style="font-size:13px;font-weight:800;color:var(--gold)">₩${fmtKRW(Math.round(tKrw))} · ${fmtUSD(tUsd)}</span></div>
+    </div>`;
+  }
   for (const k in CATEGORIES){
     if(qeCat!=='all' && k!==qeCat) continue;
     let hs=state.holdings.filter(h=>h.cat===k);

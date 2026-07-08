@@ -1046,7 +1046,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v88';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v89';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -5546,7 +5546,7 @@ function renderStockRebalance(){
     // 최종 목적지 비중 노출 — 보간 목표(이번 단계)와 최종이 다를 때(특히 청산 중) 궤적을 보여줌
     const _showFinal = useUni && !isConv && !isDefCut && rbMode!=='within' && (isExiting || Math.abs(_finalPort-(r.tgtWtPort||0))>0.01);
     const finalNote = _showFinal ? ` <span style="color:#B7791F">→ 최종 ${fmtPct(_finalPort,1)}${isExiting?' 청산':''}</span>` : '';
-    const reasonBadge = (useUni && reasonTxt && !hold) ? `<div style="font-size:9.5px;color:var(--text-3);margin-top:2px">${esc(reasonTxt)}</div>` : '';
+    const reasonBadge = (useUni && reasonTxt && !hold && !heldReason) ? `<div style="font-size:9.5px;color:var(--text-3);margin-top:2px">${esc(reasonTxt)}</div>` : '';
     const conflictBadge = (conflict && !isDefCut) ? `<div style="font-size:9.5px;color:var(--orange);margin-top:1px">⚠ ${esc(conflict)}</div>` : '';
     const releaseHint = heldReason ? ({
       lev:'3x 레버리지 축소를 실행하면 자동 해제',

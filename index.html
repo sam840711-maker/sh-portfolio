@@ -1046,7 +1046,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v89';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v91';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -4635,10 +4635,26 @@ function renderTrendChart(){
     // 자산군별 얇은 선 (byClass 있는 기록만)
     const cats=Object.keys(CATEGORIES).filter(k=>(state.holdings.some(h=>h.cat===k&&h.qty>0)) || hist.some(h=>h.byClass&&h.byClass[k]>0));
     for(const k of cats){
+      const heldNow = state.holdings.some(h=>h.cat===k&&h.qty>0);   // 현재 보유 여부
       const pts=hist.map(h=>({x:toMs(h.d), y:(h.byClass&&h.byClass[k]!=null)?h.byClass[k]:null}));
       if(pts.some(p=>p.y!=null)){
         const bf=bfLead(pts);
-        datasets.push({label:CATEGORIES[k].label,data:bf.data,borderColor:CATEGORIES[k].color,
+        datasets.push({label:CATEGORIES[k].label+(heldNow?'':' (청산)'),hidden:!heldNow,data:bf.data,borderColor:CATEGORIES[k].color,
+          borderWidth:1.2,fill:false,tension:0.3,spanGaps:true,
+          pointRadius:0,pointHoverRadius:3,order:2,
+          segment: firstActualMs ? { borderDash: ctx => (ctx.p0.parsed.x < firstActualMs) ? [3,3] : undefined } : undefined});
+      }
+    }
+    // 현금 선 — 히스토리엔 자산군 평가액만 저장되므로 (총자산 − Σ자산군)으로 역산 (예수금·현금계정·미정산 포함)
+    {
+      const cashPts=hist.map(h=>{
+        if(h.total==null||!h.byClass||!Object.keys(h.byClass).length) return {x:toMs(h.d),y:null};
+        const held=Object.values(h.byClass).reduce((s,v)=>s+(v||0),0);
+        return {x:toMs(h.d), y:Math.max(0,Math.round(h.total-held))};
+      });
+      if(cashPts.some(p=>p.y!=null && p.y>0)){
+        const bf=bfLead(cashPts);
+        datasets.push({label:'현금',data:bf.data,borderColor:'#8A94A6',
           borderWidth:1.2,fill:false,tension:0.3,spanGaps:true,
           pointRadius:0,pointHoverRadius:3,order:2,
           segment: firstActualMs ? { borderDash: ctx => (ctx.p0.parsed.x < firstActualMs) ? [3,3] : undefined } : undefined});

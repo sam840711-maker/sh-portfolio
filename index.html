@@ -1046,7 +1046,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v98';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v99';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -9203,7 +9203,10 @@ function maybeAutoBackup(){
   if(Date.now()-since < 86400000) return;   // 하루 1회 (실패해도 24h 재시도 안 함 → 매 실행 깜빡임 방지)
   _autoTried=true; _cloudBusy=true;
   c.lastTry=Date.now(); saveStateRaw();
-  backupToGDrive(true).finally(()=>{ _cloudBusy=false; });
+  backupToGDrive(true)
+    .then(()=>{ c.lastErr=0; })
+    .catch(e=>{ c.lastErr=Date.now(); c.lastErrMsg=(e&&e.message)||String(e); })
+    .finally(()=>{ _cloudBusy=false; try{saveStateRaw();}catch(_){}; try{renderCloudUI();}catch(_){} });
 }
 async function gdriveConnect(){
   if(!gisReady()){ toast('구글 로그인 모듈 로딩 중 — 잠시 후 다시'); return; }
@@ -9236,7 +9239,13 @@ function renderCloudUI(){
   const st=document.getElementById('gd-status');
   const c=(state&&state.settings&&state.settings.cloud)||{};
   if(st){
-    if(linked){ st.textContent='연결됨 · 마지막 드라이브 백업: '+(c.last?new Date(c.last).toLocaleString('ko-KR'):'없음'); st.style.color='var(--up)'; }
+    if(linked){
+      const lastMs=c.last||0, ageH=lastMs?(Date.now()-lastMs)/3600000:9999;
+      const warn=(c.lastErr&&c.lastErr>lastMs) || ageH>=36;   // 최근 시도 실패 or 마지막 성공 36h↑
+      st.innerHTML='연결됨 · 마지막 드라이브 백업: '+(lastMs?new Date(lastMs).toLocaleString('ko-KR'):'없음')
+        +(warn?`<br><b style="color:#E5894D">⚠ 자동 백업 지연/실패 중 — 아래 '드라이브 백업'을 눌러 재동기화</b>`:'');
+      st.style.color=warn?'var(--text-2)':'var(--up)';
+    }
     else { st.textContent='미연결 — 연결하면 드라이브에 백업/복원'; st.style.color='var(--text-3)'; }
   }
   const au=document.getElementById('gd-auto'); if(au) au.checked=!!c.auto;

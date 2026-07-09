@@ -1046,7 +1046,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v94';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v95';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -2758,10 +2758,11 @@ function renderDashboard(){
     `<span class="num ${sign}">${s.pnl>=0?'+':''}${fmtKRW(s.pnl)}</span> <span style="font-size:12px">평가손익</span>`;
 
   document.getElementById('hero-invested').textContent=fmtKRW(s.invested);
-  const _pend=Math.max(0,s.pendingSettle||0);
-  document.getElementById('hero-cash').textContent=fmtKRW(Math.max(0,s.cash||0)+_pend);
-  { const sub=document.getElementById('hero-cash-sub'); if(sub){ const cs=cashSplit();
-      sub.innerHTML=`예수금 ${fmtKRW(cashByAccountKRW())} · 현금계정 ${fmtKRW(cashAccountKRW())} · 미정산 ${fmtKRW(_pend)}<br>원화 ₩${fmtKRW(cs.krw)} · 달러 ${fmtUSD(cs.usd)}`; } }
+  document.getElementById('hero-cash').textContent=fmtKRW(Math.max(0,s.cash||0));   // 현금 = 예수금+현금계정 (미정산 제외, v94 일관)
+  { const sub=document.getElementById('hero-cash-sub'); if(sub){
+      let coKrw=0,coUsd=0; { const cb=state.settings.cashByAccount||{}; for(const a in cb){coKrw+=cb[a].krw||0;coUsd+=cb[a].usd||0;} const ca=state.settings.cashAccount||{krw:0,usd:0}; coKrw+=ca.krw||0; coUsd+=ca.usd||0; }
+      const pend=s.pendingSettle||0;
+      sub.innerHTML=`예수금 ${fmtKRW(cashByAccountKRW())} · 현금계정 ${fmtKRW(cashAccountKRW())} · 미정산 <span style="color:${pend<0?'#E5894D':'inherit'}">${fmtKRW(pend)}</span><br>원화 ₩${fmtKRW(coKrw)} · 달러 ${fmtUSD(coUsd)}`; } }
   document.getElementById('hero-deposits').textContent=fmtKRW(totalDeposits);
   const totalItax=itaxTotal()+rpnlDivTaxEst();   // 수동 이자·세금 + 국내ETF 배당세 자동 추정
   const itaxEl=document.getElementById('hero-itax');

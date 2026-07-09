@@ -1046,7 +1046,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v95';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v96';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -2762,7 +2762,10 @@ function renderDashboard(){
   { const sub=document.getElementById('hero-cash-sub'); if(sub){
       let coKrw=0,coUsd=0; { const cb=state.settings.cashByAccount||{}; for(const a in cb){coKrw+=cb[a].krw||0;coUsd+=cb[a].usd||0;} const ca=state.settings.cashAccount||{krw:0,usd:0}; coKrw+=ca.krw||0; coUsd+=ca.usd||0; }
       const pend=s.pendingSettle||0;
-      sub.innerHTML=`예수금 ${fmtKRW(cashByAccountKRW())} · 현금계정 ${fmtKRW(cashAccountKRW())} · 미정산 <span style="color:${pend<0?'#E5894D':'inherit'}">${fmtKRW(pend)}</span><br>원화 ₩${fmtKRW(coKrw)} · 달러 ${fmtUSD(coUsd)}`; } }
+      const afterSettle=Math.max(0,s.cash||0)+pend;
+      sub.innerHTML=`예수금 ${fmtKRW(cashByAccountKRW())} · 현금계정 ${fmtKRW(cashAccountKRW())} · 미정산 <span style="color:${pend<0?'#E5894D':'inherit'}">${fmtKRW(pend)}</span>`
+        +(pend!==0?`<br>정산 후 예상 <b>${fmtKRW(afterSettle)}</b> <span style="opacity:0.7">(현금 ${pend<0?'−':'+'} 미정산)</span>`:'')
+        +`<br>원화 ₩${fmtKRW(coKrw)} · 달러 ${fmtUSD(coUsd)}`; } }
   document.getElementById('hero-deposits').textContent=fmtKRW(totalDeposits);
   const totalItax=itaxTotal()+rpnlDivTaxEst();   // 수동 이자·세금 + 국내ETF 배당세 자동 추정
   const itaxEl=document.getElementById('hero-itax');
@@ -6797,6 +6800,9 @@ function renderCashList(){
           <div class="txn-info"><div class="txn-title" style="font-size:12px;font-weight:500;color:${ACCOUNTS[a].color}">└ ${ACCOUNTS[a].label}</div><div class="txn-date" style="font-size:10px">원화 ${fmtKRWFull(pk)} · 달러 ${fmtUSD(pu)}</div></div>
           <div class="txn-amount num" style="color:${c2};font-size:12.5px">${fmtKRW(eq)}</div></div>`;
       }).join('')
+      +`<div class="txn" style="border-top:1px dotted var(--hairline)">
+        <div class="txn-info"><div class="txn-title" style="font-weight:700">정산 후 예상 현금 <span style="font-size:10px;color:var(--text-3);font-weight:400">현금 ${pending<0?'−':'+'} 미정산</span></div></div>
+        <div class="txn-amount num" style="color:var(--gold);font-weight:700">${fmtKRW(grand+pending)}</div></div>`
     :'');
 }
 /* === 다이얼(글라이드) 전환 카드 접기 — 기본 접힘, 상태/버튼은 항상 표시 (세션 내 유지) === */

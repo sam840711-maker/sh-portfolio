@@ -485,7 +485,7 @@ input,select,textarea{font-family:inherit;color:inherit}
         <div class="hcard">
           <div class="hcard-title">원금 · 투자</div>
           <div class="hcard-row"><span>총 납입금액</span><span class="num" id="hero-deposits">—</span></div>
-          <div class="hcard-row"><span>총 투자금액</span><span class="num" id="hero-invested">—</span></div>
+          <div class="hcard-row"><span>총 매입원가</span><span class="num" id="hero-invested">—</span></div>
         </div>
         <div class="hcard">
           <div class="hcard-title">현금 · 세금</div>
@@ -1046,7 +1046,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v96';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v97';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {

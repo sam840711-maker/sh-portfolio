@@ -1046,7 +1046,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v97';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v98';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -5011,12 +5011,14 @@ function renderHoldingsSummary(){
   const cashAcc=cashAccountKRW();                      // 현금 계정 (증권사 밖, 원화 환산)
   const brokerCash=Math.max(0, spendableCash-cashAcc); // 증권사 예수금만 (현금 계정 분리)
   const dot=c=>`<span class="abar-dot" style="background:${c};display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle"></span>`;
+  const pendCol=pendingCash<0?'#E5894D':'#B7791F';
   html+=`<div class="sum-row">
-    <div class="sum-top"><span class="sum-name">현금</span><span class="sum-cash">₩${fmtKRW(cashKRW)}</span></div>
+    <div class="sum-top"><span class="sum-name">현금</span><span class="sum-cash">₩${fmtKRW(spendableCash)}</span></div>
     <div class="sum-line">${dot('#565967')}증권사 예수금 <b>₩${fmtKRW(brokerCash)}</b></div>
     ${cashAcc>0?`<div class="sum-line">${dot('#5A7A9A')}현금 계정 <b>₩${fmtKRW(cashAcc)}</b></div>`:''}
-    ${pendingCash>0?`<div class="sum-line">${dot('#B7791F')}미정산금 <b style="color:#B7791F">₩${fmtKRW(pendingCash)}</b> <span style="color:var(--text-3);font-size:10px">T+2 정산대기</span></div>`:''}
     ${cashUSD>0?`<div class="sum-usd">달러 예수금 $${Math.round(cashUSD).toLocaleString()}</div>`:''}
+    ${pendingCash!==0?`<div class="sum-line" style="border-top:1px dotted var(--hairline);margin-top:3px;padding-top:3px">${dot(pendCol)}미정산금 <b style="color:${pendCol}">₩${fmtKRW(pendingCash)}</b> <span style="color:var(--text-3);font-size:10px">T+2 · +매도/−매수</span></div>
+    <div class="sum-line">정산 후 예상 <b>₩${fmtKRW(spendableCash+pendingCash)}</b></div>`:''}
   </div>`;
 
   const tRet=tInv>0?(tCur-tInv)/tInv:0, tcls=tRet>=0?'up':'down', tPnl=tCur-tInv;

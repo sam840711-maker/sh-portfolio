@@ -1046,7 +1046,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v99';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
+const APP_VER = 'v100';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
 const APP_BUILD = '2026-07-06';
 
 const SEED = {
@@ -3878,12 +3878,12 @@ function computeActionAlerts(s){
   // [A2] 미정산 정산 확인 — 건별 정산예정일(settleDate)이 오늘 이하로 도래한 건이 있으면 알림.
   try{
     const list=state.settings.pendingList||[]; const today=ymdKST(Date.now());
-    const due=list.filter(it=>(+it.amount)>0 && it.settleDate && it.settleDate<=today);
+    const due=list.filter(it=>(+it.amount)!==0 && it.settleDate && it.settleDate<=today);
     if(due.length){
-      const parts=due.map(it=>`${(ACCOUNTS[it.acct]&&ACCOUNTS[it.acct].label)||it.acct} ${it.cur==='usd'?fmtUSD(+it.amount):fmtKRWFull(+it.amount)}`);
+      const parts=due.map(it=>`${(ACCOUNTS[it.acct]&&ACCOUNTS[it.acct].label)||it.acct} ${(+it.amount)<0?'매수 −':'매도 +'}${it.cur==='usd'?fmtUSD(Math.abs(+it.amount)):fmtKRWFull(Math.abs(+it.amount))}`);
       out.push({tag:'정산 확인',sev:'warn',
         why:`정산 예정일 도래 — ${due.length}건 확인 필요`,
-        sub:`${parts.join(' · ')} 의 정산 예정일이 됐어요. 증권사에서 예수금으로 들어왔으면 예수금 관리에서 각 건 [정산됨]을 눌러 예수금으로 옮기세요. 탭하면 예수금 관리 ▸`,
+        sub:`${parts.join(' · ')} 의 정산 예정일이 됐어요. 증권사에서 정산됐으면(매도 +는 예수금 입금 / 매수 −는 예수금 출금) 각 건 [정산됨]을 눌러 예수금에 반영하세요. 탭하면 예수금 관리 ▸`,
         act:'cashman'});
     }
   }catch(_){}
@@ -6247,11 +6247,13 @@ function renderPendingRows(){
         <input type="number" step="${it.cur==='usd'?'0.01':'1'}" inputmode="decimal" value="${it.amount?Math.abs(it.amount):''}" placeholder="${it.cur==='usd'?'달러 $':'원화 ₩'}" onchange="pendingSetField(${i},'amount',this.value)" style="flex:1.3;min-width:0">
         <input type="date" value="${it.tradeDate||today}" onchange="pendingSetField(${i},'tradeDate',this.value)" style="flex:1;min-width:0" title="매매일">
       </div>
-      <div style="display:flex;align-items:center;gap:8px;font-size:11px">
-        <span style="color:var(--text-2)">정산일</span>
+      <div style="display:flex;align-items:center;gap:8px;font-size:11px;margin-bottom:6px">
+        <span style="color:var(--text-2);flex:0 0 auto">정산일</span>
         <input type="date" value="${it.settleDate||''}" onchange="pendingSetField(${i},'settleDate',this.value)" style="flex:1;min-width:0" title="정산 예정일(자동·수정가능)">
-        ${settled?`<button type="button" class="btn btn-primary btn-sm" style="padding:5px 9px;white-space:nowrap" onclick="pendingSettle(${i})">정산됨→예수금</button>`:''}
-        <button type="button" class="btn btn-secondary btn-sm" style="padding:5px 9px" onclick="pendingDelRow(${i})">삭제</button>
+      </div>
+      <div style="display:flex;gap:6px;justify-content:flex-end">
+        ${settled?`<button type="button" class="btn btn-primary btn-sm" style="padding:5px 11px;white-space:nowrap" onclick="pendingSettle(${i})">정산됨→예수금</button>`:''}
+        <button type="button" class="btn btn-secondary btn-sm" style="padding:5px 13px" onclick="pendingDelRow(${i})">삭제</button>
       </div>
     </div>`;
   }).join('');

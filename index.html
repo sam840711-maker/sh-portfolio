@@ -1050,7 +1050,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v114';   // v114: IDB 마이그레이션 폴백(데이터 유실 수정) + SW 버전 동기화
+const APP_VER = 'v115';   // v115: 자동백업 수정 — 토큰 localStorage 보존 + 성공기준 디바운스(실패 30분 재시도) (MST3 패턴 이식)
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -9224,8 +9224,8 @@ const GDRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 let _tokenClient=null, _accessToken=null, _tokenExp=0, _cloudBusy=false, _autoTried=false;
 let _restoreFiles=[], _restoreTok=null;
 const GD_LOGIN_HINT='sam840711@gmail.com';   // 계정 선택창 최소화용 힌트 (틀리면 무시됨)
-const GD_TOKEN_KEY='sh_gdrive_tok';          // 세션 내 토큰 보존 → 재로드해도 재로그인 안 뜸
-(function _gdRestoreTok(){ try{ const o=JSON.parse(sessionStorage.getItem(GD_TOKEN_KEY)||'null'); if(o && o.tok && o.exp>Date.now()+60000){ _accessToken=o.tok; _tokenExp=o.exp; } }catch(_){} })();
+const GD_TOKEN_KEY='sh_gdrive_tok';          // 토큰 보존(localStorage·만료검증) → 콜드오픈에도 재로그인 없이 무음 백업 (MST3 v0.30 패턴)
+(function _gdRestoreTok(){ try{ const o=JSON.parse(localStorage.getItem(GD_TOKEN_KEY)||'null'); if(o && o.tok && o.exp>Date.now()+60000){ _accessToken=o.tok; _tokenExp=o.exp; } }catch(_){} })();
 
 function gisReady(){ return !!(window.google && google.accounts && google.accounts.oauth2); }
 function gdriveLinked(){ try{ return localStorage.getItem('sh_gdrive_linked')==='1'; }catch(_){ return false; } }
@@ -9248,7 +9248,7 @@ function ensureToken(interactive){
       if(resp && resp.access_token){
         _accessToken=resp.access_token;
         _tokenExp=Date.now()+((resp.expires_in||3600)*1000);
-        try{ sessionStorage.setItem(GD_TOKEN_KEY, JSON.stringify({tok:_accessToken,exp:_tokenExp})); }catch(_){}
+        try{ localStorage.setItem(GD_TOKEN_KEY, JSON.stringify({tok:_accessToken,exp:_tokenExp})); }catch(_){}
         try{ localStorage.setItem('sh_gdrive_linked','1'); }catch(_){}
         resolve(_accessToken);
       } else if(interactive && !retried){
@@ -9350,14 +9350,14 @@ function maybeAutoBackup(){
   if(_cloudBusy || _autoTried) return;
   const c=state.settings&&state.settings.cloud;
   if(!c||!c.auto||!gdriveLinked()||!navigator.onLine) return;
-  const since=Math.max(c.last||0, c.lastTry||0);
-  const cooldown = (c.aggressiveAuto) ? 10*60*1000 : 86400000;  // aggressive 모드면 10분, 아니면 하루 1회
-  if(Date.now()-since < cooldown) return;
+  // 성공 기준 디바운스(MST3 v0.29 패턴): 마지막 '성공' 후 24h, 실패는 30분 쿨다운 후 재시도
+  if(Date.now()-(c.last||0) < 86400000) return;          // 하루 1회 (성공 기준)
+  if(Date.now()-(c.lastTry||0) < 30*60*1000) return;     // 직전 시도(실패 포함) 후 30분 쿨다운
   _autoTried=true; _cloudBusy=true;
   c.lastTry=Date.now(); saveStateRaw();
   backupToGDrive(true)
     .then(()=>{ c.lastErr=0; })
-    .catch(e=>{ c.lastErr=Date.now(); c.lastErrMsg=(e&&e.message)||String(e); })
+    .catch(e=>{ c.lastErr=Date.now(); c.lastErrMsg=(e&&e.message)||String(e); _autoTried=false; })   // 실패 시 세션 내 재시도 허용(30분 쿨다운이 남발 방지)
     .finally(()=>{ _cloudBusy=false; try{saveStateRaw();}catch(_){}; try{renderCloudUI();}catch(_){} });
 }
 async function gdriveConnect(){
@@ -9369,7 +9369,7 @@ function gdriveDisconnect(){
   try{ if(_accessToken && gisReady()) google.accounts.oauth2.revoke(_accessToken,()=>{}); }catch(_){}
   _accessToken=null; _tokenExp=0;
   try{ localStorage.removeItem('sh_gdrive_linked'); }catch(_){}
-  try{ sessionStorage.removeItem(GD_TOKEN_KEY); }catch(_){}
+  try{ localStorage.removeItem(GD_TOKEN_KEY); }catch(_){}
   toast('구글 연결 해제됨'); renderCloudUI();
 }
 function showRestoreBanner(){

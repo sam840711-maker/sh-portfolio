@@ -13,10 +13,25 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" href="icon-192.png">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js"></script>
+<!-- Chart.js 스택: jsDelivr CDN (한국 환경에서 더 안정적) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+<!-- 라이브러리 로드 확인 (모바일/네트워크 문제 시 안내) -->
+<script>
+  window.addEventListener('load', function() {
+    setTimeout(function() {
+      if (typeof Chart === 'undefined') {
+        const msg = document.createElement('div');
+        msg.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#E5484D;color:white;padding:12px 16px;font-size:13px;z-index:9999;text-align:center';
+        msg.innerHTML = '⚠ Chart.js 로딩 실패<br>인터넷 연결을 확인하거나, 잠시 후 다시 시도해 주세요.';
+        document.body.appendChild(msg);
+      }
+    }, 2500);
+  });
+</script>
 <style>
 :root{
   --bg:#06070A; --frame:#0B0D12; --surface:#141821; --surface-2:#1B2030;
@@ -506,7 +521,7 @@ input,select,textarea{font-family:inherit;color:inherit}
         </div>
         <div class="stat-goal" id="stat-cagr-sub">목표 —</div></div>
       <div class="stat"><div class="stat-label">투자 기간</div><div class="stat-value num" id="stat-months">—</div><div class="stat-sub" id="stat-startdate">—</div></div>
-      <div class="stat"><div class="stat-label">MDD</div><div class="stat-value num down" id="stat-mdd">—</div><div class="stat-sub num" id="stat-mdd-amt">—</div></div>
+      <div class="stat"><div class="stat-label">MDD</div><div class="stat-value num down" id="stat-mdd">—</div><div class="stat-sub num" id="stat-mdd-amt">—</div><div id="rolling-mdd-container"></div></div>
     </div>
 
     <div class="hcard hcard-wide" style="margin:0 0 10px">
@@ -849,7 +864,7 @@ input,select,textarea{font-family:inherit;color:inherit}
           <button class="btn btn-secondary" style="flex:1" id="gd-restore">드라이브 복원</button>
         </div>
         <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
-          <input type="checkbox" id="gd-auto"> 자동 백업 (하루 1회, 앱 실행 시)
+          <input type="checkbox" id="gd-auto"> 자동 백업 (하루 1회 · 저장/실행 시 시도)
         </label>
       </div>
       <button class="btn btn-secondary" style="width:100%;margin-bottom:10px" id="export-btn">데이터 내보내기 (JSON)</button>
@@ -955,15 +970,7 @@ input,select,textarea{font-family:inherit;color:inherit}
    PWA + 저장소 — 폰 앱 설치 / Claude 외부 단독 실행 지원
    ================================================================ */
 (function(){
-  /* 저장소: Claude 환경이면 window.storage 사용, 폰/일반 브라우저 단독 실행 시 localStorage 사용 */
-  if(!window.storage){
-    window.storage={
-      get:function(k){ try{ var v=localStorage.getItem(k); return v==null?null:{key:k,value:v}; }catch(e){ return null; } },
-      set:function(k,v){ try{ localStorage.setItem(k,v); }catch(e){} return {key:k,value:v}; },
-      delete:function(k){ try{ localStorage.removeItem(k); }catch(e){} return {key:k,deleted:true}; },
-      list:function(){ var keys=[]; try{ for(var i=0;i<localStorage.length;i++)keys.push(localStorage.key(i)); }catch(e){} return {keys:keys}; }
-    };
-  }
+  /* v102: 저장소는 아래 IndexedDB 우선 구현으로 덮어씀 (더 안정적) */
   /* 서비스 워커 등록 — 정식 앱 설치(앱 서랍 등록) 지원 */
   if('serviceWorker' in navigator){
     window.addEventListener('load',function(){
@@ -1043,8 +1050,107 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v101';   // 단일 정수 버전 — 배포마다 +1, SW CACHE도 동일 번호로 맞춤(관리 1개)
-const APP_BUILD = '2026-07-06';
+const APP_VER = 'v114';   // v114: IDB 마이그레이션 폴백(데이터 유실 수정) + SW 버전 동기화
+const APP_BUILD = '2026-07-11 16:20';
+
+/* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
+let _idb = null;
+async function getIDB() {
+  if (_idb) return _idb;
+  if (!('indexedDB' in window)) return null;
+  return new Promise((resolve) => {
+    const req = indexedDB.open('sh_portfolio_db', 1);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv', {keyPath: 'key'});
+    };
+    req.onsuccess = e => { _idb = e.target.result; resolve(_idb); };
+    req.onerror = () => resolve(null);
+  });
+}
+
+window.storage = {
+  async get(k) {
+    try {
+      const db = await getIDB();
+      if (db) {
+        const hit = await new Promise(res => {
+          const tx = db.transaction('kv', 'readonly');
+          const store = tx.objectStore('kv');
+          const r = store.get(k);
+          r.onsuccess = () => res(r.result || null);
+          r.onerror = () => res(null);
+        });
+        if (hit) return hit;
+        // v114 fix: IDB에 없으면 localStorage 확인(구버전 데이터 마이그레이션) — 있으면 IDB로 복사 후 반환
+        try {
+          const lv = localStorage.getItem(k);
+          if (lv != null) {
+            try { const tx2 = db.transaction('kv','readwrite'); tx2.objectStore('kv').put({key:k, value:lv}); } catch(_){}
+            return {key: k, value: lv};
+          }
+        } catch(_){}
+        return null;
+      }
+    } catch(e){}
+    // Fallback to localStorage
+    try {
+      const v = localStorage.getItem(k);
+      return v == null ? null : {key: k, value: v};
+    } catch(e){ return null; }
+  },
+  async set(k, v) {
+    try {
+      const db = await getIDB();
+      if (db) {
+        return new Promise(res => {
+          const tx = db.transaction('kv', 'readwrite');
+          const store = tx.objectStore('kv');
+          store.put({key: k, value: v});
+          tx.oncomplete = () => res({key:k, value:v});
+          tx.onerror = () => res({key:k, value:v});
+        });
+      }
+    } catch(e){}
+    try { localStorage.setItem(k, v); } catch(e){}
+    return {key:k, value:v};
+  },
+  async delete(k) {
+    try {
+      const db = await getIDB();
+      if (db) {
+        return new Promise(res => {
+          const tx = db.transaction('kv', 'readwrite');
+          tx.objectStore('kv').delete(k);
+          tx.oncomplete = () => res({key:k, deleted:true});
+          tx.onerror = () => res({key:k, deleted:true});
+        });
+      }
+    } catch(e){}
+    try { localStorage.removeItem(k); } catch(e){}
+    return {key:k, deleted:true};
+  },
+  async list() {
+    try {
+      const db = await getIDB();
+      if (db) {
+        return new Promise(res => {
+          const tx = db.transaction('kv', 'readonly');
+          const store = tx.objectStore('kv');
+          const keys = [];
+          store.openCursor().onsuccess = e => {
+            const cursor = e.target.result;
+            if (cursor) { keys.push(cursor.key); cursor.continue(); }
+            else res({keys});
+          };
+        });
+      }
+    } catch(e){}
+    const keys = [];
+    try { for(let i=0; i<localStorage.length; i++) keys.push(localStorage.key(i)); } catch(e){}
+    return {keys};
+  }
+};
 
 const SEED = {
   settings: {
@@ -1120,11 +1226,19 @@ let _liveTimer = null;
 let lastFailed = new Set();
 
 async function loadState(){
+  // v109 Clean Reset Mode - 첫 실행 시 데이터 강제 초기화 (문제 해결용)
   try {
     const r = await window.storage.get(STORE_KEY);
     if (r && r.value){ state = JSON.parse(r.value); }
   } catch(e){}
-  if (!state || !state.holdings){ state = JSON.parse(JSON.stringify(SEED)); await saveState(); }
+  
+  // Clean Reset: 데이터가 깨졌을 가능성이 있으면 SEED로 초기화
+  if (!state || !state.holdings || !state.settings) {
+    console.log('%c[Clean Reset] 데이터 초기화 실행', 'color:#E5484D;font-weight:bold');
+    state = JSON.parse(JSON.stringify(SEED));
+    await saveState();
+    // toast()는 DOM이 준비된 후에만 호출 (초기화 단계에서는 제거)
+  }
   normalizeState();
 }
 /* 구버전·외부 백업 데이터 보정 — loadState 및 데이터 가져오기에서 공용 사용 */
@@ -2846,13 +2960,48 @@ function renderDashboard(){
   }
   const mddAmt=s.totalWithCash-pick;
   const mddPct=pick>0?mddAmt/pick:0;
+
+  // Rolling MDD 계산 (간단 버전)
+  function calculateRollingMDD(history, days) {
+    if (!history || history.length === 0) return { pct: 0, amt: 0 };
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    let peak = -Infinity;
+    let maxDD = 0;
+    for (const h of history) {
+      const d = new Date(h.d);
+      if (d < cutoff) continue;
+      if ((h.total || 0) > peak) peak = h.total;
+      const dd = peak > 0 ? ((h.total || 0) - peak) / peak : 0;
+      if (dd < maxDD) maxDD = dd;
+    }
+    return { pct: maxDD, amt: maxDD * peak };
+  }
   const mddEl=document.getElementById('stat-mdd');
   mddEl.textContent=fmtPct(mddPct);
   mddEl.className='stat-value num '+(mddPct<-0.0001?'down':'muted');
   const pd=(pickDate||'').slice(2,10).replace(/-/g,'.');
   document.getElementById('stat-mdd-amt').textContent='고점 '+fmtKRW(pick)+(pd?' · '+pd:'');
 
-  // 10년 목표 — 각 납입을 납입일부터 목표수익률로 복리 성장 (납입 시기 반영, XIRR과 동일 관점)
+// Rolling MDD UI 표시 (간단)
+const r30 = calculateRollingMDD(state.history || [], 30);
+const r90 = calculateRollingMDD(state.history || [], 90);
+const r180 = calculateRollingMDD(state.history || [], 180);
+const r365 = calculateRollingMDD(state.history || [], 365);
+
+const rollingContainer = document.getElementById('rolling-mdd-container');
+if (rollingContainer) {
+  rollingContainer.innerHTML = `
+    <div style="font-size:10px;color:var(--text-2);margin-top:4px;">
+      Rolling MDD: 
+      1M <span class="num ${r30.pct < -0.01 ? 'down' : ''}">${fmtPct(r30.pct)}</span> · 
+      3M <span class="num ${r90.pct < -0.01 ? 'down' : ''}">${fmtPct(r90.pct)}</span> · 
+      6M <span class="num ${r180.pct < -0.01 ? 'down' : ''}">${fmtPct(r180.pct)}</span>
+    </div>
+  `;
+}
+
+// 10년 목표 — 각 납입을 납입일부터 목표수익률로 복리 성장 (납입 시기 반영, XIRR과 동일 관점)
   const goalDate=new Date(st.startDate||'2022-01-01');
   goalDate.setFullYear(goalDate.getFullYear()+10);
   const goal=targetFV(goalDate);
@@ -9202,7 +9351,8 @@ function maybeAutoBackup(){
   const c=state.settings&&state.settings.cloud;
   if(!c||!c.auto||!gdriveLinked()||!navigator.onLine) return;
   const since=Math.max(c.last||0, c.lastTry||0);
-  if(Date.now()-since < 86400000) return;   // 하루 1회 (실패해도 24h 재시도 안 함 → 매 실행 깜빡임 방지)
+  const cooldown = (c.aggressiveAuto) ? 10*60*1000 : 86400000;  // aggressive 모드면 10분, 아니면 하루 1회
+  if(Date.now()-since < cooldown) return;
   _autoTried=true; _cloudBusy=true;
   c.lastTry=Date.now(); saveStateRaw();
   backupToGDrive(true)
@@ -9293,7 +9443,7 @@ function renderCloudUI(){
     const cbtn=byId('gd-connect'); if(cbtn) cbtn.onclick=()=>{ gdriveLinked()?gdriveDisconnect():gdriveConnect(); };
     const bk=byId('gd-backup'); if(bk) bk.onclick=()=>backupToGDrive(false);
     const rs=byId('gd-restore'); if(rs) rs.onclick=()=>restoreFromGDrive();
-    const au=byId('gd-auto'); if(au) au.onchange=()=>{ state.settings.cloud=state.settings.cloud||{}; state.settings.cloud.auto=au.checked; saveStateRaw(); toast(au.checked?'자동 백업 켜짐 (하루 1회)':'자동 백업 꺼짐'); };
+    const au=byId('gd-auto'); if(au) au.onchange=()=>{ state.settings.cloud=state.settings.cloud||{}; state.settings.cloud.auto=au.checked; saveStateRaw(); toast(au.checked?'자동 백업 켜짐 (저장할 때마다 + 주기적)':'자동 백업 꺼짐'); };
     renderCloudUI();
   })();
   const _vtxt='SH Portfolio '+APP_VER+' · build '+APP_BUILD;

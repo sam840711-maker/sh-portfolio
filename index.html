@@ -864,7 +864,7 @@ input,select,textarea{font-family:inherit;color:inherit}
           <button class="btn btn-secondary" style="flex:1" id="gd-restore">드라이브 복원</button>
         </div>
         <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
-          <input type="checkbox" id="gd-auto"> 자동 백업 (하루 1회 · 저장/실행 시 시도)
+          <input type="checkbox" id="gd-auto"> 자동 백업 (하루 2회 · 오전9시/오후9시 기준, 실행 시)
         </label>
       </div>
       <button class="btn btn-secondary" style="width:100%;margin-bottom:10px" id="export-btn">데이터 내보내기 (JSON)</button>
@@ -1050,7 +1050,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v115';   // v115: 자동백업 수정 — 토큰 localStorage 보존 + 성공기준 디바운스(실패 30분 재시도) (MST3 패턴 이식)
+const APP_VER = 'v116';   // v116: 자동백업 하루 2회(9시/21시 슬롯) — 앱 실행 시 현재 슬롯 미백업이면 실행
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -9346,13 +9346,22 @@ async function doRestorePick(i){
     closeModal(); toast('✓ 복원됨 ('+when+')'); renderTopbar(); renderDashboard(); renderCloudUI();
   }catch(e){ toast('복원 실패: '+(e.message||e)); }
 }
+// 자동백업 슬롯 시작시각 — 하루 2회(09:00 / 21:00 경계). 현재 슬롯 시작 시각(ms)을 반환.
+function backupSlotStart(now){
+  const d=new Date(now||Date.now()); const h=d.getHours();
+  const s=new Date(d);
+  if(h>=21){ s.setHours(21,0,0,0); }
+  else if(h>=9){ s.setHours(9,0,0,0); }
+  else { s.setDate(s.getDate()-1); s.setHours(21,0,0,0); }   // 새벽(0~9시) = 전날 21시 슬롯
+  return s.getTime();
+}
 function maybeAutoBackup(){
   if(_cloudBusy || _autoTried) return;
   const c=state.settings&&state.settings.cloud;
   if(!c||!c.auto||!gdriveLinked()||!navigator.onLine) return;
-  // 성공 기준 디바운스(MST3 v0.29 패턴): 마지막 '성공' 후 24h, 실패는 30분 쿨다운 후 재시도
-  if(Date.now()-(c.last||0) < 86400000) return;          // 하루 1회 (성공 기준)
-  if(Date.now()-(c.lastTry||0) < 30*60*1000) return;     // 직전 시도(실패 포함) 후 30분 쿨다운
+  // 하루 2회(9시/21시 슬롯) — 현재 슬롯에 성공 기록 있으면 스킵, 실패는 30분 쿨다운 후 재시도
+  if((c.last||0) >= backupSlotStart()) return;             // 이번 슬롯 이미 성공
+  if(Date.now()-(c.lastTry||0) < 30*60*1000) return;       // 직전 시도(실패 포함) 후 30분 쿨다운
   _autoTried=true; _cloudBusy=true;
   c.lastTry=Date.now(); saveStateRaw();
   backupToGDrive(true)
@@ -9393,7 +9402,7 @@ function renderCloudUI(){
   if(st){
     if(linked){
       const lastMs=c.last||0, ageH=lastMs?(Date.now()-lastMs)/3600000:9999;
-      const warn=(c.lastErr&&c.lastErr>lastMs) || ageH>=36;   // 최근 시도 실패 or 마지막 성공 36h↑
+      const warn=(c.lastErr&&c.lastErr>lastMs) || ageH>=24;   // 최근 시도 실패 or 마지막 성공 24h↑(2회/일 기준 슬롯 놓침)
       st.innerHTML='연결됨 · 마지막 드라이브 백업: '+(lastMs?new Date(lastMs).toLocaleString('ko-KR'):'없음')
         +(warn?`<br><b style="color:#E5894D">⚠ 자동 백업 지연/실패 중 — 아래 '드라이브 백업'을 눌러 재동기화</b>`:'');
       st.style.color=warn?'var(--text-2)':'var(--up)';

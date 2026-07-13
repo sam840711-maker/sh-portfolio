@@ -1050,7 +1050,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v117';   // v117: 자동백업 토큰 폴백 — 무음 실패 시 prompt:'' 재연결(흰 창 플래시, 로그북/MST3 패턴)
+const APP_VER = 'v118';   // v118: 액면분할·병합 자동 보정(levLiq origQty·refPx 재스케일) — BMNU 10:1 대응
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -1297,6 +1297,24 @@ function normalizeState(){
   }
   // 마감일이 과거(데이터 오래됨)거나 누락 시 보정
   if(state.settings.levLiq && !state.settings.levLiq.deadline) state.settings.levLiq.deadline=levDeadlineTs();
+  // v118: 액면분할·병합(스플릿) 자동 보정 — 목표수량/현재수량 배율(rq)과 현재가/기준가 배율(rp)이 같은 스케일로 어긋나면(가치 보존 = 스플릿 확정) origQty·refPx 재스케일
+  //       예) BMNU 10:1 병합: 주수 1/10 수정 + 가격 ×10 → rq=10, rp=10 → origQty÷10, refPx×10 → 목표·levLiq 기준 정상 복귀
+  if(state.settings.levLiq){
+    const _SL=state.settings.levLiq;
+    (state.holdings||[]).forEach(h=>{
+      if(!isLevCat(h.cat)||!(h.qty>0)) return;
+      const oq=_SL.origQty&&_SL.origQty[h.id];
+      const rem=(_SL.remain&&_SL.remain[h.id]!=null)?_SL.remain[h.id]:1;
+      const ref=_SL.refPx&&_SL.refPx[h.id];
+      const cur=(isUSDcat(h.cat)?h.curUSD:h.curKRW)||0;
+      if(!(oq>0)||!(ref>0)||!(cur>0)||!(rem>0)) return;
+      const rq=(oq*rem)/h.qty, rp=cur/ref;
+      if((rq>=2||rq<=0.5) && rp>0 && (rp/rq)>=0.6 && (rp/rq)<=1.67){
+        _SL.origQty[h.id]=oq/rq; _SL.refPx[h.id]=ref*rq;
+        try{ console.log('[levLiq] 스플릿 보정:', h.symbol, 'rq='+rq.toFixed(2)); }catch(_){}
+      }
+    });
+  }
   pruneDefenseExempt();   // 이미 청산된(보유 0) 제외 종목 제거 — 6단계 청산 완료 후 재진입 시 방어 자동 부활
   if(!Array.isArray(state.riskLog)) state.riskLog=[];   // 하방 신호 전환 로그(영속)
   if(!state.riskState) state.riskState={};               // 직전 신호 상태(전환 감지용)

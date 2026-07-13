@@ -1050,7 +1050,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v116';   // v116: 자동백업 하루 2회(9시/21시 슬롯) — 앱 실행 시 현재 슬롯 미백업이면 실행
+const APP_VER = 'v117';   // v117: 자동백업 토큰 폴백 — 무음 실패 시 prompt:'' 재연결(흰 창 플래시, 로그북/MST3 패턴)
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -9251,8 +9251,8 @@ function ensureToken(interactive){
         try{ localStorage.setItem(GD_TOKEN_KEY, JSON.stringify({tok:_accessToken,exp:_tokenExp})); }catch(_){}
         try{ localStorage.setItem('sh_gdrive_linked','1'); }catch(_){}
         resolve(_accessToken);
-      } else if(interactive && !retried){
-        // 무음 실패 → 수동 백업일 때만 1회 동의창(계정힌트 포함). 이미 동의돼 있으면 여기까지 안 옴.
+      } else if(!retried){
+        // 무음 실패 → prompt:'' 폴백 (자동 백업 포함 — 로그북/MST3 패턴). 이미 동의된 계정이면 흰 구글 창이 잠깐 떴다 자동으로 닫히며 토큰 발급됨.
         retried=true;
         try{ tc.requestAccessToken({ prompt:'', hint:GD_LOGIN_HINT }); }catch(e){ reject(e); }
       } else {

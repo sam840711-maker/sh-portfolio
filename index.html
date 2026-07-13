@@ -1050,7 +1050,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v121';   // v121: 토큰 error_callback+25s 타임아웃(무한대기 수정) + 실패 시 다음 탭에서 제스처 캐치업
+const APP_VER = 'v122';   // v122: silent 백업 에러 전파(진행/대기 영구표시 원인) — 실패기록·사유표시·제스처 캐치업 체인 활성화
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -9338,7 +9338,7 @@ async function backupToGDrive(silent){
     await saveStateRaw();
     if(!silent) toast('✓ 구글 드라이브에 백업됨');
     renderCloudUI();
-  }catch(e){ if(!silent) toast('백업 실패: '+(e.message||e)); }
+  }catch(e){ if(!silent){ toast('백업 실패: '+(e.message||e)); } else { throw e; } }   // v122: 자동(silent) 실패는 반드시 상위로 전파 — 실패 기록·진단·캐치업 체인 작동
 }
 async function restoreFromGDrive(){
   try{

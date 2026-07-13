@@ -1050,7 +1050,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v120';   // v120: 자동백업 진단 표시 — 최근 시도 시각·성공/실패(사유) 노출
+const APP_VER = 'v121';   // v121: 토큰 error_callback+25s 타임아웃(무한대기 수정) + 실패 시 다음 탭에서 제스처 캐치업
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -9267,25 +9267,33 @@ function ensureToken(interactive){
     if(_accessToken && Date.now() < _tokenExp-60000) return resolve(_accessToken);
     const tc=getTokenClient();
     if(!tc) return reject(new Error('구글 로그인 모듈 로딩 중'));
-    let retried=false;
+    let retried=false, settled=false;
+    const done=(fn,v)=>{ if(settled) return; settled=true; clearTimeout(_to); fn(v); };
+    const _to=setTimeout(()=>done(reject,new Error('토큰 응답 없음(25s) — 팝업 차단 가능성')),25000);   // v121: 무한 대기 방지
     tc.callback=(resp)=>{
       if(resp && resp.access_token){
         _accessToken=resp.access_token;
         _tokenExp=Date.now()+((resp.expires_in||3600)*1000);
         try{ localStorage.setItem(GD_TOKEN_KEY, JSON.stringify({tok:_accessToken,exp:_tokenExp})); }catch(_){}
         try{ localStorage.setItem('sh_gdrive_linked','1'); }catch(_){}
-        resolve(_accessToken);
+        done(resolve,_accessToken);
       } else if(!retried){
         // 무음 실패 → prompt:'' 폴백 (자동 백업 포함 — 로그북/MST3 패턴). 이미 동의된 계정이면 흰 구글 창이 잠깐 떴다 자동으로 닫히며 토큰 발급됨.
         retried=true;
-        try{ tc.requestAccessToken({ prompt:'', hint:GD_LOGIN_HINT }); }catch(e){ reject(e); }
+        try{ tc.requestAccessToken({ prompt:'', hint:GD_LOGIN_HINT }); }catch(e){ done(reject,e); }
       } else {
-        reject(new Error((resp&&resp.error)||'토큰 발급 실패'));
+        done(reject,new Error((resp&&resp.error)||'토큰 발급 실패'));
       }
+    };
+    // v121: 팝업 차단·창 닫힘은 callback이 아니라 error_callback으로 옴 — 미설정 시 무한 대기(진행/대기 멈춤)
+    tc.error_callback=(err)=>{
+      const t=(err&&(err.type||err.message))||'popup 오류';
+      if(!retried && t!=='popup_failed_to_open'){ retried=true; try{ tc.requestAccessToken({ prompt:'', hint:GD_LOGIN_HINT }); }catch(e){ done(reject,e); } }
+      else done(reject,new Error(t));
     };
     // 항상 무음(prompt:none) 먼저 — 이미 동의된 상태면 화면 없이 토큰 발급. 미동의/만료 시에만 위 콜백에서 동의창.
     try{ tc.requestAccessToken({ prompt:'none', hint:GD_LOGIN_HINT }); }
-    catch(e){ reject(e); }
+    catch(e){ done(reject,e); }
   });
 }
 
@@ -9390,7 +9398,19 @@ function maybeAutoBackup(){
   c.lastTry=Date.now(); saveStateRaw();
   backupToGDrive(true)
     .then(()=>{ c.lastErr=0; })
-    .catch(e=>{ c.lastErr=Date.now(); c.lastErrMsg=(e&&e.message)||String(e); _autoTried=false; })   // 실패 시 세션 내 재시도 허용(30분 쿨다운이 남발 방지)
+    .catch(e=>{ c.lastErr=Date.now(); c.lastErrMsg=(e&&e.message)||String(e); _autoTried=false;
+      // v121: 제스처 캐치업 — 자동(비제스처) 시도는 팝업이 차단될 수 있으니, 다음 사용자 탭 안에서 1회 재시도(팝업 확실히 허용)
+      try{ if(!window._gdCatchup){ window._gdCatchup=true;
+        document.addEventListener('pointerdown', function _gd(){ document.removeEventListener('pointerdown',_gd); window._gdCatchup=false;
+          try{ const cc=state.settings&&state.settings.cloud;
+            if(cc&&cc.auto&&gdriveLinked()&&navigator.onLine&&!_cloudBusy && (cc.last||0)<backupSlotStart()){
+              _cloudBusy=true; cc.lastTry=Date.now();
+              backupToGDrive(true).then(()=>{cc.lastErr=0;}).catch(e2=>{cc.lastErr=Date.now();cc.lastErrMsg=(e2&&e2.message)||String(e2);})
+                .finally(()=>{_cloudBusy=false; try{saveStateRaw();}catch(_){}; try{renderCloudUI();}catch(_){}});
+            } }catch(_){}
+        });
+      } }catch(_){}
+    })   // 실패 시 세션 내 재시도 허용(30분 쿨다운이 남발 방지)
     .finally(()=>{ _cloudBusy=false; try{saveStateRaw();}catch(_){}; try{renderCloudUI();}catch(_){} });
 }
 async function gdriveConnect(){

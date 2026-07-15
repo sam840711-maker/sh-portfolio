@@ -1050,7 +1050,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v124';   // v124: 자산군 밴드(±5%p) 이탈 알림을 할 일 센터에 통합 (종목 단위와 별개)
+const APP_VER = 'v125';   // v125: 자산군 밴드 알림 목표기준 정정(classTargetValKRW=자산탭과 동일) + 청산군 제외
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -4007,12 +4007,13 @@ function computeActionAlerts(s){
     const _tot=s.totalWithCash||0;
     const _band=(state.settings.risk&&state.settings.risk.rebalBand!=null)?state.settings.risk.rebalBand:REBAL_THRESHOLD;
     if(_tot>0){
-      const _offs=[]; const _defOn=_r&&_r.level&&_r.level!=='near';
+      const _offs=[];
       for(const k in CATEGORIES){
-        if(_defOn&&isLevCat(k)) continue;               // 방어 중 레버는 방어 알림이 담당(중복 방지)
+        if(finalClassTarget(k)<=0.0001) continue;        // 청산 자산군은 levLiq/청산이 담당(밴드 대상 아님)
         const t=s.totals[k]; if(!t) continue;
-        if(t.target===0&&t.current===0) continue;
-        const dev=(t.current/_tot)-t.target;
+        const tgt=classTargetValKRW(k,s)/_tot;           // 자산탭과 동일한 엔진 목표(레버 차감·비레버 정규화·levLiq)
+        if(tgt<=0 && t.current===0) continue;
+        const dev=(t.current/_tot)-tgt;
         if(Math.abs(dev)>=_band) _offs.push(`${CATEGORIES[k].label} ${(Math.abs(dev)*100).toFixed(1)}%p ${dev>0?'초과':'부족'}`);
       }
       if(_offs.length) out.push({tag:'리밸런싱',sev:'info',

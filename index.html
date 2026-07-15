@@ -1050,7 +1050,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v122';   // v122: silent 백업 에러 전파(진행/대기 영구표시 원인) — 실패기록·사유표시·제스처 캐치업 체인 활성화
+const APP_VER = 'v123';   // v123: 좀비 시도 감지 — 백업 중 앱 닫아 중단된 시도는 다음 실행 때 쿨다운 없이 즉시 재시도
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -9393,7 +9393,9 @@ function maybeAutoBackup(){
   if(!c||!c.auto||!gdriveLinked()||!navigator.onLine) return;
   // 하루 2회(9시/21시 슬롯) — 현재 슬롯에 성공 기록 있으면 스킵, 실패는 30분 쿨다운 후 재시도
   if((c.last||0) >= backupSlotStart()) return;             // 이번 슬롯 이미 성공
-  if(Date.now()-(c.lastTry||0) < 30*60*1000) return;       // 직전 시도(실패 포함) 후 30분 쿨다운
+  // v123: 좀비 시도 감지 — 직전 시도가 성공도 실패도 없이 2분+ 경과(= 백업 중 앱을 닫아 중단된 것)면 쿨다운 무시하고 즉시 재시도
+  const _zombie=(c.lastTry||0)>0 && (c.last||0)<c.lastTry && (c.lastErr||0)<c.lastTry && (Date.now()-c.lastTry > 2*60*1000);
+  if(!_zombie && Date.now()-(c.lastTry||0) < 30*60*1000) return;       // 직전 시도(실패 포함) 후 30분 쿨다운
   _autoTried=true; _cloudBusy=true;
   c.lastTry=Date.now(); saveStateRaw();
   backupToGDrive(true)

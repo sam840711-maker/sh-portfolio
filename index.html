@@ -1050,7 +1050,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v123';   // v123: 좀비 시도 감지 — 백업 중 앱 닫아 중단된 시도는 다음 실행 때 쿨다운 없이 즉시 재시도
+const APP_VER = 'v124';   // v124: 자산군 밴드(±5%p) 이탈 알림을 할 일 센터에 통합 (종목 단위와 별개)
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -4001,6 +4001,24 @@ function computeActionAlerts(s){
   try{ let drift=0; const defenseOn=_r&&_r.level&&_r.level!=='near';
     Object.keys(CATEGORIES).forEach(cat=>{ if(defenseOn&&isLevCat(cat)) return; stockRebalance(cat,'portfolio',s).forEach(rr=>{ if((rr.h.qty||0)>0 && Math.abs((rr.curWtPort||0)-(rr.tgtWtPort||0))>=0.05) drift++; }); });
     if(drift>0) out.push({tag:'리밸런싱',sev:'info',why:`목표비중 ±5%p 이탈 ${drift}종목`,sub:'배분에서 수량 확인 후 매매 → 입력',act:'alloc'});
+  }catch(_){}
+  // v124: 자산군 밴드 초과 — 종목 단위와 별개로 자산군 합이 노터치 밴드를 벗어나면 알림 (구 '리밸런싱 권장' 카드의 할 일 통합 완성)
+  try{
+    const _tot=s.totalWithCash||0;
+    const _band=(state.settings.risk&&state.settings.risk.rebalBand!=null)?state.settings.risk.rebalBand:REBAL_THRESHOLD;
+    if(_tot>0){
+      const _offs=[]; const _defOn=_r&&_r.level&&_r.level!=='near';
+      for(const k in CATEGORIES){
+        if(_defOn&&isLevCat(k)) continue;               // 방어 중 레버는 방어 알림이 담당(중복 방지)
+        const t=s.totals[k]; if(!t) continue;
+        if(t.target===0&&t.current===0) continue;
+        const dev=(t.current/_tot)-t.target;
+        if(Math.abs(dev)>=_band) _offs.push(`${CATEGORIES[k].label} ${(Math.abs(dev)*100).toFixed(1)}%p ${dev>0?'초과':'부족'}`);
+      }
+      if(_offs.length) out.push({tag:'리밸런싱',sev:'info',
+        why:`자산군 밴드(±${(_band*100).toFixed(0)}%p) 이탈 — ${_offs.join(' · ')}`,
+        sub:'배분탭 플랜대로 매매하면 복귀 · 글라이드 진행 중엔 단계 매매에 자동 반영',act:'alloc'});
+    }
   }catch(_){}
   // QLD 편입 리마인더 — 레버리지 청산 종료(2027-01-01, 12.31 마감 다음날) 후 QLD(나스닥100 2x) 편입 검토.
   //  이미 QLD를 보유(qty>0)하거나 사용자가 끄면 자동 숨김. 신호·리마인더일 뿐 매수권유 아님(편입·비중은 본인 판단).

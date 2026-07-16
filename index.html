@@ -1050,7 +1050,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v125';   // v125: 자산군 밴드 알림 목표기준 정정(classTargetValKRW=자산탭과 동일) + 청산군 제외
+const APP_VER = 'v126';   // v126: 배분 요약에 현금 유출입(매수유출·매도유입·순변화·실행후 예상현금) 추가
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -5927,6 +5927,14 @@ function renderStockRebalance(){
       <div class="rbsum-l1" style="font-weight:700">합계</div>
       <div class="rbsum-l2"><span class="down">매수 ₩${fmtKRW(tb)}</span> · <span class="up">매도 ₩${fmtKRW(ts)}</span></div>
       <div class="rbsum-net ${netT>=0?'down':'up'}">순 ${netT>=0?'매수':'매도'} ₩${fmtKRW(Math.abs(netT))}</div>
+      ${(()=>{ const cashNow=Math.max(0,Math.round(_s.cash||0)); const after=cashNow-netT;
+        return `<div style="margin-top:6px;padding-top:6px;border-top:1px dotted var(--hairline)">
+          <div style="font-size:9.5px;color:var(--text-3);margin-bottom:2px">현금 유출입 (이 리밸런싱 실행 시)</div>
+          <div style="display:flex;justify-content:space-between;font-size:10.5px;padding:1.5px 0"><span style="color:var(--text-2)">매수 유출</span><span style="color:var(--down);font-weight:600">−₩${fmtKRW(tb)}</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:10.5px;padding:1.5px 0"><span style="color:var(--text-2)">매도 유입 <span style="font-size:9px;color:var(--text-3)">· T+2~3 후</span></span><span style="color:var(--up);font-weight:600">+₩${fmtKRW(ts)}</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0 2px;border-top:1px solid var(--hairline);font-weight:700"><span style="color:var(--text)">순 현금 변화</span><span class="${netT>=0?'down':'up'}">${netT>=0?'−':'+'}₩${fmtKRW(Math.abs(netT))}</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-3);padding:2px 0"><span>현금 ₩${fmtKRW(cashNow)} → 정산 후 예상</span><span style="font-weight:600;color:var(--text-2)">₩${fmtKRW(after)}</span></div>
+        </div>`; })()}
       ${netT>=0 ? (()=>{
         const brokerCash=Math.max(0,Math.round(cashByAccountKRW()));
         const cashAcc=Math.max(0,Math.round(cashAccountKRW()));

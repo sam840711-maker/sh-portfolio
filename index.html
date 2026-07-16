@@ -1050,7 +1050,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v130';   // v130: 200일선이 표시구간 전체를 덮도록 '표시일수+200일' fetch + 날짜기준 슬라이스
+const APP_VER = 'v131';   // v131: 200일선 커버 개선 — 3M/6M/1Y는 2y fetch(거래일 기준) + 전체는 야후 10y 일봉 강제(주봉 버그 수정)
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -5035,7 +5035,7 @@ async function pcProxyJson(url){
 }
 async function fetchPriceHistory(h, range){
   if(h.cat==='crypto'){
-    const target={'1y':420,'2y':780,'5y':1870,'max':4000}[range]||420;   // 요청 기간(표시+200일 반영)만큼 확보
+    const target={'1y':420,'2y':780,'5y':1870,'max':4000}[range]||780;   // 요청 기간(표시+200일 반영)만큼 확보
     const mk=UPBIT_MARKET[(h.symbol||'').toUpperCase()]||('KRW-'+(h.symbol||'').toUpperCase());
     let arr=[];
     try{
@@ -5055,7 +5055,8 @@ async function fetchPriceHistory(h, range){
     }
     return arr.map(c=>({t:(c.candle_date_time_kst||'').slice(0,10), v:c.trade_price})).reverse();
   }
-  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(h.symbol)}?interval=1d&range=${range}&t=${Date.now()}`;
+  const _yr = (range==='max') ? '10y' : range;   // 야후 range=max는 주봉 반환 → 200일선 계산 불가. 10y로 일봉 강제(대부분 상장 전체 커버)
+  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(h.symbol)}?interval=1d&range=${_yr}&t=${Date.now()}`;
   const data=await pcProxyJson(url);
   const r=data&&data.chart&&data.chart.result&&data.chart.result[0];
   if(!r||!r.timestamp) throw new Error('no data');
@@ -5093,10 +5094,8 @@ async function loadPriceChart(){
   if(note) note.textContent='불러오는 중…';
   if(priceChartObj){ priceChartObj.destroy(); priceChartObj=null; }
   let full;
-  // 표시 구간 전체에 200일선이 그려지도록 '표시일수 + 200일'을 받아옴 (앞 200일은 이평선 계산에만 쓰고 화면엔 안 보임)
-  const _needDays={'1mo':30,'3mo':90,'6mo':180,'1y':365,'max':99999}[pcRange]||365;
-  const _fetchRange = pcRange==='max' ? 'max'
-                    : (_needDays+200<=365 ? '1y' : (_needDays+200<=730 ? '2y' : '5y'));
+  // 표시 구간 전체에 200일선이 그려지도록 넉넉히 받아옴(야후 '1y'=거래일 ~250개라, 표시+200거래일 확보하려면 한 단계 크게). 앞 200일은 이평 계산에만 쓰고 화면엔 안 보임.
+  const _fetchRange = pcRange==='max' ? 'max' : (pcRange==='1mo' ? '1y' : '2y');
   try{ full=await fetchPriceHistory(pcHolding, _fetchRange); }
   catch(e){
     const n=document.getElementById('pc-note');
@@ -5108,7 +5107,7 @@ async function loadPriceChart(){
   if(!full || full.length<2){ if(document.getElementById('pc-note')) document.getElementById('pc-note').textContent='이 종목은 차트 데이터가 없습니다'; return; }
   const usd=isUSDcat(pcHolding.cat);
   const vals=full.map(p=>p.v);
-  const ma200=(()=>{ const o=Array(vals.length).fill(null); let s=0; for(let i=0;i<vals.length;i++){ s+=vals[i]; if(i>=200) s-=vals[i-200]; if(i>=199) o[i]=s/200; } return o; })();
+  const ma200=(()=>{ const o=Array(vals.length).fill(null); let s=0; for(let i=0;i<vals.length;i++){ s+=(+vals[i]||0); if(i>=200) s-=(+vals[i-200]||0); if(i>=199) o[i]=s/200; } return o; })();
   let st;
   if(pcRange==='max'){ st=0; }
   else {

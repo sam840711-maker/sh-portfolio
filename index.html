@@ -1050,7 +1050,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v128';   // v128: 크립토 200일선 표시 — 업비트 일봉 220개 확보(페이지네이션)로 짧은 탭에서도 200일선
+const APP_VER = 'v129';   // v129: 종목 미니차트 '전체' 기간 추가 (크립토 페이지네이션·주식 max)
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -5019,7 +5019,7 @@ let activeCategory='all';
 let holdingSort='cat';
 
 /* === 종목 시세 흐름 차트 (야후 일별 종가 / 코인은 업비트 일봉) === */
-const PC_RANGES=[['1mo','1M',30],['3mo','3M',90],['6mo','6M',180],['1y','1Y',365]];
+const PC_RANGES=[['1mo','1M',30],['3mo','3M',90],['6mo','6M',180],['1y','1Y',365],['max','전체',99999]];
 async function pcProxyJson(url){
   // 설정된 프록시 → 공개 프록시 순으로 시도 (차트 데이터는 폴백을 넉넉히)
   const proxies=[...getProxies(), ...PUBLIC_PROXIES];
@@ -5035,19 +5035,19 @@ async function pcProxyJson(url){
 }
 async function fetchPriceHistory(h, range){
   if(h.cat==='crypto'){
-    const cnt=220;   // v128: 200일선 계산 위해 항상 220일치 확보(업비트 일봉 max 200 → 페이지네이션). 표시 구간은 loadPriceChart에서 슬라이스
+    const target=(range==='max')?1000:220;   // 전체는 최대 ~1000일(업비트 페이지네이션), 그 외 220일(200일선용)
     const mk=UPBIT_MARKET[(h.symbol||'').toUpperCase()]||('KRW-'+(h.symbol||'').toUpperCase());
     let arr=[];
     try{
-      // 업비트 일봉은 요청당 최대 200개 → 200 + 나머지 2페이지로 220개 확보
-      const u1=`https://api.upbit.com/v1/candles/days?market=${mk}&count=200`;
-      let a1; try{ const r=await fetch(u1); if(!r.ok) throw 0; a1=await r.json(); }catch(e){ a1=await pcProxyJson(u1); }
-      arr=a1||[];
-      const oldest=arr.length?arr[arr.length-1].candle_date_time_utc:null;
-      if(oldest){
-        const u2=`https://api.upbit.com/v1/candles/days?market=${mk}&count=${cnt-200}&to=${encodeURIComponent(oldest)}`;
-        let a2; try{ const r=await fetch(u2); if(!r.ok) throw 0; a2=await r.json(); }catch(e){ a2=await pcProxyJson(u2); }
-        if(a2&&a2.length) arr=arr.concat(a2);
+      let to='';
+      while(arr.length<target){
+        const need=Math.min(200, target-arr.length);
+        const url=`https://api.upbit.com/v1/candles/days?market=${mk}&count=${need}${to?('&to='+encodeURIComponent(to)):''}`;
+        let page; try{ const r=await fetch(url); if(!r.ok) throw 0; page=await r.json(); }catch(e){ page=await pcProxyJson(url); }
+        if(!page||!page.length) break;
+        arr=arr.concat(page);
+        to=page[page.length-1].candle_date_time_utc;
+        if(page.length<need) break;   // 더 이상 과거 데이터 없음(상장 초기 도달)
       }
     }catch(e){
       const url=`https://api.upbit.com/v1/candles/days?market=${mk}&count=200`;
@@ -5093,7 +5093,7 @@ async function loadPriceChart(){
   if(note) note.textContent='불러오는 중…';
   if(priceChartObj){ priceChartObj.destroy(); priceChartObj=null; }
   let full;
-  try{ full=await fetchPriceHistory(pcHolding, '1y'); }   // 200일선 계산용으로 항상 1년치 확보 → 짧은 기간 탭에서도 200일선 표시
+  try{ full=await fetchPriceHistory(pcHolding, pcRange==='max'?'max':'1y'); }   // 전체는 max, 그 외는 1y(짧은 탭 표시+200일선 계산 충분)
   catch(e){
     const n=document.getElementById('pc-note');
     if(n) n.textContent='차트 데이터를 불러올 수 없습니다 — 시세 갱신과 동일한 프록시가 필요합니다';

@@ -1050,7 +1050,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v131';   // v131: 200일선 커버 개선 — 3M/6M/1Y는 2y fetch(거래일 기준) + 전체는 야후 10y 일봉 강제(주봉 버그 수정)
+const APP_VER = 'v132';   // v132: 종목 미니차트 5Y 기간 추가
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -5019,7 +5019,7 @@ let activeCategory='all';
 let holdingSort='cat';
 
 /* === 종목 시세 흐름 차트 (야후 일별 종가 / 코인은 업비트 일봉) === */
-const PC_RANGES=[['1mo','1M',30],['3mo','3M',90],['6mo','6M',180],['1y','1Y',365],['max','전체',99999]];
+const PC_RANGES=[['1mo','1M',30],['3mo','3M',90],['6mo','6M',180],['1y','1Y',365],['5y','5Y',1825],['max','전체',99999]];
 async function pcProxyJson(url){
   // 설정된 프록시 → 공개 프록시 순으로 시도 (차트 데이터는 폴백을 넉넉히)
   const proxies=[...getProxies(), ...PUBLIC_PROXIES];
@@ -5035,7 +5035,7 @@ async function pcProxyJson(url){
 }
 async function fetchPriceHistory(h, range){
   if(h.cat==='crypto'){
-    const target={'1y':420,'2y':780,'5y':1870,'max':4000}[range]||780;   // 요청 기간(표시+200일 반영)만큼 확보
+    const target={'1y':420,'2y':780,'5y':1870,'10y':3700,'max':4000}[range]||780;   // 요청 기간(표시+200일 반영)만큼 확보
     const mk=UPBIT_MARKET[(h.symbol||'').toUpperCase()]||('KRW-'+(h.symbol||'').toUpperCase());
     let arr=[];
     try{
@@ -5095,7 +5095,7 @@ async function loadPriceChart(){
   if(priceChartObj){ priceChartObj.destroy(); priceChartObj=null; }
   let full;
   // 표시 구간 전체에 200일선이 그려지도록 넉넉히 받아옴(야후 '1y'=거래일 ~250개라, 표시+200거래일 확보하려면 한 단계 크게). 앞 200일은 이평 계산에만 쓰고 화면엔 안 보임.
-  const _fetchRange = pcRange==='max' ? 'max' : (pcRange==='1mo' ? '1y' : '2y');
+  const _fetchRange = pcRange==='max' ? 'max' : (pcRange==='1mo' ? '1y' : (pcRange==='5y' ? '10y' : '2y'));
   try{ full=await fetchPriceHistory(pcHolding, _fetchRange); }
   catch(e){
     const n=document.getElementById('pc-note');
@@ -5111,7 +5111,7 @@ async function loadPriceChart(){
   let st;
   if(pcRange==='max'){ st=0; }
   else {
-    const _days={'1mo':30,'3mo':90,'6mo':180,'1y':365}[pcRange]||365;
+    const _days={'1mo':30,'3mo':90,'6mo':180,'1y':365,'5y':1825}[pcRange]||365;
     const lastT=new Date(full[full.length-1].t).getTime();
     const cutoff=lastT-_days*86400000;
     st=full.findIndex(p=>new Date(p.t).getTime()>=cutoff);

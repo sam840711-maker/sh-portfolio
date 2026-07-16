@@ -1050,7 +1050,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v129';   // v129: 종목 미니차트 '전체' 기간 추가 (크립토 페이지네이션·주식 max)
+const APP_VER = 'v130';   // v130: 200일선이 표시구간 전체를 덮도록 '표시일수+200일' fetch + 날짜기준 슬라이스
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -5035,7 +5035,7 @@ async function pcProxyJson(url){
 }
 async function fetchPriceHistory(h, range){
   if(h.cat==='crypto'){
-    const target=(range==='max')?1000:220;   // 전체는 최대 ~1000일(업비트 페이지네이션), 그 외 220일(200일선용)
+    const target={'1y':420,'2y':780,'5y':1870,'max':4000}[range]||420;   // 요청 기간(표시+200일 반영)만큼 확보
     const mk=UPBIT_MARKET[(h.symbol||'').toUpperCase()]||('KRW-'+(h.symbol||'').toUpperCase());
     let arr=[];
     try{
@@ -5093,7 +5093,11 @@ async function loadPriceChart(){
   if(note) note.textContent='불러오는 중…';
   if(priceChartObj){ priceChartObj.destroy(); priceChartObj=null; }
   let full;
-  try{ full=await fetchPriceHistory(pcHolding, pcRange==='max'?'max':'1y'); }   // 전체는 max, 그 외는 1y(짧은 탭 표시+200일선 계산 충분)
+  // 표시 구간 전체에 200일선이 그려지도록 '표시일수 + 200일'을 받아옴 (앞 200일은 이평선 계산에만 쓰고 화면엔 안 보임)
+  const _needDays={'1mo':30,'3mo':90,'6mo':180,'1y':365,'max':99999}[pcRange]||365;
+  const _fetchRange = pcRange==='max' ? 'max'
+                    : (_needDays+200<=365 ? '1y' : (_needDays+200<=730 ? '2y' : '5y'));
+  try{ full=await fetchPriceHistory(pcHolding, _fetchRange); }
   catch(e){
     const n=document.getElementById('pc-note');
     if(n) n.textContent='차트 데이터를 불러올 수 없습니다 — 시세 갱신과 동일한 프록시가 필요합니다';
@@ -5105,8 +5109,15 @@ async function loadPriceChart(){
   const usd=isUSDcat(pcHolding.cat);
   const vals=full.map(p=>p.v);
   const ma200=(()=>{ const o=Array(vals.length).fill(null); let s=0; for(let i=0;i<vals.length;i++){ s+=vals[i]; if(i>=200) s-=vals[i-200]; if(i>=199) o[i]=s/200; } return o; })();
-  const winLen={ '1mo':22,'3mo':64,'6mo':128,'1y':vals.length }[pcRange]||vals.length;
-  const st=Math.max(0, full.length-winLen);
+  let st;
+  if(pcRange==='max'){ st=0; }
+  else {
+    const _days={'1mo':30,'3mo':90,'6mo':180,'1y':365}[pcRange]||365;
+    const lastT=new Date(full[full.length-1].t).getTime();
+    const cutoff=lastT-_days*86400000;
+    st=full.findIndex(p=>new Date(p.t).getTime()>=cutoff);
+    if(st<0) st=0;
+  }
   const series=full.slice(st);
   const maWin=ma200.slice(st);
   const hasMA=maWin.some(x=>x!=null);

@@ -1050,7 +1050,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v127';   // v127: 종목 미니차트에 평단가 수평선+수익률 추가 (고점·저점·200일선은 기존)
+const APP_VER = 'v128';   // v128: 크립토 200일선 표시 — 업비트 일봉 220개 확보(페이지네이션)로 짧은 탭에서도 200일선
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -5035,12 +5035,24 @@ async function pcProxyJson(url){
 }
 async function fetchPriceHistory(h, range){
   if(h.cat==='crypto'){
-    const cnt=(PC_RANGES.find(r=>r[0]===range)||[])[2]||90;
+    const cnt=220;   // v128: 200일선 계산 위해 항상 220일치 확보(업비트 일봉 max 200 → 페이지네이션). 표시 구간은 loadPriceChart에서 슬라이스
     const mk=UPBIT_MARKET[(h.symbol||'').toUpperCase()]||('KRW-'+(h.symbol||'').toUpperCase());
-    const url=`https://api.upbit.com/v1/candles/days?market=${mk}&count=${cnt}`;
-    let arr;
-    try{ const r=await fetch(url); if(!r.ok) throw 0; arr=await r.json(); }
-    catch(e){ arr=await pcProxyJson(url); }
+    let arr=[];
+    try{
+      // 업비트 일봉은 요청당 최대 200개 → 200 + 나머지 2페이지로 220개 확보
+      const u1=`https://api.upbit.com/v1/candles/days?market=${mk}&count=200`;
+      let a1; try{ const r=await fetch(u1); if(!r.ok) throw 0; a1=await r.json(); }catch(e){ a1=await pcProxyJson(u1); }
+      arr=a1||[];
+      const oldest=arr.length?arr[arr.length-1].candle_date_time_utc:null;
+      if(oldest){
+        const u2=`https://api.upbit.com/v1/candles/days?market=${mk}&count=${cnt-200}&to=${encodeURIComponent(oldest)}`;
+        let a2; try{ const r=await fetch(u2); if(!r.ok) throw 0; a2=await r.json(); }catch(e){ a2=await pcProxyJson(u2); }
+        if(a2&&a2.length) arr=arr.concat(a2);
+      }
+    }catch(e){
+      const url=`https://api.upbit.com/v1/candles/days?market=${mk}&count=200`;
+      try{ const r=await fetch(url); if(!r.ok) throw 0; arr=await r.json(); }catch(_){ arr=await pcProxyJson(url); }
+    }
     return arr.map(c=>({t:(c.candle_date_time_kst||'').slice(0,10), v:c.trade_price})).reverse();
   }
   const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(h.symbol)}?interval=1d&range=${range}&t=${Date.now()}`;

@@ -1050,7 +1050,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v132';   // v132: 종목 미니차트 5Y 기간 추가
+const APP_VER = 'v133';   // v133: 자동백업 상태 표시 — 실패 후 성공하면 '해결됨'으로 갱신(옛 실패 문구 잔류 수정)
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -9539,7 +9539,13 @@ function renderCloudUI(){
       const lastMs=c.last||0, ageH=lastMs?(Date.now()-lastMs)/3600000:9999;
       const warn=(c.lastErr&&c.lastErr>lastMs) || ageH>=24;   // 최근 시도 실패 or 마지막 성공 24h↑(2회/일 기준 슬롯 놓침)
       const tryMs=c.lastTry||0;
-      const tryLine = tryMs ? `<br><span style="font-size:11px;color:var(--text-3)">최근 자동 시도: ${new Date(tryMs).toLocaleString('ko-KR')} · ${ (c.lastErr&&c.lastErr>=tryMs) ? `<b style="color:#E5894D">실패${c.lastErrMsg?': '+String(c.lastErrMsg).slice(0,60):''}</b>` : (lastMs>=tryMs?'성공':'진행/대기') }</span>` : '';
+      const _failed=(c.lastErr&&c.lastErr>=tryMs);
+      const _resolved=_failed && lastMs>c.lastErr;   // v133: 실패 후 더 늦은 성공이 있으면 '해결됨'으로 표시(옛 실패 문구 잔류 방지)
+      const _state = !tryMs ? ''
+        : _resolved ? `<b style="color:var(--up)">실패 → 이후 백업 성공(${new Date(lastMs).toLocaleTimeString('ko-KR')})</b>`
+        : _failed ? `<b style="color:#E5894D">실패${c.lastErrMsg?': '+String(c.lastErrMsg).slice(0,60):''}</b>`
+        : (lastMs>=tryMs?'성공':'진행/대기');
+      const tryLine = tryMs ? `<br><span style="font-size:11px;color:var(--text-3)">최근 자동 시도: ${new Date(tryMs).toLocaleString('ko-KR')} · ${_state}</span>` : '';
       st.innerHTML='연결됨 · 마지막 드라이브 백업: '+(lastMs?new Date(lastMs).toLocaleString('ko-KR'):'없음')
         +tryLine
         +(warn?`<br><b style="color:#E5894D">⚠ 자동 백업 지연/실패 중 — 아래 '드라이브 백업'을 눌러 재동기화</b>`:'');

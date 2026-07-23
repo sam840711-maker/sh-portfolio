@@ -813,6 +813,15 @@ input,select,textarea{font-family:inherit;color:inherit}
     </div>
 
     <div class="card">
+      <div class="card-title">레버 청산 방식 <span style="font-size:10.5px;color:var(--text-3);font-weight:400">종목별</span></div>
+      <div class="info-text" style="margin-bottom:9px;line-height:1.7">
+        <b>회복연동</b> — 신고가 회복 시에만 분할 매도(기본).<br>
+        <b>즉시 청산</b> — 회복을 안 기다리고 목표 0으로. 감가상각이 큰 상품(고드래그 레버리지)에 적합.
+      </div>
+      <div id="levliq-exc-list"></div>
+    </div>
+
+    <div class="card">
       <div class="card-title">⏩ 공격 다이얼 점진 전환</div>
       <div class="info-text" style="margin-bottom:10px">현재 비중에서 공격 목표(크립토 BTC+ETH 50 / US ETF 22 [MAGS·ARKK] / US 단일 18 [8종] / 금(IAUM) 10 · 레버리지 0 · 현금 5%(가속 시 ½) · 가속 1.25)까지 <b>10단계로 나눠</b> 점진 전환을 시작합니다. 레버리지(MST3·BMNU·NVDL·TSLL·GGLL·PLTU)는 단계와 분리된 <b>회복연동 청산</b> — 직전 기준가보다 오르면(신고가 경신) 그 회복분 비례로 매도(오를수록 더), 빠지면 보류(회복 대기). 단 <b>2026-12-31(거주자·과세연도 마감)</b>엔 잔량 전량 정리. 배분 페이지에 단계별 진행 카드가 뜨고, 그 수량대로 매매·"다음 단계"를 반복하면 됩니다. 한 번에 갈아엎지 않아 타이밍·세금이 분산됩니다.</div>
       <button class="btn btn-secondary" style="width:100%" onclick="applyRecommendedTargets()">공격 다이얼 점진 전환 시작</button>
@@ -1093,6 +1102,45 @@ function toggleDbgLog(){
   renderDbgLog();
 }
 window.toggleDbgLog=toggleDbgLog; window.renderDbgLog=renderDbgLog;
+/* v139: 레버 청산 방식 종목별 토글 — levLiq.exclude 를 UI에서 직접 편집 */
+function renderLevLiqExclude(){
+  const el=document.getElementById('levliq-exc-list'); if(!el) return;
+  const L=state.settings&&state.settings.levLiq;
+  const lev=(state.holdings||[]).filter(h=>isLevCat(h.cat)&&(h.qty>0));
+  if(!L||!L.active||!lev.length){
+    el.innerHTML='<div style="font-size:11px;color:var(--text-3)">진행 중인 레버 청산이 없습니다</div>'; return;
+  }
+  const ex=(L.exclude||[]).map(s=>String(s).toUpperCase());
+  el.innerHTML=lev.map(h=>{
+    const sym=levBaseSym(h), on=ex.includes(sym);
+    const rem=(L.remain&&L.remain[h.id]!=null)?L.remain[h.id]:1;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-top:1px dotted var(--hairline)">
+      <div><div style="font-size:12.5px;font-weight:600">${esc(h.symbol)}</div>
+        <div style="font-size:10px;color:var(--text-3)">${on?'즉시 청산 — 목표 0':'회복연동 · 보류 '+(rem*100).toFixed(0)+'%'}</div></div>
+      <button class="btn ${on?'btn-primary':'btn-secondary'} btn-sm" style="padding:5px 11px;font-size:11px;white-space:nowrap"
+        onclick="toggleLevLiqExclude('${sym}')">${on?'즉시 청산':'회복연동'}</button>
+    </div>`;
+  }).join('');
+}
+async function toggleLevLiqExclude(sym){
+  const L=state.settings&&state.settings.levLiq; if(!L) return;
+  if(!Array.isArray(L.exclude)) L.exclude=[];
+  const up=String(sym).toUpperCase();
+  const i=L.exclude.map(s=>String(s).toUpperCase()).indexOf(up);
+  if(i>=0){
+    L.exclude.splice(i,1);
+    // 회복연동으로 되돌릴 때: 보류 비중이 0이면 기준가를 현재가로 리시드해 정상 재가동
+    const h=(state.holdings||[]).find(x=>levBaseSym(x)===up);
+    if(h && !(L.remain[h.id]>0)){ L.remain[h.id]=1; L.refPx[h.id]=(isUSDcat(h.cat)?h.curUSD:h.curKRW)||0; }
+    toast(up+' — 회복연동으로 전환');
+  } else {
+    if(!confirm(up+'를 즉시 청산 대상으로 바꿀까요?\n\n회복을 기다리지 않고 목표 0이 되어 배분탭에 전량 매도로 표시됩니다.')) return;
+    L.exclude.push(up); toast(up+' — 즉시 청산으로 전환');
+  }
+  await saveState();
+  try{ updateLevLiq(); renderLevLiqExclude(); if(currentView) switchView(currentView); }catch(_e){window._dbg&&window._dbg(_e)}
+}
+window.renderLevLiqExclude=renderLevLiqExclude; window.toggleLevLiqExclude=toggleLevLiqExclude;
 /* v137: 목표비중 단일 소스 — 같은 배분이 SEED·적용함수에 각각 하드코딩돼 있어 한쪽만 고치면 어긋나던 문제 해소.
    TARGETS_AGG : 공격 배분(현행 운용 목표) · TARGETS_T1 : 레버 청산 완료(T1) 이후 배분. 둘 다 합계 1.00. */
 const TARGETS_AGG = Object.freeze({us_stock:0.18, us_etf:0.22, lev_tech:0.00, lev_crypto:0.00, global_etf:0.00, crypto:0.50, gold:0.10});
@@ -1101,7 +1149,7 @@ window.TARGETS_AGG=TARGETS_AGG; window.TARGETS_T1=TARGETS_T1;
 /* v138: levLiq 청산 안전판 시작 시점(마감 D-N일). 글라이드 재원 조달과 동기화되도록 조정. */
 const LEVLIQ_TAPER_DAYS = 120;
 window.LEVLIQ_TAPER_DAYS=LEVLIQ_TAPER_DAYS;
-const APP_VER = 'v138';   // v138: 청산 안전판 D-90 → D-120 (글라이드 재원 조달 동기화)
+const APP_VER = 'v139';   // v139: 레버 청산 방식(회복연동/즉시청산) 종목별 토글 UI
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -9605,6 +9653,7 @@ function showRestoreBanner(){
 }
 function renderCloudUI(){
   try{ renderDbgLog(); }catch(_e){}
+  try{ renderLevLiqExclude(); }catch(_e){}
   const linked=gdriveLinked();
   const cbtn=document.getElementById('gd-connect'); if(cbtn) cbtn.textContent=linked?'구글 계정 연결 해제':'구글 계정 연결';
   const st=document.getElementById('gd-status');

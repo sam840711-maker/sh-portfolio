@@ -1098,7 +1098,10 @@ window.toggleDbgLog=toggleDbgLog; window.renderDbgLog=renderDbgLog;
 const TARGETS_AGG = Object.freeze({us_stock:0.18, us_etf:0.22, lev_tech:0.00, lev_crypto:0.00, global_etf:0.00, crypto:0.50, gold:0.10});
 const TARGETS_T1  = Object.freeze({us_stock:0.055, us_etf:0.278, lev_tech:0.111, lev_crypto:0, global_etf:0, crypto:0.445, gold:0.111});
 window.TARGETS_AGG=TARGETS_AGG; window.TARGETS_T1=TARGETS_T1;
-const APP_VER = 'v137';   // v137: 목표비중 상수 단일화(TARGETS_AGG / TARGETS_T1)
+/* v138: levLiq 청산 안전판 시작 시점(마감 D-N일). 글라이드 재원 조달과 동기화되도록 조정. */
+const LEVLIQ_TAPER_DAYS = 120;
+window.LEVLIQ_TAPER_DAYS=LEVLIQ_TAPER_DAYS;
+const APP_VER = 'v138';   // v138: 청산 안전판 D-90 → D-120 (글라이드 재원 조달 동기화)
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -1786,10 +1789,11 @@ function updateLevLiq(){
       L.remain[h.id]=Math.max(0, L.remain[h.id]*(1-frac));
       L.refPx[h.id]=cur;                                  // 기준가 래칫 업(같은 구간 재매도 방지)
     }
-    // v134 ②: D-90 안전판 — 마감 90일 전부터 잔여 상한을 0까지 선형 축소.
+    // v138: 청산 안전판 — 마감 LEVLIQ_TAPER_DAYS일 전부터 잔여 상한을 0까지 선형 축소.
     //   회복 신호가 안 떠 잔량이 남는 경우(감가상각·약세장) 12/31 일괄 강제청산 절벽을 막고 분산 소화시킨다.
-    if(_daysLeft<=90){
-      const cap=Math.max(0, 0.5*(_daysLeft/90));          // D-90 → 50%, D-45 → 25%, D-0 → 0%
+    //   D-120 채택 사유: 글라이드 4~8단계(8~10월초)가 요구하는 재원 ≈₩75M을 9월말에 맞추기 위함(D-90은 약 1개월 늦음).
+    if(_daysLeft<=LEVLIQ_TAPER_DAYS){
+      const cap=Math.max(0, 0.5*(_daysLeft/LEVLIQ_TAPER_DAYS));   // D-120 → 50%, D-60 → 25%, D-0 → 0%
       if(L.remain[h.id]>cap) L.remain[h.id]=cap;
     }
     if(L.remain[h.id]>0.0001) anyLeft=true;

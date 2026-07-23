@@ -1050,7 +1050,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v134';   // v134: levLiq 제외목록(MST3 즉시청산) + D-90 안전판(잔여 상한 선형축소, 12/31 절벽 방지)
+const APP_VER = 'v135';   // v135: effectiveCashPct 플로어 합성 방식으로 재작성 — 브레이크가 낙폭 2차 티어를 가리던 결함 수정
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -3288,19 +3288,22 @@ function effectiveCashPct(s){
   try{
     const dt=drawdownTier(s);
     const r=computeRiskStatus(s);
-    if(r.level && r.level!=='near') return Math.max(base, dt.cashFloor||0);   // 실제 방어(추세이탈·플로어·레버): 기본 + 낙폭 티어 현금 반영
     const ac=computeAccelRegime(s);                                          // 주식 트랙(^GSPC·^NDX)
     const accelFull = ac && ac.on && ac.regime==='full';
     const accelOn = ac && ac.on && (ac.regime==='early'||ac.regime==='full');
-    // [#2 심층 낙폭 해제] 고점 −35%↑ 인데 '풀가속'이 아니면(추세 취약) — B안을 깨고 현금 floor 재가동.
-    //   풀가속(시장 강세)이면 낙폭은 크립토/레버 베타로 보고 그대로 견딤(바닥 매도 회피).
-    if(dt.dd>=DEEP_DD && !accelFull) return Math.max(base, dt.cashFloor||0, CRYPTO_BRAKE_CASH);
-    // [#1 크립토 소프트 브레이크] 크립토 2일 추세이탈 — 가속 추가투입 보류 + 현금 버퍼 상향(글라이드 기본 매집은 유지).
-    if(cryptoBrakeOn()) return Math.max(base, CRYPTO_BRAKE_CASH);
-    // [B안] 시장 지수가 가속(200일선 위)이면 NAV 고점대비 낙폭은 크립토/레버 베타로 보고 현금 강제 보류.
-    //       글라이드 매집 유지 + 윈너라이딩과의 모순 제거. 실제 크래시는 위 추세필터·일간 급락(-10%)·플로어가 담당.
-    if(accelOn) return base/2;                                                // 가속: 현금 절반 투입 (낙폭 티어보다 우선)
-    if(dt.tier>=1) return Math.max(base, dt.cashFloor);                       // 시장 중립/약세에서만 NAV 낙폭 방어 현금 상향
+    const defOn = !!(r.level && r.level!=='near');                           // 실제 방어(추세이탈·플로어·레버)
+    // v135: 조기 return 순서 의존 제거 — '완화'는 base에만 적용, '플로어'는 전부 최댓값으로 합성.
+    //   (구버전 결함: 크립토 브레이크(10%)가 먼저 return되어 낙폭 2차 티어(25%)를 가림.
+    //    브레이크는 크립토 약세에 켜지므로 깊은 낙폭과 동시 발생 → 가장 필요한 순간에 방어가 꺼졌음)
+    let b=base;
+    if(accelOn && !defOn && dt.tier<2) b=base/2;                             // 가속: 현금 절반 투입 — 방어 중·2차 티어면 금지
+    let f=0;
+    if(defOn)                        f=Math.max(f, dt.cashFloor||0);
+    if(dt.dd>=DEEP_DD && !accelFull) f=Math.max(f, dt.cashFloor||0, CRYPTO_BRAKE_CASH);   // 심층 낙폭(−35%)
+    if(cryptoBrakeOn())              f=Math.max(f, CRYPTO_BRAKE_CASH);                    // 크립토 소프트 브레이크
+    if(dt.tier>=2)                   f=Math.max(f, dt.cashFloor||0);                      // 2차 방어(−20%) — 면제 없음
+    if(dt.tier>=1 && !accelOn)       f=Math.max(f, dt.cashFloor||0);                      // 1차 방어(−10%) — 가속 중 면제(설계 의도)
+    return Math.max(b, f);
   }catch(_){}
   return base;
 }

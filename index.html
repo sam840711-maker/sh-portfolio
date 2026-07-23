@@ -1050,7 +1050,7 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v133';   // v133: 자동백업 상태 표시 — 실패 후 성공하면 '해결됨'으로 갱신(옛 실패 문구 잔류 수정)
+const APP_VER = 'v134';   // v134: levLiq 제외목록(MST3 즉시청산) + D-90 안전판(잔여 상한 선형축소, 12/31 절벽 방지)
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -1297,6 +1297,14 @@ function normalizeState(){
   }
   // 마감일이 과거(데이터 오래됨)거나 누락 시 보정
   if(state.settings.levLiq && !state.settings.levLiq.deadline) state.settings.levLiq.deadline=levDeadlineTs();
+  // v134: levLiq 제외 목록 초기화 — MST3(고장난 3x·연드래그 −66%·상관 0.62)는 회복연동이 역효과라 즉시 청산 대상으로 분리.
+  //       시뮬레이션: 유지 시 12/31까지 잔존 81%·중앙값 −37%(횡보 가정에서도 −17%). 사용자가 원하면 아래 배열에서 제거 가능.
+  if(state.settings.levLiq && !Array.isArray(state.settings.levLiq.exclude)) state.settings.levLiq.exclude=[];
+  if(state.settings.levLiq && !state.settings._lvExcV134){
+    const _e=state.settings.levLiq.exclude;
+    if(!_e.map(s=>String(s).toUpperCase()).includes('MST3')) _e.push('MST3');
+    state.settings._lvExcV134=true;
+  }
   // v118: 액면분할·병합(스플릿) 자동 보정 — 목표수량/현재수량 배율(rq)과 현재가/기준가 배율(rp)이 같은 스케일로 어긋나면(가치 보존 = 스플릿 확정) origQty·refPx 재스케일
   //       예) BMNU 10:1 병합: 주수 1/10 수정 + 가격 ×10 → rq=10, rp=10 → origQty÷10, refPx×10 → 목표·levLiq 기준 정상 복귀
   if(state.settings.levLiq){
@@ -1692,13 +1700,18 @@ function initLevLiq(){
   (state.holdings||[]).forEach(h=>{ if(isLevCat(h.cat)){ L.origQty[h.id]=h.qty; L.remain[h.id]=1; L.refPx[h.id]=(isUSDcat(h.cat)?h.curUSD:h.curKRW)||0; } });
   state.settings.levLiq=L;
 }
+function levBaseSym(h){ return (h.symbol||'').replace('.KS','').replace('.L','').toUpperCase(); }
 function updateLevLiq(){
   const L=state.settings.levLiq; if(!L||!L.active) return;
   const past=Date.now()>=L.deadline;
+  const _exc=(L.exclude||[]).map(s=>String(s).toUpperCase());
+  const _daysLeft=(L.deadline-Date.now())/86400000;
   let anyLeft=false;
   (state.holdings||[]).forEach(h=>{
     if(!isLevCat(h.cat)||L.remain[h.id]==null) return;
     if(past){ L.remain[h.id]=0; return; }                 // 마감일 → 전량 정리
+    // v134 ①: 제외 종목 — 회복연동(levLiq) 대상에서 빼고 즉시 전량 청산 대상으로 (감가상각형 상품 대응)
+    if(_exc.includes(levBaseSym(h))){ L.remain[h.id]=0; return; }
     const cur=(isUSDcat(h.cat)?h.curUSD:h.curKRW)||0;
     const ref=L.refPx[h.id]||cur;
     const isCry=(h.cat==='lev_crypto');
@@ -1724,6 +1737,12 @@ function updateLevLiq(){
       const frac=Math.min(fmax, Math.max(fmin, gain*fmul));
       L.remain[h.id]=Math.max(0, L.remain[h.id]*(1-frac));
       L.refPx[h.id]=cur;                                  // 기준가 래칫 업(같은 구간 재매도 방지)
+    }
+    // v134 ②: D-90 안전판 — 마감 90일 전부터 잔여 상한을 0까지 선형 축소.
+    //   회복 신호가 안 떠 잔량이 남는 경우(감가상각·약세장) 12/31 일괄 강제청산 절벽을 막고 분산 소화시킨다.
+    if(_daysLeft<=90){
+      const cap=Math.max(0, 0.5*(_daysLeft/90));          // D-90 → 50%, D-45 → 25%, D-0 → 0%
+      if(L.remain[h.id]>cap) L.remain[h.id]=cap;
     }
     if(L.remain[h.id]>0.0001) anyLeft=true;
   });

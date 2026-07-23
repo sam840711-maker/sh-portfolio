@@ -872,6 +872,13 @@ input,select,textarea{font-family:inherit;color:inherit}
       <input type="file" id="import-file" accept="application/json,.json" style="display:none">
       <div id="snap-list" style="margin-bottom:10px"></div>
       <button class="btn btn-danger" style="width:100%" id="reset-btn">초기 데이터로 되돌리기</button>
+      <div style="margin-top:12px;border-top:1px dotted var(--hairline);padding-top:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:11px;color:var(--text-3)">진단 로그 <span id="dbg-count" style="color:var(--text-2)"></span></span>
+          <button class="btn btn-secondary btn-sm" style="padding:4px 10px;font-size:11px" onclick="toggleDbgLog()">보기</button>
+        </div>
+        <div id="dbg-log" style="display:none;margin-top:8px;font-size:10px;color:var(--text-3);line-height:1.6;max-height:220px;overflow:auto;background:var(--bg-2);border-radius:8px;padding:8px 10px"></div>
+      </div>
       <div class="sync-meta" id="last-fetch-meta" style="font-size:11px;color:var(--text-3);margin-top:12px;text-align:center"></div>
     </div>
     <div id="app-ver" style="text-align:center;font-size:11px;color:var(--text-3);padding:6px 0 26px;letter-spacing:0.02em"></div>
@@ -1050,7 +1057,43 @@ function pruneDefenseExempt(){
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
-const APP_VER = 'v135';   // v135: effectiveCashPct 플로어 합성 방식으로 재작성 — 브레이크가 낙폭 2차 티어를 가리던 결함 수정
+/* v136: 무음 catch 진단 — 삼켜지던 예외를 링버퍼(최근 60건)에 스택과 함께 기록.
+   평소 동작은 완전히 동일(로그만 적재). 설정 '진단 로그'에서 확인, 디버그 토글 시 콘솔에도 출력.
+   배경: 자동백업 장애(v115~122)의 근본 원인이 바로 이 무음 예외였음. */
+const __ERRLOG=[];
+function _dbg(e){
+  try{
+    const st=((e&&e.stack)||'').split('\n')[1]||'';
+    const m=(e&&e.message)||String(e), s=st.trim().slice(0,120);
+    const last=__ERRLOG[__ERRLOG.length-1];
+    if(last && last.m===m && last.s===s){ last.n=(last.n||1)+1; last.t=Date.now(); }   // 동일 오류 반복은 압축(신호 묻힘 방지)
+    else {
+      __ERRLOG.push({t:Date.now(), m, s, n:1});
+      if(__ERRLOG.length>60) __ERRLOG.shift();
+    }
+    if(typeof state!=='undefined' && state && state.settings && state.settings.debugLog) console.warn('[dbg]', e);
+  }catch(_){}
+}
+window._dbg=_dbg; window.__ERRLOG=__ERRLOG;
+let _dbgOpen=false;
+function renderDbgLog(){
+  const c=document.getElementById('dbg-count'); if(c) c.textContent=__ERRLOG.length?`(${__ERRLOG.length}건)`:'(없음)';
+  const el=document.getElementById('dbg-log'); if(!el||!_dbgOpen) return;
+  if(!__ERRLOG.length){ el.innerHTML='<span style="color:var(--up)">기록된 무음 오류 없음 — 정상</span>'; return; }
+  el.innerHTML=__ERRLOG.slice().reverse().map(r=>{
+    const t=new Date(r.t).toLocaleTimeString('ko-KR');
+    const rep=(r.n>1)?` <span style="color:#E5894D">×${r.n}</span>`:'';
+    return `<div style="margin-bottom:6px"><b style="color:#E5894D">${t}</b>${rep} ${String(r.m).replace(/</g,'&lt;').slice(0,90)}<br><span style="opacity:.65">${String(r.s).replace(/</g,'&lt;')}</span></div>`;
+  }).join('');
+}
+function toggleDbgLog(){
+  _dbgOpen=!_dbgOpen;
+  const el=document.getElementById('dbg-log'); if(el) el.style.display=_dbgOpen?'block':'none';
+  if(_dbgOpen){ try{ state.settings.debugLog=true; }catch(_e){} }
+  renderDbgLog();
+}
+window.toggleDbgLog=toggleDbgLog; window.renderDbgLog=renderDbgLog;
+const APP_VER = 'v136';   // v136: 무음 예외 진단 로그(링버퍼 + 설정 뷰어) — 빈 catch 142곳 계측
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -1086,13 +1129,13 @@ window.storage = {
         try {
           const lv = localStorage.getItem(k);
           if (lv != null) {
-            try { const tx2 = db.transaction('kv','readwrite'); tx2.objectStore('kv').put({key:k, value:lv}); } catch(_){}
+            try { const tx2 = db.transaction('kv','readwrite'); tx2.objectStore('kv').put({key:k, value:lv}); } catch(_e){window._dbg&&window._dbg(_e)}
             return {key: k, value: lv};
           }
-        } catch(_){}
+        } catch(_e){window._dbg&&window._dbg(_e)}
         return null;
       }
-    } catch(e){}
+    } catch(e){window._dbg&&window._dbg(e)}
     // Fallback to localStorage
     try {
       const v = localStorage.getItem(k);
@@ -1111,8 +1154,8 @@ window.storage = {
           tx.onerror = () => res({key:k, value:v});
         });
       }
-    } catch(e){}
-    try { localStorage.setItem(k, v); } catch(e){}
+    } catch(e){window._dbg&&window._dbg(e)}
+    try { localStorage.setItem(k, v); } catch(e){window._dbg&&window._dbg(e)}
     return {key:k, value:v};
   },
   async delete(k) {
@@ -1126,8 +1169,8 @@ window.storage = {
           tx.onerror = () => res({key:k, deleted:true});
         });
       }
-    } catch(e){}
-    try { localStorage.removeItem(k); } catch(e){}
+    } catch(e){window._dbg&&window._dbg(e)}
+    try { localStorage.removeItem(k); } catch(e){window._dbg&&window._dbg(e)}
     return {key:k, deleted:true};
   },
   async list() {
@@ -1145,9 +1188,9 @@ window.storage = {
           };
         });
       }
-    } catch(e){}
+    } catch(e){window._dbg&&window._dbg(e)}
     const keys = [];
-    try { for(let i=0; i<localStorage.length; i++) keys.push(localStorage.key(i)); } catch(e){}
+    try { for(let i=0; i<localStorage.length; i++) keys.push(localStorage.key(i)); } catch(e){window._dbg&&window._dbg(e)}
     return {keys};
   }
 };
@@ -1230,7 +1273,7 @@ async function loadState(){
   try {
     const r = await window.storage.get(STORE_KEY);
     if (r && r.value){ state = JSON.parse(r.value); }
-  } catch(e){}
+  } catch(e){window._dbg&&window._dbg(e)}
   
   // Clean Reset: 데이터가 깨졌을 가능성이 있으면 SEED로 초기화
   if (!state || !state.holdings || !state.settings) {
@@ -1319,14 +1362,14 @@ function normalizeState(){
       const rq=(oq*rem)/h.qty, rp=cur/ref;
       if((rq>=2||rq<=0.5) && rp>0 && (rp/rq)>=0.4 && (rp/rq)<=2.5){   // v119: 허용범위 완화(부분매도 remain 반영)
         _SL.origQty[h.id]=oq/rq; _SL.refPx[h.id]=ref*rq;
-        try{ console.log('[levLiq] 스플릿 보정:', h.symbol, 'rq='+rq.toFixed(2)); }catch(_){}
+        try{ console.log('[levLiq] 스플릿 보정:', h.symbol, 'rq='+rq.toFixed(2)); }catch(_e){window._dbg&&window._dbg(_e)}
       }
       // v119 백스톱 ① — 어떤 이유로든 홀드 목표수량 > 보유수량이면 보유수량으로 고정 저장 (청산 클래스 매수신호 영구 차단)
       { const oq2=_SL.origQty&&_SL.origQty[h.id];
-        if(oq2>0 && rem>0 && oq2*rem > h.qty*1.02){ _SL.origQty[h.id]=h.qty/rem; try{ console.log('[levLiq] origQty 클램프:', h.symbol); }catch(_){} } }
+        if(oq2>0 && rem>0 && oq2*rem > h.qty*1.02){ _SL.origQty[h.id]=h.qty/rem; try{ console.log('[levLiq] origQty 클램프:', h.symbol); }catch(_e){window._dbg&&window._dbg(_e)} } }
       // v119 백스톱 ② — refPx가 현재가와 3배 이상 스케일 어긋나면(스플릿 잔재) 현재가로 리시드 (이후 신고가 경신부터 매도)
       { const ref2=_SL.refPx&&_SL.refPx[h.id];
-        if(ref2>0 && cur>0 && (cur/ref2>3 || ref2/cur>3)){ _SL.refPx[h.id]=cur; try{ console.log('[levLiq] refPx 리시드:', h.symbol); }catch(_){} } }
+        if(ref2>0 && cur>0 && (cur/ref2>3 || ref2/cur>3)){ _SL.refPx[h.id]=cur; try{ console.log('[levLiq] refPx 리시드:', h.symbol); }catch(_e){window._dbg&&window._dbg(_e)} } }
     });
   }
   pruneDefenseExempt();   // 이미 청산된(보유 0) 제외 종목 제거 — 6단계 청산 완료 후 재진입 시 방어 자동 부활
@@ -1512,10 +1555,10 @@ function normalizeState(){
       state.holdings.push({id:'gold_IAUM_'+Date.now().toString(36)+Math.floor(Math.random()*1e3),
         cat:'gold', symbol:'IAUM', name:'iShares Gold Trust Micro', qty:0, avgUSD:0, curUSD:0, avgFx:1465.57, targetWt:1});
     }
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   // 계좌 자동배정 — account 필드 없는 보유행에 기본 계좌 부여(KB·키움·업비트). 사용자가 종목별로 바꿀 수 있음.
-  try{ (state.holdings||[]).forEach(h=>{ if(!h.account || !ACCOUNTS[h.account]) h.account=defaultAccount(h); }); }catch(_){}
-  try{ compactOldHistory(); }catch(e){}   // 1년 이상 지난 일별 기록 → 주 1개로 압축 (실패해도 부팅 지속)
+  try{ (state.holdings||[]).forEach(h=>{ if(!h.account || !ACCOUNTS[h.account]) h.account=defaultAccount(h); }); }catch(_e){window._dbg&&window._dbg(_e)}
+  try{ compactOldHistory(); }catch(e){window._dbg&&window._dbg(e)}   // 1년 이상 지난 일별 기록 → 주 1개로 압축 (실패해도 부팅 지속)
 }
 /* === history 압축 — 365일 이전 구간은 ISO주당 마지막 기록만 유지 === */
 function compactOldHistory(){
@@ -1537,9 +1580,9 @@ async function saveState(){
     if (state && state.holdings){ pruneDefenseExempt(); recordSnapshot(); maybeUpdatePick(); }
     await window.storage.set(STORE_KEY, JSON.stringify(state));
     rotateLocalSnap();   // 하루 1회 순환 스냅샷 (실수 복구용, 3슬롯)
-    try{ maybeAutoBackup(); }catch(_){}   // 구글 드라이브 자동 백업(조건 충족 시, 비동기)
+    try{ maybeAutoBackup(); }catch(_e){window._dbg&&window._dbg(_e)}   // 구글 드라이브 자동 백업(조건 충족 시, 비동기)
   } catch(e){
-    try{ toast('⚠ 저장에 실패했습니다 — 데이터 백업을 권장합니다'); }catch(_){}
+    try{ toast('⚠ 저장에 실패했습니다 — 데이터 백업을 권장합니다'); }catch(_e){window._dbg&&window._dbg(_e)}
   }
 }
 /* === 로컬 순환 스냅샷 — 하루 1회, 3슬롯 (잘못된 수정·삭제 복구용) === */
@@ -1556,7 +1599,7 @@ async function rotateLocalSnap(){
     meta.days=meta.days||{}; meta.days[slot]=today; meta.idx=(meta.idx+1)%3;
     await window.storage.set(STORE_KEY+'_snapmeta', JSON.stringify(meta));
     _snapDone=true;
-  }catch(e){}
+  }catch(e){window._dbg&&window._dbg(e)}
 }
 async function listLocalSnaps(){
   try{
@@ -1683,16 +1726,16 @@ window.resetPeakEpoch=function(){
   if(!state.settings.risk) return;
   const today=new Date(Date.now()+9*3600*1000).toISOString().slice(0,10);
   state.settings.risk.peakEpoch=today;
-  try{ saveState(); }catch(_){}
-  try{ if(typeof renderDashboard==='function') renderDashboard(); }catch(_){}
-  try{ if(typeof currentView!=='undefined' && currentView) switchView(currentView); }catch(_){}
-  try{ toast('peak 기준 리셋 — '+today+' 이후 고점으로 낙폭 재계산'); }catch(_){}
+  try{ saveState(); }catch(_e){window._dbg&&window._dbg(_e)}
+  try{ if(typeof renderDashboard==='function') renderDashboard(); }catch(_e){window._dbg&&window._dbg(_e)}
+  try{ if(typeof currentView!=='undefined' && currentView) switchView(currentView); }catch(_e){window._dbg&&window._dbg(_e)}
+  try{ toast('peak 기준 리셋 — '+today+' 이후 고점으로 낙폭 재계산'); }catch(_e){window._dbg&&window._dbg(_e)}
 };
 window.clearPeakEpoch=function(){
   if(state.settings.risk){ state.settings.risk.peakEpoch=null;
-    try{ saveState(); }catch(_){}
-    try{ if(typeof currentView!=='undefined' && currentView) switchView(currentView); }catch(_){}
-    try{ toast('peak 리셋 해제 — 전체 이력 기준으로 복귀'); }catch(_){}
+    try{ saveState(); }catch(_e){window._dbg&&window._dbg(_e)}
+    try{ if(typeof currentView!=='undefined' && currentView) switchView(currentView); }catch(_e){window._dbg&&window._dbg(_e)}
+    try{ toast('peak 리셋 해제 — 전체 이력 기준으로 복귀'); }catch(_e){window._dbg&&window._dbg(_e)}
   }
 };
 function initLevLiq(){
@@ -1783,7 +1826,7 @@ function effectiveTargetWt(h){
       arr.forEach(x=>{ const v=(isUSDcat(x.cat)?x.curUSD*fx:x.curKRW)*(x.qty||0)||0; tot+=v; if(x.id===h.id) mine=v; });
       return tot>0 ? mine/tot : (g.fromWt[h.id]!=null?g.fromWt[h.id]:toW);
     }
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   const p=(g.steps>0)?Math.min(1,(g.step||1)/g.steps):1;
   const fromW=(g.fromWt[h.id]!=null)?g.fromWt[h.id]:toW;
   return fromW+(toW-fromW)*p;
@@ -1801,7 +1844,7 @@ function glideCashPct(){
 }
 async function tryAdvanceGlide(){
   const g=state.settings.glide; if(!g||!g.active) return;
-  let defOn=false; try{ const r=computeRiskStatus(portfolioStats()); defOn=r&&r.level&&r.level!=='near'; }catch(_){}
+  let defOn=false; try{ const r=computeRiskStatus(portfolioStats()); defOn=r&&r.level&&r.level!=='near'; }catch(_e){window._dbg&&window._dbg(_e)}
   const intv=g.intervalDays||14;
   const dLeft=Math.ceil(intv-(Date.now()-(g.lastStepAt||g.started||Date.now()))/86400000);
   const nextN=Math.min((g.step||1)+1,g.steps);
@@ -1824,7 +1867,7 @@ async function advanceGlide(){
   const _pr=pruneEmptyHoldings();   // 매도 완료(0주)된 미사용 종목 정리
   if(_pr>0) setTimeout(()=>toast(`${_pr}개 미사용 종목(0주) 정리됨`),450);
   await saveState();
-  try{ if(currentView) switchView(currentView); }catch(_){}
+  try{ if(currentView) switchView(currentView); }catch(_e){window._dbg&&window._dbg(_e)}
 }
 async function cancelGlide(){
   const g=state.settings.glide; if(!g) return;
@@ -1835,7 +1878,7 @@ async function cancelGlide(){
   state.settings.reserveTargetPct=glideCashPct();
   state.holdings.forEach(h=>{ h.targetWt=effectiveTargetWt(h); });   // 종목 가중도 현재 보간값으로 고정
   g.active=false; await saveState();
-  toast('전환 취소 — 현재 보간 목표로 고정'); try{ if(currentView) switchView(currentView); }catch(_){}
+  toast('전환 취소 — 현재 보간 목표로 고정'); try{ if(currentView) switchView(currentView); }catch(_e){window._dbg&&window._dbg(_e)}
 }
 
 /* 평가액·매입액 — USD 자산은 매입환율(avgFx)로 원화 매입액 산출 → 환차익 반영 */
@@ -2397,11 +2440,11 @@ async function fetchHistMerged(symbol, adjusted){
   // 일봉을 먼저 확보(10y→5y→2y, 사이 백오프로 프록시 연속호출 실패 완화) → max(전체)는 과거 보강용
   let daily=null;
   for(const r of ['10y','5y','2y']){
-    try{ const d=await fetchYahooHistoryDaily(symbol,r,adjusted); if(medianGapDays(d)<=3){ daily=d; break; } }catch(e){}
+    try{ const d=await fetchYahooHistoryDaily(symbol,r,adjusted); if(medianGapDays(d)<=3){ daily=d; break; } }catch(e){window._dbg&&window._dbg(e)}
     await new Promise(s=>setTimeout(s,300));
   }
   let maxh=null;
-  try{ maxh=await fetchYahooHistoryDaily(symbol,'max',adjusted); }catch(e){}
+  try{ maxh=await fetchYahooHistoryDaily(symbol,'max',adjusted); }catch(e){window._dbg&&window._dbg(e)}
   if(daily && daily.length){
     if(maxh && medianGapDays(maxh)<=3) return {all:maxh, daily:maxh, res:'daily'};      // max 자체가 일봉
     const firstD=new Date(daily[0].t).getTime();
@@ -2517,7 +2560,7 @@ async function renderSymCard(P){
               if(isFinite(prem)) line+=` <span class="${prem>=0?'up':'down'}">(김프 ${prem>=0?'+':''}${prem.toFixed(1)}%)</span>`;
             }
           }
-        }catch(e){}
+        }catch(e){window._dbg&&window._dbg(e)}
         krwEl.innerHTML=line;
       } else krwEl.innerHTML='';
     }
@@ -2647,7 +2690,7 @@ async function renderSymCard(P){
           y:{min:yLo,max:yHi,ticks:{maxTicksLimit:5,color:'#565967',font:{size:9.5},callback:fmtK},
              grid:{color:'rgba(255,255,255,0.05)'},border:{display:false}}
         }}});
-  }catch(e){}
+  }catch(e){window._dbg&&window._dbg(e)}
 }
 const _symCharts={};
 function renderBtc(){ return renderSymCard({prefix:'btc', key:btcSym, conf:BTC_SYMS[btcSym], range:btcRange, cache:_btcCache}); }
@@ -2665,7 +2708,7 @@ const IDX_SYMS={
 let idxSym='spx'; let idxRange='3mo'; let chartIdx=null; let _idxCache={};
 function setIdxSym(s,btn){ idxSym=s; document.querySelectorAll('#idx-sym-seg button').forEach(b=>b.classList.toggle('active',b===btn));
   const t=document.getElementById('idx-card-title'); const iv=document.getElementById('idx-view'), vv=document.getElementById('vix-view');
-  if(s==='vix'){ if(t)t.textContent='VIX 변동성 지수'; if(iv)iv.style.display='none'; if(vv)vv.style.display='block'; try{ renderVix(); }catch(_){} }
+  if(s==='vix'){ if(t)t.textContent='VIX 변동성 지수'; if(iv)iv.style.display='none'; if(vv)vv.style.display='block'; try{ renderVix(); }catch(_e){window._dbg&&window._dbg(_e)} }
   else { if(t)t.textContent=IDX_SYMS[s].title; if(iv)iv.style.display='block'; if(vv)vv.style.display='none'; renderIdx(); }
 }
 function setIdxRange(r,btn){ idxRange=r; document.querySelectorAll('#idx-seg button').forEach(b=>b.classList.toggle('active',b===btn)); renderIdx(); }
@@ -2687,7 +2730,7 @@ async function renderIdx(){
     if(chgEl){ chgEl.textContent=(price-prev>=0?'+':'-')+fmtP(Math.abs(price-prev))+' ('+(pct>=0?'+':'')+(pct*100).toFixed(2)+'%)'; chgEl.className='num '+(pct>=0?'up':'down'); }
     const ses=document.getElementById('idx-ses');
     if(ses){ ses.style.display='inline-block'; ses.textContent=(q.marketState==='REGULAR')?'본장':'마감'; ses.className='ses-badge '+((q.marketState==='REGULAR')?'ses-open':'ses-closed'); }
-  }catch(e){}
+  }catch(e){window._dbg&&window._dbg(e)}
   // 차트 + 200일선 + 가속 국면
   try{
     const mk='m_'+idxSym; const cached=_idxCache[mk];
@@ -2752,7 +2795,7 @@ async function renderIdx(){
         plugins:{legend:{display:false},tooltip:{filter:item=>item.parsed.y!=null,callbacks:{title:items=>items.length?new Date(items[0].parsed.x).toISOString().slice(0,10):'',label:item=>' '+(item.dataset.label||'')+' '+fmtP(item.parsed.y)}}},
         scales:{x:{type:'linear',min:pts[0].x,max:pts[pts.length-1].x,ticks:{maxTicksLimit:longRange?6:5,color:'#565967',font:{size:9.5},callback:v=>{const d=new Date(v);return longRange?String(d.getFullYear()):(d.getFullYear()%100)+'.'+String(d.getMonth()+1).padStart(2,'0');}},grid:{display:false},border:{display:false}},
           y:{min:yLo,max:yHi,ticks:{maxTicksLimit:5,color:'#565967',font:{size:9.5},callback:fmtK},grid:{color:'rgba(255,255,255,0.05)'},border:{display:false}}}}});
-  }catch(e){}
+  }catch(e){window._dbg&&window._dbg(e)}
 }
 /* === 환율 카드 — 달러 인덱스(DXY) / 원·달러(USD-KRW) 토글 === */
 const FX_SYMS={
@@ -2806,7 +2849,7 @@ async function renderFx(){
     if(ses){ ses.style.display='inline-block';
       ses.textContent=(q.marketState==='REGULAR')?'본장':'마감';
       ses.className='ses-badge '+((q.marketState==='REGULAR')?'ses-open':'ses-closed'); }
-  }catch(e){}
+  }catch(e){window._dbg&&window._dbg(e)}
   try{
     const ck=fxSym+'_'+fxRange;
     if(!_fxCache[ck] || now-_fxCache[ck].ts>30*60*1000){
@@ -2875,7 +2918,7 @@ async function renderFx(){
              ticks:{maxTicksLimit:5,color:'#565967',font:{size:9.5},callback:fmtTick},
              grid:{color:'rgba(255,255,255,0.05)'},border:{display:false}}
         }}});
-  }catch(e){}
+  }catch(e){window._dbg&&window._dbg(e)}
 }
 function renderDashboard(){
   const s=portfolioStats(), st=state.settings, fx=st.fxRate;
@@ -3157,7 +3200,7 @@ function peakNavAll(){
   const ep=(state.settings.risk&&state.settings.risk.peakEpoch)||null;   // 리셋 기준일 — 이 날짜 이전 기록 제외(레버리지 정리 후 고점 재설정)
   let pk=0;
   for(const h of (state.history||[])){ if(ep && h.d && h.d<ep) continue; if((h.total||0)>pk) pk=h.total; }
-  try{ const s=portfolioStats(); if(s.totalWithCash>pk) pk=s.totalWithCash; }catch(_){}
+  try{ const s=portfolioStats(); if(s.totalWithCash>pk) pk=s.totalWithCash; }catch(_e){window._dbg&&window._dbg(_e)}
   return pk;
 }
 function realizedVolAnnual(){
@@ -3215,8 +3258,8 @@ async function fetchTrend200(force){
   const idxs=['^GSPC','^NDX','BTC-USD','ETH-USD'];   // 주식 트랙(^GSPC·^NDX) + 크립토 트랙(BTC·ETH)
   // 일봉 종가 시리즈 — 1차 일봉 API, 실패 시 병합 시리즈(차트와 동일) 폴백
   const closesOf=async(sym)=>{
-    try{ const ser=await withTimeout(fetchYahooHistoryDaily(sym,'1y',false),8000); const c=(ser||[]).map(x=>x.v).filter(v=>v>0); if(c.length>=200) return c; }catch(_){}
-    try{ const m=await withTimeout(fetchHistMerged(sym,false),9000); const c=((m&&m.daily)||[]).map(x=>x.v).filter(v=>v>0); if(c.length>=200) return c; }catch(_){}
+    try{ const ser=await withTimeout(fetchYahooHistoryDaily(sym,'1y',false),8000); const c=(ser||[]).map(x=>x.v).filter(v=>v>0); if(c.length>=200) return c; }catch(_e){window._dbg&&window._dbg(_e)}
+    try{ const m=await withTimeout(fetchHistMerged(sym,false),9000); const c=((m&&m.daily)||[]).map(x=>x.v).filter(v=>v>0); if(c.length>=200) return c; }catch(_e){window._dbg&&window._dbg(_e)}
     return null;
   };
   for(const sym of idxs){
@@ -3230,7 +3273,7 @@ async function fetchTrend200(force){
         const below200=last<sma, momNeg=mom<0;
         t[sym]={last,sma,below200,momNeg,below:(below200&&momNeg),gap:(last/sma-1),mom,ts:Date.now()};
       }
-    }catch(_){}
+    }catch(_e){window._dbg&&window._dbg(_e)}
   }
   t.ts=Date.now();
   tickTrendConv();   // 추세 이탈 연속일 카운트(현물 전환 확인용)
@@ -3304,7 +3347,7 @@ function effectiveCashPct(s){
     if(dt.tier>=2)                   f=Math.max(f, dt.cashFloor||0);                      // 2차 방어(−20%) — 면제 없음
     if(dt.tier>=1 && !accelOn)       f=Math.max(f, dt.cashFloor||0);                      // 1차 방어(−10%) — 가속 중 면제(설계 의도)
     return Math.max(b, f);
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   return base;
 }
 /* ================================================================
@@ -3406,7 +3449,7 @@ function logRiskTransitions(r){
   if(changed || !hadPrev){
     if(state.riskLog.length>60) state.riskLog=state.riskLog.slice(-60);   // 최근 60건 유지
     state.riskState=cur;
-    if(changed){ try{ saveStateRaw(); }catch(_){ try{ saveState(); }catch(e){} } }
+    if(changed){ try{ saveStateRaw(); }catch(_){ try{ saveState(); }catch(e){window._dbg&&window._dbg(e)} } }
   }
 }
 /* 미니 백테스트 — 현금흐름 보정 히스토리에 트레일링 스톱(백스톱%)을 적용해 MDD·최종배수 비교.
@@ -3496,14 +3539,14 @@ function parkDeployExecute(){
   }
   state.parkPool=(state.parkPool||[]).filter(l=>(l.amount-(l.deployed||0))>1);
   saveState();
-  closeModal(); try{ renderDashboard(); }catch(_){}
+  closeModal(); try{ renderDashboard(); }catch(_e){window._dbg&&window._dbg(_e)}
   toast(`파킹 풀 ₩${fmtKRW(p.due)} 재투입 표시 완료`);
 }
 function parkAddPrompt(){
-  let def=0; try{ const g=computeCagrGap(); const rk=state.settings.risk||{}; const frac=(rk.cashoutFrac!=null)?rk.cashoutFrac:1; if(g&&g.gap>0) def=Math.round(g.gap*frac); }catch(_){}
+  let def=0; try{ const g=computeCagrGap(); const rk=state.settings.risk||{}; const frac=(rk.cashoutFrac!=null)?rk.cashoutFrac:1; if(g&&g.gap>0) def=Math.round(g.gap*frac); }catch(_e){window._dbg&&window._dbg(_e)}
   const v=prompt('파킹할 현금 금액(원) — 오버슛 초과분을 현금화한 금액', def?String(def):'');
   if(v==null) return; const amt=Math.round(parseFloat(v)||0);
-  if(amt>0){ parkAdd(amt); closeModal(); try{ renderDashboard(); }catch(_){}; toast(`₩${fmtKRW(amt)} 파킹 기록 (기준 NAV 저장)`); }
+  if(amt>0){ parkAdd(amt); closeModal(); try{ renderDashboard(); }catch(_e){window._dbg&&window._dbg(_e)}; toast(`₩${fmtKRW(amt)} 파킹 기록 (기준 NAV 저장)`); }
 }
 function openParkPlan(){
   const p=parkRedeployPlan();
@@ -3754,7 +3797,7 @@ function executeLevConversion(){
   Object.keys(CATEGORIES).forEach(c=>{ ct[c]= total>0 ? (cats[c]||0)/total : 0; });
   state.settings.classTargets=ct;
   state.holdings.forEach(h=>{ const cv=cats[h.cat]||0; h.targetWt = cv>0 ? (TV.get(h)||0)/cv : 0; });
-  saveState(); closeModal(); try{ renderDashboard(); }catch(_){}
+  saveState(); closeModal(); try{ renderDashboard(); }catch(_e){window._dbg&&window._dbg(_e)}
   switchView('allocation');
   toast('레버리지 → 현물 전환 반영 · 목표비중 자동 이전됨');
 }
@@ -3856,9 +3899,9 @@ function applyRecommendedTargets(){
   // 4) 점진 전환 시작 — 현재 비중에서 공격 목표까지 6단계 글라이드 (현금 →5%)
   startGlide(AGG, 10, 0.05);
   saveState();
-  try{ renderDashboard(); }catch(_){}
-  try{ if(currentView) switchView(currentView); }catch(_){}
-  try{ if(typeof refreshAllPrices==='function') refreshAllPrices(); }catch(_){}   // 신규 BTC/ETH 시세 즉시 갱신
+  try{ renderDashboard(); }catch(_e){window._dbg&&window._dbg(_e)}
+  try{ if(currentView) switchView(currentView); }catch(_e){window._dbg&&window._dbg(_e)}
+  try{ if(typeof refreshAllPrices==='function') refreshAllPrices(); }catch(_e){window._dbg&&window._dbg(_e)}   // 신규 BTC/ETH 시세 즉시 갱신
   toast('점진 전환 시작 — 1/6 단계 (배분 페이지 확인)');
 }
 window.applyRecommendedTargets=applyRecommendedTargets;
@@ -3895,7 +3938,7 @@ function computeActionAlerts(s){
       why:'레버리지 정리 완료 — peak 기준 리셋 권장',
       sub:`12.31 레버리지 청산이 끝났어. 현재 고점(₩${fmtKRW(peakNavAll())})은 정리된 레버리지가 포함된 과거값이라 낙폭이 과도하게 깊게 잡혀(방어 과민). 탭하면 지금 포트 기준으로 고점을 리셋해 낙폭·방어를 현실화 — 되돌릴 수 있음 ▸`,
       act:'resetPeak'});
-  }}catch(_){}
+  }}catch(_e){window._dbg&&window._dbg(_e)}
   try{
     const r=computeRiskStatus(s); _r=r;
     const reentry=(r.reentry&&r.level)?r.reentry[r.level]:'';
@@ -3903,14 +3946,14 @@ function computeActionAlerts(s){
     else if(r.level==='trend') out.push({tag:'방어',sev:'crit',why:`추세 이탈(200일선+모멘텀${r.below?' · '+r.below.join('·'):''})`,sub:'레버리지 0 + 1배 자산 일부 현금화 · 분할 실행',act:'risk'});
     else if(r.level==='lev') out.push({tag:'방어',sev:'warn',why:`레버리지 과다 — 3x 우선 축소 (실효 ${r.eff?r.eff.toFixed(2):'?'}배 > 권장 ${r.kc&&r.kc.recMax?r.kc.recMax.toFixed(2):'?'}배)`,sub:(r.reduceLev>1000000?`이번 회차 ₩${fmtKRW(r.reduceLev3)} (페이지 반영) · 전체 ₩${fmtKRW(r.reduceLev)} 반복`:'사이즈 축소')+(reentry?` · 재진입: ${reentry}`:''),act:'risk'});
     else if(r.level==='near') out.push({tag:'방어',sev:'warn',why:'하방 플로어 근접 — 신규 매수·추가 레버리지 중단',sub:reentry||'',act:'risk'});
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   // 전환 알림 — 방어(추세/플로어)가 이미 전환을 포함하므로 그 외 상황(NAV 마일스톤 등)에서만 별도 표시
   try{ const cv=computeLevConvertPlan(s);
     if(cv&&cv.active && _r && _r.level!=='trend' && _r.level!=='floor'){
       const qty=(cv.rows||[]).filter(r=>r.sellSh>0).map(r=>`${r.levSym} −${Math.round(r.sellSh)}주 → ${r.spotSym} +${r.buySh!=null?Math.round(r.buySh):'?'}주`).join(' · ');
       out.push({tag:'전환',sev:'warn',why:`Lev Tech → 현물 전환 (${cv.trigger==='trend'?'추세 이탈 2일':'신호'})`,sub:(qty?qty+' · ':'')+'매매 후 입력하면 목표 자동 이전',act:'alloc'});
     }
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   // 백스톱 — 고점 대비 −% 도달 시 레버리지 절반 방어 매도(현금 디리스크). 방어(lev/trend/floor) 또는 levLiq(회복연동 청산) 활성 시엔 숨김(레버리지 정책 충돌·중복 방지)
   try{ const bsp=computeBackstop(s);
     const defLevOn=_r&&_r.level&&_r.level!=='near';
@@ -3918,7 +3961,7 @@ function computeActionAlerts(s){
     if(bsp.hit && bsp.sellAmt>1000000 && !defLevOn && !levLiqOn){
       out.push({tag:'백스톱',sev:'warn',why:`백스톱 발동 — 고점 −${fmtPct(bsp.ddFromPeak,0)} · 레버리지 절반 방어 매도 ₩${fmtKRW(bsp.sellAmt)}`,sub:'위기 디리스크 — 레버리지 절반 매도 후 현금 보유(반등 시 목표대로 재배분) ▸',act:'risk'});
     }
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   // 상승 가속 — 트랙 분리(주식: 나스닥 / 크립토: BTC·ETH). 방어의 대칭, 금은 제외
   try{ const acS=computeAccelRegime(s,'stock'); const acC=computeAccelRegime(s,'crypto');
     const onS=acS.on&&(acS.regime==='early'||acS.regime==='full');
@@ -3936,7 +3979,7 @@ function computeActionAlerts(s){
         : `윈너라이딩 트랙 분리 — 주식(나스닥): ${sLab} / 크립토(BTC·ETH, 트레저리주 포함): ${cLab} · 금 제외 · 레버리지 청산 우선`+(glideActive?' · 글라이드 10단계 진행 중':'');
       out.push({tag:'상승가속',sev:'info', why, sub:sub,act:'alloc'});
     }
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   // [글라이드 단계] 다음 단계 시기 도래 — 마지막 단계 후 권장간격(14일) 경과 & 아직 완료 전이면 알림.
   try{
     const g=state.settings.glide;
@@ -3951,7 +3994,7 @@ function computeActionAlerts(s){
           act:'glideStep'});
       }
     }
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   try{ const dc=dailyChange();
     if(dc && dc.pct<=-0.10){
       out.push({tag:'급락 경고',sev:'risk',
@@ -3959,7 +4002,7 @@ function computeActionAlerts(s){
         sub:`하루 −10% 이상 급락. 패닉 매도 금물 — 낙폭 방어(현금 버퍼)·추세필터가 자동 반영됨. 레버리지는 회복연동 청산이라 바닥 추가 매도 안 함. 추세 이탈(200일선) 확인 후 방어 단계 점검 권장. (신호일 뿐 강제 아님)`,
         act:'risk'});
     }
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   // 크립토 추세 이탈 — 1일: 알림 / 2일 확인: 소프트 브레이크(가속 보류·현금 버퍼↑). 하드 매도는 아님(매집 thesis 유지)
   try{ const tt=(state.settings.risk&&state.settings.risk.trend)||{};
     const cb=[]; if(tt['BTC-USD']&&tt['BTC-USD'].below) cb.push('BTC'); if(tt['ETH-USD']&&tt['ETH-USD'].below) cb.push('ETH');
@@ -3977,7 +4020,7 @@ function computeActionAlerts(s){
           act:'alloc'});
       }
     }
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   // 크립토 과집중 하드캡 — spot 크립토가 상한(60%) 초과면 풀스피드 매도 권고
   try{ const cw=(s.totalWithCash>0)?(((s.totals.crypto&&s.totals.crypto.current)||0)/s.totalWithCash):0;
     if(cw>CRYPTO_HARDCAP){
@@ -3986,7 +4029,7 @@ function computeActionAlerts(s){
         sub:`spot 크립토가 상한을 넘었어. 윈너라이딩(가속 트림 완화)을 무시하고 목표 ${(classTarget('crypto')*100).toFixed(0)}%까지 초과분을 풀스피드로 매도 권고 — 한 자산군 과집중 차단. ▸`,
         act:'alloc'});
     }
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   try{ const dt=drawdownTier(s);
     if(dt.tier>=1){
       const _rr=computeRiskStatus(s); const _inDef=_rr.level&&_rr.level!=='near';
@@ -4007,7 +4050,7 @@ function computeActionAlerts(s){
           act:'alloc'});
       }
     }
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   // 디레버리징 사다리 — 고배율(3x) 보유 시 한 칸 낮추는 전환 권장
   // 방어(lev/trend/floor) 중엔 방어 알림이 레버리지 축소를 담당하므로 숨김(중복 방지 · 플랜 우선순위와 일치)
   try{ const defenseLevOn=_r&&_r.level&&_r.level!=='near';
@@ -4018,12 +4061,12 @@ function computeActionAlerts(s){
       const q=show.map(r=>`${r.fromSym}(${r.fromMult}x) −${r.cat==='crypto'?r.sellSh:Math.round(r.sellSh)}주 → ${r.toSym}(${r.toMult}x)${r.buySh!=null?' +'+(typeof r.buySh==='number'&&r.toSym==='BTC'?r.buySh:Math.round(r.buySh)):''}`).join(' · ');
       out.push({tag:'디레버리지',sev:'info',why:`레버리지 한 칸 낮추기 — decay 절감 (3x→2x→BTC)`,sub:(q?q+' · ':'')+'⅓ 분할 · 매매 후 입력하면 목표 자동 이전',act:'alloc'});
     }
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   // 리밸런싱 드리프트 — 방어 중인 레버리지 종목은 방어 알림이 처리하므로 제외(중복 방지)
   try{ let drift=0; const defenseOn=_r&&_r.level&&_r.level!=='near';
     Object.keys(CATEGORIES).forEach(cat=>{ if(defenseOn&&isLevCat(cat)) return; stockRebalance(cat,'portfolio',s).forEach(rr=>{ if((rr.h.qty||0)>0 && Math.abs((rr.curWtPort||0)-(rr.tgtWtPort||0))>=0.05) drift++; }); });
     if(drift>0) out.push({tag:'리밸런싱',sev:'info',why:`목표비중 ±5%p 이탈 ${drift}종목`,sub:'배분에서 수량 확인 후 매매 → 입력',act:'alloc'});
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   // v124: 자산군 밴드 초과 — 종목 단위와 별개로 자산군 합이 노터치 밴드를 벗어나면 알림 (구 '리밸런싱 권장' 카드의 할 일 통합 완성)
   try{
     const _tot=s.totalWithCash||0;
@@ -4042,7 +4085,7 @@ function computeActionAlerts(s){
         why:`자산군 밴드(±${(_band*100).toFixed(0)}%p) 이탈 — ${_offs.join(' · ')}`,
         sub:'배분탭 플랜대로 매매하면 복귀 · 글라이드 진행 중엔 단계 매매에 자동 반영',act:'alloc'});
     }
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   // QLD 편입 리마인더 — 레버리지 청산 종료(2027-01-01, 12.31 마감 다음날) 후 QLD(나스닥100 2x) 편입 검토.
   //  이미 QLD를 보유(qty>0)하거나 사용자가 끄면 자동 숨김. 신호·리마인더일 뿐 매수권유 아님(편입·비중은 본인 판단).
   try{
@@ -4055,7 +4098,7 @@ function computeActionAlerts(s){
         sub:'12.31 개별 레버리지(NVDL·TSLL 등) 청산이 끝났고 과세연도·비거주자 전환 이후야. 사전 계획대로 QLD(광의 나스닥100 2x)로 레버 재진입 여부를 검토할 시점 — 편입할지·비중은 본인 판단. QLD를 실제 편입하면 자동으로 사라지고, 탭하면 리마인더를 끌 수 있어. (신호일 뿐 강제 아님) ▸',
         act:'qldRemind'});
     }
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   // 구글 백업 지연 알림 — 자동백업 ON·연결됨인데 마지막 드라이브 백업이 3일 이상 밀림.
   //   보통 구글 토큰 만료로 자동백업이 조용히 멈춘 상태(백그라운드는 재로그인 창을 못 띄움).
   try{
@@ -4069,7 +4112,7 @@ function computeActionAlerts(s){
           act:'backup'});
       }
     }
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   // [A1] 목표 비중 재검토 권장 — 제안 엔진(변동성 신호)이 현재 목표와 ≥5%p 괴리 제안 시. 확인 후 30일 쿨다운.
   try{
     const tp=(typeof computeTargetProposal==='function')?computeTargetProposal():null;
@@ -4085,7 +4128,7 @@ function computeActionAlerts(s){
           act:'reweigh'});
       }
     }
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   // [A2] 미정산 정산 확인 — 건별 정산예정일(settleDate)이 오늘 이하로 도래한 건이 있으면 알림.
   try{
     const list=state.settings.pendingList||[]; const today=ymdKST(Date.now());
@@ -4097,7 +4140,7 @@ function computeActionAlerts(s){
         sub:`${parts.join(' · ')} 의 정산 예정일이 됐어요. 증권사에서 정산됐으면(매도 +는 예수금 입금 / 매수 −는 예수금 출금) 각 건 [정산됨]을 눌러 예수금에 반영하세요. 탭하면 예수금 관리 ▸`,
         act:'cashman'});
     }
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   // [A4] 연내 통산 리마인더 — 12/31 D-45부터, 올해 해외 실현손익이 마이너스(통산 여력)면. 연도별 1회 끔 가능.
   // [A5] 과세 구간 진입 — 올해 해외 실현손익이 기본공제 초과 시 (실현이익에 22% 과세 시작)
   try{
@@ -4116,7 +4159,7 @@ function computeActionAlerts(s){
         sub:`실현손익 +₩${fmtKRW(ov)} > 공제 ₩${fmtKRW(ded)}. 지금부터 파는 수익분엔 양도세 22%가 붙어요(연도 내 손실 매칭 시 통산 가능). 익절 페이스 참고용.`,
         act:''});
     }
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   // [A6] 연말 실현손익 확정 리마인더 — D-30부터. 앱의 실현손익은 매도시점 추정치 → KB 원화기준 연간 합계로 세금 근거 확정 권장.
   try{
     const nowK=new Date(Date.now()+9*3600*1000); const y=String(nowK.getUTCFullYear());
@@ -4127,7 +4170,7 @@ function computeActionAlerts(s){
         sub:`앱의 실현손익은 매도 시점 추정이라 KB 확정치와 다를 수 있어요(환율·수수료). KB 해외주식 → 매매손익 → 실현손익 → '원화기준' 연간 합계를 확인해 세금 카드 값을 맞추면 양도세 계산이 정확해져요. 달러기준과 원화기준 차이 = 환차손익분. 탭하면 올해 리마인더 끔 ▸`,
         act:'rpnlConfirm'});
     }
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   //   10억→나스닥100계열 30% / 15억→50% / 20억→70%(S&P 혼합·수비 전환) / 27억(10년 목표)→인덱스+현금 위주.
   //   각 계단 1회 알림(확인 시 그 계단 끔). 구체 비중은 도달 시점에 재확정 가능 — 방향의 기록이 목적.
   try{
@@ -4145,7 +4188,7 @@ function computeActionAlerts(s){
         sub:`2026-07에 냉정할 때 정해둔 사전 약속이에요: 이긴 만큼 인덱스로 잠급니다. 지금이 유포리아일수록 이 규칙이 필요한 순간 — 재협상하지 말고 전환 계획을 세우세요. 구체 비중은 검토 후 확정. 탭하면 이 계단 확인 처리 ▸`,
         act:'ladder'});
     }
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   // [T1 정착 전환] 반자동 — 앱이 감지 가능한 조건(①레버 청산 완료 + 2027년 진입) 충족 시 상시 알림.
   //   ②비거주자 확정 ③세무사 클리어는 사람만 아는 사실 → 탭 후 체크리스트 확인을 거쳐 B안 재글라이드 자동 시작.
   //   완전 자동을 일부러 막음: ③은 전환매매 세금사고 방지 관문. 확인 전까지 알림은 계속 유지(까먹기 방지).
@@ -4157,7 +4200,7 @@ function computeActionAlerts(s){
         sub:'①레버리지 청산 완료 확인됨. 남은 관문: ②비거주자 전환 확정 ③세무사 클리어. 둘 다 됐으면 탭 → 체크리스트 확인 → B안(BTC30·ETH10·QQQM25·QLD10·프런티어5·금10·현금10) 재글라이드 5단계·2주 간격이 자동 시작됩니다. 확인 전까지 이 알림은 계속 떠요 ▸',
         act:'t1'});
     }
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   return out;
 }
 function acDispatch(act){
@@ -4170,11 +4213,11 @@ function acDispatch(act){
       if(confirm('T1 체크리스트\n\n② 비거주자 전환 확정됐나요?\n③ 세무사 클리어(전환매매 과세 타이밍) 받았나요?\n\n둘 다 YES면 [확인] — 정착 포트 B안 재글라이드(5단계·2주)를 시작합니다.\n아니면 [취소] — 알림은 유지됩니다.')){
         const B={us_stock:0.055, us_etf:0.278, lev_tech:0.111, lev_crypto:0, global_etf:0, crypto:0.445, gold:0.111};
         startGlide(B, 5, 0.10);
-        try{ if(state.settings.levLiq) state.settings.levLiq.active=false; }catch(_){}   // QLD는 levLiq·마감 면제 — 재가동 방지(startGlide 뒤에 꺼야 함)
+        try{ if(state.settings.levLiq) state.settings.levLiq.active=false; }catch(_e){window._dbg&&window._dbg(_e)}   // QLD는 levLiq·마감 면제 — 재가동 방지(startGlide 뒤에 꺼야 함)
         state.settings._t1Done=true;
-        try{ saveState(); }catch(_){}
-        try{ renderActionCenter(portfolioStats()); switchView('allocation'); }catch(_){}
-        try{ toast('🧭 정착 포트 전환 시작 — 5단계·2주 간격 · QLD 세부 규칙은 편입 시 함께 점검'); }catch(_){}
+        try{ saveState(); }catch(_e){window._dbg&&window._dbg(_e)}
+        try{ renderActionCenter(portfolioStats()); switchView('allocation'); }catch(_e){window._dbg&&window._dbg(_e)}
+        try{ toast('🧭 정착 포트 전환 시작 — 5단계·2주 간격 · QLD 세부 규칙은 편입 시 함께 점검'); }catch(_e){window._dbg&&window._dbg(_e)}
       }
     }
     else if(act==='ladder'){
@@ -4182,29 +4225,29 @@ function acDispatch(act){
       const L=[1.0e9,1.5e9,2.0e9,2.7e9]; const ack=state.settings._ladderAck||[];
       let th=null; for(const t of L){ if(nav>=t && !ack.includes(t)) th=t; }
       if(th && confirm('골인 래더 이 계단을 확인 처리할까요?\n· 이 계단 알림은 다시 뜨지 않습니다\n· 전환 실행은 배분/목표수정에서 직접')){
-        ack.push(th); state.settings._ladderAck=ack; try{ saveState(); }catch(_){}
-        try{ renderActionCenter(portfolioStats()); }catch(_){}
+        ack.push(th); state.settings._ladderAck=ack; try{ saveState(); }catch(_e){window._dbg&&window._dbg(_e)}
+        try{ renderActionCenter(portfolioStats()); }catch(_e){window._dbg&&window._dbg(_e)}
       }
     }
-    else if(act==='reweigh'){ state.settings._twAckTs=Date.now(); try{ saveState(); }catch(_){} openTargetProposal(); }
+    else if(act==='reweigh'){ state.settings._twAckTs=Date.now(); try{ saveState(); }catch(_e){window._dbg&&window._dbg(_e)} openTargetProposal(); }
     else if(act==='cashman'){ try{ openCashEditor(); }catch(_){ switchView('quickentry'); } }
-    else if(act==='glideStep'){ try{ switchView('allocation'); }catch(_){} }
+    else if(act==='glideStep'){ try{ switchView('allocation'); }catch(_e){window._dbg&&window._dbg(_e)} }
     else if(act==='rpnlConfirm'){
       const y=String(new Date(Date.now()+9*3600*1000).getUTCFullYear());
-      if(confirm('올해('+y+') 실현손익 확정 리마인더를 끌까요?\n· KB 원화기준 연간 실현손익으로 세금 카드를 맞춘 뒤 끄세요\n· 올해 안엔 다시 표시되지 않습니다')){ state.settings._rpnlConfirmAck=y; try{ saveState(); }catch(_){} try{ renderActionCenter(portfolioStats()); }catch(_){} }
+      if(confirm('올해('+y+') 실현손익 확정 리마인더를 끌까요?\n· KB 원화기준 연간 실현손익으로 세금 카드를 맞춘 뒤 끄세요\n· 올해 안엔 다시 표시되지 않습니다')){ state.settings._rpnlConfirmAck=y; try{ saveState(); }catch(_e){window._dbg&&window._dbg(_e)} try{ renderActionCenter(portfolioStats()); }catch(_e){window._dbg&&window._dbg(_e)} }
     }
     else if(act==='taxYE'){
       const y=String(new Date(Date.now()+9*3600*1000).getUTCFullYear());
-      if(confirm('올해('+y+') 연내 통산 리마인더를 끌까요?\n· 올해 안엔 다시 표시되지 않습니다')){ state.settings._taxYEAck=y; try{ saveState(); }catch(_){} try{ renderActionCenter(portfolioStats()); }catch(_){} }
+      if(confirm('올해('+y+') 연내 통산 리마인더를 끌까요?\n· 올해 안엔 다시 표시되지 않습니다')){ state.settings._taxYEAck=y; try{ saveState(); }catch(_e){window._dbg&&window._dbg(_e)} try{ renderActionCenter(portfolioStats()); }catch(_e){window._dbg&&window._dbg(_e)} }
     }
     else if(act==='backup'){
       try{ document.querySelectorAll('.view').forEach(el=>el.classList.add('hidden')); document.getElementById('view-settings').classList.remove('hidden'); renderSettings(); }catch(_){ switchView('allocation'); }
     }
     else if(act==='qldRemind'){
       if(confirm('QLD 편입 리마인더를 끌까요?\n· 다시 표시되지 않습니다\n· QLD를 실제 편입하면 자동으로도 사라집니다')){
-        state.settings.qldReminderOff=true; try{ saveState(); }catch(_){}
-        try{ renderActionCenter(portfolioStats()); }catch(_){}
-        try{ toast('QLD 편입 리마인더 끔'); }catch(_){}
+        state.settings.qldReminderOff=true; try{ saveState(); }catch(_e){window._dbg&&window._dbg(_e)}
+        try{ renderActionCenter(portfolioStats()); }catch(_e){window._dbg&&window._dbg(_e)}
+        try{ toast('QLD 편입 리마인더 끔'); }catch(_e){window._dbg&&window._dbg(_e)}
       }
     }
     else switchView('allocation');
@@ -4214,7 +4257,7 @@ window.acDispatch=acDispatch;
 function acToggle(tag){
   window._acOpen = window._acOpen || new Set();
   if(window._acOpen.has(tag)) window._acOpen.delete(tag); else window._acOpen.add(tag);
-  try{ renderActionCenter(portfolioStats()); }catch(_){}
+  try{ renderActionCenter(portfolioStats()); }catch(_e){window._dbg&&window._dbg(_e)}
 }
 window.acToggle=acToggle;
 function renderActionCenter(s){
@@ -4244,7 +4287,7 @@ function renderActionCenter(s){
 function renderRiskAlert(s){
   const el=document.getElementById('risk-alert'); if(!el) return;
   const r=computeRiskStatus(s);
-  try{ logRiskTransitions(r); }catch(_){}
+  try{ logRiskTransitions(r); }catch(_e){window._dbg&&window._dbg(_e)}
   el.style.display='none'; el.onclick=null; return;   // 할 일 알림(action center)으로 통합 — 중복 카드 제거
   if(!r.level){ el.style.display='none'; el.onclick=null; return; }
   let title, action, crit=false;
@@ -4456,9 +4499,9 @@ function saveRisk(){
   { const bs=document.getElementById('rk-backstop'); if(bs){ const v=parseFloat(bs.value||'0')||0; const newBs=v>0?Math.min(0.9,v/100):null; if(newBs!==rk.backstop) rk.peakNav=null; rk.backstop=newBs; } }
   saveState();
   closeModal();
-  try{ renderSettings(); }catch(_){}
-  try{ if(currentView==='dashboard') renderDashboard(); }catch(_){}
-  if(rk.trendOn) fetchTrend200(true).then(()=>{ try{ if(currentView==='dashboard'){ const _s=portfolioStats(); renderRiskAlert(_s); renderLevConvAlert(_s); renderActionCenter(_s); } }catch(_){} }).catch(()=>{});
+  try{ renderSettings(); }catch(_e){window._dbg&&window._dbg(_e)}
+  try{ if(currentView==='dashboard') renderDashboard(); }catch(_e){window._dbg&&window._dbg(_e)}
+  if(rk.trendOn) fetchTrend200(true).then(()=>{ try{ if(currentView==='dashboard'){ const _s=portfolioStats(); renderRiskAlert(_s); renderLevConvAlert(_s); renderActionCenter(_s); } }catch(_e){window._dbg&&window._dbg(_e)} }).catch(()=>{});
   toast('하방 보호 규칙 저장됨');
 }
 
@@ -4506,7 +4549,7 @@ function renderAllocChart(s){
   const cashPct=(typeof effectiveCashPct==='function')?effectiveCashPct(s):(state.settings.reserveTargetPct||0);
   // 카드의 "조정" 금액은 종합 실행(배분)과 동일 출처에서 산출 — 윈너라이딩 ⅓ 트림·레버리지 levLiq 보류·현금까지 반영해 두 화면 불일치 제거
   let planNet={};
-  try{ const _p=computeUnifiedPlan(s); [..._p.buys,..._p.sells].forEach(x=>{ planNet[x.cat]=(planNet[x.cat]||0)+x.val; }); }catch(_){}
+  try{ const _p=computeUnifiedPlan(s); [..._p.buys,..._p.sells].forEach(x=>{ planNet[x.cat]=(planNet[x.cat]||0)+x.val; }); }catch(_e){window._dbg&&window._dbg(_e)}
   const items=[];
   for (const k in CATEGORIES){
     const tgtVal=classTargetValKRW(k,s);   // 엔진과 동일 목표(레버 차감·비레버 정규화·levLiq) → 목표 합 100%
@@ -5599,7 +5642,7 @@ let rbMode='portfolio';
    각 계좌 inflow = 플랜 매도 + 그 계좌 미정산금(이미 매도, 정산 대기). 조달 풀 = 예수금 + 증거금 계좌 (매도+미정산) 여유. === */
 function computeTransferQueue(plan, s){
   const acct={}; ACCOUNT_ORDER.forEach(a=>acct[a]={b:0,s:0});
-  try{ (plan.buys||[]).concat(plan.sells||[]).forEach(x=>{ const a=accountOfCat(x.cat); if(!acct[a])acct[a]={b:0,s:0}; if(x.val>0)acct[a].b+=x.val; else acct[a].s-=x.val; }); }catch(_){}
+  try{ (plan.buys||[]).concat(plan.sells||[]).forEach(x=>{ const a=accountOfCat(x.cat); if(!acct[a])acct[a]={b:0,s:0}; if(x.val>0)acct[a].b+=x.val; else acct[a].s-=x.val; }); }catch(_e){window._dbg&&window._dbg(_e)}
   const TH=10000;
   // 계좌별 미정산금(이미 매도, 정산대기) — 그 계좌 inflow에 합산
   const pend={}; ACCOUNT_ORDER.forEach(a=>pend[a]=Math.max(0,Math.round(pendingAccountKRW(a))));
@@ -5733,7 +5776,7 @@ function renderStockRebalance(){
         else _residKRW+=v;                                                 // 증거금 계좌 매매 = 당장 실행 가능
       });
       _residPct=(_gs.totalWithCash>0)?(_residKRW/_gs.totalWithCash*100):0;
-    }catch(_){}
+    }catch(_e){window._dbg&&window._dbg(_e)}
     const _done=_residPct<=1.0;
     const _upNote=_upPendKRW>10000?` · 크립토 이체분 ₩${fmtKRW(_upPendKRW)} 별도`:'';
     const _doneBadge=`<div style="font-size:11px;font-weight:700;border-radius:7px;padding:7px 10px;margin-bottom:8px;background:${_done?'rgba(30,158,90,0.14)':'rgba(90,107,122,0.12)'};color:${_done?'#1E9E5A':'var(--text-2)'}">${_done?`✅ 이번 단계 매매 완료 · 잔여 ₩${fmtKRW(_residKRW)} (${_residPct.toFixed(1)}% · 노이즈만)${_upNote}`:`⏳ 매매 진행 중 · 잔여 ₩${fmtKRW(_residKRW)} (총자산 ${_residPct.toFixed(1)}%)${_upNote}`}</div>`;
@@ -6570,7 +6613,7 @@ function pendingSettle(i){
     if(signEl) signEl.value=nv<0?'-':'+';
     inp.value=Math.abs(nv)||'';
     // 부호 버튼 시각 갱신
-    try{ cashSign(it.acct,it.cur,nv<0?'-':'+'); }catch(_){}
+    try{ cashSign(it.acct,it.cur,nv<0?'-':'+'); }catch(_e){window._dbg&&window._dbg(_e)}
   }
   toast(`${ACCOUNTS[it.acct].label} ${it.cur==='usd'?fmtUSD(amt):fmtKRWFull(amt)} 예수금 반영 — 저장 눌러 확정`);
   _pendEdit.splice(i,1); pendingRerender();
@@ -7290,9 +7333,9 @@ function qeKey(e){
   else if(t.blur) t.blur();
 }
 window.qeKey=qeKey;
-function qeFocus(inp){ try{ inp.select(); }catch(e){} }   // 탭하면 전체선택 → 바로 입력 시 교체
-function qeSelectAll(inp){ try{ inp.focus(); inp.select(); setTimeout(()=>{try{inp.select();}catch(e){}},0); }catch(e){} }  // 다음 이동 시 전체선택
-function qeCursorEnd(inp){ try{ const L=inp.value.length; inp.setSelectionRange(L,L); }catch(e){} }  // 커서를 끝으로
+function qeFocus(inp){ try{ inp.select(); }catch(e){window._dbg&&window._dbg(e)} }   // 탭하면 전체선택 → 바로 입력 시 교체
+function qeSelectAll(inp){ try{ inp.focus(); inp.select(); setTimeout(()=>{try{inp.select();}catch(e){window._dbg&&window._dbg(e)}},0); }catch(e){window._dbg&&window._dbg(e)} }  // 다음 이동 시 전체선택
+function qeCursorEnd(inp){ try{ const L=inp.value.length; inp.setSelectionRange(L,L); }catch(e){window._dbg&&window._dbg(e)} }  // 커서를 끝으로
 window.qeFocus=qeFocus; window.qeCursorEnd=qeCursorEnd; window.qeSelectAll=qeSelectAll;
 function qeRecalc(id){
   const h=state.holdings.find(x=>x.id===id);
@@ -7334,7 +7377,7 @@ function qeInput(inp,id){
   qeRecalc(id);
   // 수정 중 자동 저장 (디바운스) — 앱이 내려갔다 새로고침돼도 입력값 보존
   if(qeAutoSaveTimer) clearTimeout(qeAutoSaveTimer);
-  qeAutoSaveTimer=setTimeout(()=>{ try{ commitQuickEntry(); saveState(); }catch(e){} }, 400);
+  qeAutoSaveTimer=setTimeout(()=>{ try{ commitQuickEntry(); saveState(); }catch(e){window._dbg&&window._dbg(e)} }, 400);
 }
 function qeHasUnsaved(){
   return document.querySelectorAll('#qe-list input.qe-changed').length>0;
@@ -7603,8 +7646,8 @@ function qeImportApply(){
   });
   for(const c in CATEGORIES) qeCatSum(c);
   const extra=[_qeImportCashBuf?'예수금':'',_qeImportPendingBuf?'미정산금':''].filter(Boolean).join('·');
-  try{ toast(n+'종목'+(extra?' + '+extra:'')+' 준비됨 — 그리드 확인 후 아래 전체 저장'); }catch(_){}
-  const list=document.getElementById('qe-list'); if(list&&list.scrollIntoView){ try{ list.scrollIntoView({behavior:'smooth',block:'start'}); }catch(_){} }
+  try{ toast(n+'종목'+(extra?' + '+extra:'')+' 준비됨 — 그리드 확인 후 아래 전체 저장'); }catch(_e){window._dbg&&window._dbg(_e)}
+  const list=document.getElementById('qe-list'); if(list&&list.scrollIntoView){ try{ list.scrollIntoView({behavior:'smooth',block:'start'}); }catch(_e){window._dbg&&window._dbg(_e)} }
 }
 /* 종목 순서 이동 (같은 자산군 내) — 공통 로직 */
 function reorderHolding(id,dir){
@@ -8579,7 +8622,7 @@ async function fetchQuoteFor(h){
     // 2순위: 야후 — 접미사 있으면 그대로, 없으면 .KS→.KQ 시도
     const cands = /\.(KS|KQ)$/i.test(raw) ? [raw] : [code+'.KS', code+'.KQ'];
     for(const sym of cands){
-      try{ const q=await fetchYahoo(sym); if(q && q.price>0) return q; }catch(e){}
+      try{ const q=await fetchYahoo(sym); if(q && q.price>0) return q; }catch(e){window._dbg&&window._dbg(e)}
     }
     throw new Error('KR 시세 실패');
   }
@@ -8725,7 +8768,7 @@ async function fetchUpbit(symbols){
   }
   // 업비트가 일부 심볼만 준 경우, 빠진 건 빗썸으로 보충
   const missing=symbols.filter(s=>!out[s.toUpperCase()]);
-  if(missing.length){ try{ const bh=await fetchBithumb(missing); Object.assign(out,bh); }catch(_){} }
+  if(missing.length){ try{ const bh=await fetchBithumb(missing); Object.assign(out,bh); }catch(_e){window._dbg&&window._dbg(_e)} }
   return out;
 }
 /* 빗썸 폴백 — 업비트 장애 시 BTC·ETH 원화 시세 대체. api.bithumb.com/public/ticker/{SYM}_KRW */
@@ -8767,17 +8810,17 @@ async function fetchFx(){
     const data=await proxyFetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/KRW=X?interval=1d&range=1d&t=${Date.now()}`);
     const m=data&&data.chart&&data.chart.result&&data.chart.result[0]&&data.chart.result[0].meta;
     if(m&&m.regularMarketPrice>0) return m.regularMarketPrice;
-  } catch(e){}
+  } catch(e){window._dbg&&window._dbg(e)}
   // 2) Frankfurter — 일 1회 갱신 (폴백)
   try {
     const r=await fetch('https://api.frankfurter.app/latest?from=USD&to=KRW');
     if(r.ok){ const d=await r.json(); if(d.rates&&d.rates.KRW) return d.rates.KRW; }
-  } catch(e){}
+  } catch(e){window._dbg&&window._dbg(e)}
   // 3) er-api — 폴백
   try {
     const r=await fetch('https://open.er-api.com/v6/latest/USD');
     if(r.ok){ const d=await r.json(); if(d.rates&&d.rates.KRW) return d.rates.KRW; }
-  } catch(e){}
+  } catch(e){window._dbg&&window._dbg(e)}
   throw new Error('FX 조회 실패');
 }
 
@@ -8806,7 +8849,7 @@ async function refreshAllPrices(quiet){
   try {
   const fxPromise=withTimeout(fetchFx(),8000).then(v=>{ if(v>0){ state.settings.fxRate=v; scheduleLiveRender(); } }).catch(()=>{});
   // 추세 필터(200일선) — 6시간 1회, 비차단. 도착하면 하방 보호 카드만 갱신
-  fetchTrend200(false).then(()=>{ try{ if(currentView==='dashboard'){ const _s=portfolioStats(); renderRiskAlert(_s); renderLevConvAlert(_s); renderActionCenter(_s); } }catch(_){} }).catch(()=>{});
+  fetchTrend200(false).then(()=>{ try{ if(currentView==='dashboard'){ const _s=portfolioStats(); renderRiskAlert(_s); renderLevConvAlert(_s); renderActionCenter(_s); } }catch(_e){window._dbg&&window._dbg(_e)} }).catch(()=>{});
 
   // 주식·ETF — Yahoo, 동시 12개. 느린 종목이 있어도 병렬로 격리되어 빠른 종목은 즉시 완료.
   //  (동시성을 낮추면 한 워커가 느린 종목에 묶여 나머지까지 타임아웃 → 실패 증가. 12 유지가 최적.)
@@ -8860,7 +8903,7 @@ async function refreshAllPrices(quiet){
           if(p){ h.curKRW=p.price; h._mkt={dayChangePct:p.dayChangePct,prevClose:p.prevClose,_src:p._src||"upbit",ts:Date.now()}; ok++; fail--; lastFailed.delete(h.symbol); }
         }
         scheduleLiveRender();
-      }catch(_){}
+      }catch(_e){window._dbg&&window._dbg(_e)}
     }
     if(fStocks.length){
       for(let pass=0; pass<2 && lastFailed.size; pass++){
@@ -8880,7 +8923,7 @@ async function refreshAllPrices(quiet){
               if(marketOf(h)==='kr'){ if(q._src==='naver') krNaver++; else krYahoo++; }
               h._mkt={dayChangePct:q.dayChangePct,prevClose:q.prevClose,hi52:q.hi52,lo52:q.lo52,marketState:q.marketState,regPrice:q.regPrice,regPrevClose:q.regPrevClose,regChangePct:q.regChangePct,extType:q.extType,extPrice:q.extPrice,extChangePct:q.extChangePct,ts:Date.now()};
               ok++; fail--; lastFailed.delete(h.symbol); scheduleLiveRender();
-            }catch(_){}
+            }catch(_e){window._dbg&&window._dbg(_e)}
           }
         }
         await Promise.all(Array.from({length:3},()=>rworker()));
@@ -8889,7 +8932,7 @@ async function refreshAllPrices(quiet){
   }
 
     state.prices.lastFetch=Date.now();
-    try{ updateLevLiq(); }catch(_){}   // 레버리지 트레일링 회복 청산 — 신고가 경신 반영
+    try{ updateLevLiq(); }catch(_e){window._dbg&&window._dbg(_e)}   // 레버리지 트레일링 회복 청산 — 신고가 경신 반영
     await saveState();
   } catch(e){ /* 예기치 못한 오류도 아래 finally에서 정리 */ }
   finally {
@@ -9060,7 +9103,7 @@ function freshenIfStale(maxAgeSec){
 }
 function qeCommitIfEditing(){
   if(currentView==='quickentry' && qeUnlocked && Object.values(qeUnlocked).some(Boolean)){
-    try{ commitQuickEntry(); saveState(); }catch(e){}
+    try{ commitQuickEntry(); saveState(); }catch(e){window._dbg&&window._dbg(e)}
   }
 }
 document.addEventListener('visibilitychange',()=>{
@@ -9106,13 +9149,13 @@ function renderSettings(){
         const sLab=acS.on?acS.label:'대기', cLab=acC.on?acC.label:'대기';
         st+=`<br>⑦ 상승 가속(트랙 분리): 주식 <b style="color:${acS.color||'#7A8195'}">${sLab}</b> · 크립토 <b style="color:${acC.color||'#7A8195'}">${cLab}</b>`
           +`<br><span style="color:var(--text-3);font-size:11px">주식=나스닥 / 크립토=BTC·ETH(트레저리주 포함) · 금 제외 · 레버리지 청산 우선</span>`;
-      } }catch(_){}
+      } }catch(_e){window._dbg&&window._dbg(_e)}
       try{ const _tt=(state.settings.risk&&state.settings.risk.trend)||{};
         const _cbroken=(_tt['BTC-USD']&&_tt['BTC-USD'].below)||(_tt['ETH-USD']&&_tt['ETH-USD'].below);
         const _bOn=cryptoBrakeOn();
         st+=`<br>⑧ 크립토 소프트 브레이크: ${_bOn?`<b style="color:#E5663D">발동 — 현금 ${(CRYPTO_BRAKE_CASH*100).toFixed(0)}%·가속 추가투입 보류</b>`:(_cbroken?'<b style="color:#D98A3D">관찰 — 1일 이탈(2일 확인 시 발동)</b>':'<span style="color:var(--up)">정상</span>')}`
           +`<br><span style="color:var(--text-3);font-size:11px">BTC·ETH 200일선 2거래일↑ 이탈 시 가속분만 차단 · 글라이드 기본 매집(DCA)은 유지 · 회복 시 자동 해제</span>`;
-      }catch(_){}
+      }catch(_e){window._dbg&&window._dbg(_e)}
     }catch(e){ st=`② 추세 ${rk.trendOn?'사용':'끔'} · ④ 플로어 <b>${floorTxt}</b>`; }
     rs.innerHTML=st;
   }
@@ -9202,7 +9245,7 @@ function downloadFile(text, fname){
   a.style.display='none';
   document.body.appendChild(a);
   a.click();
-  setTimeout(()=>{ try{ document.body.removeChild(a); URL.revokeObjectURL(url); }catch(e){} },2000);
+  setTimeout(()=>{ try{ document.body.removeChild(a); URL.revokeObjectURL(url); }catch(e){window._dbg&&window._dbg(e)} },2000);
 }
 document.getElementById('export-btn').onclick=()=>{
   downloadFile(JSON.stringify(state,null,2),'sh_portfolio_backup.json');
@@ -9360,7 +9403,7 @@ let _tokenClient=null, _accessToken=null, _tokenExp=0, _cloudBusy=false, _autoTr
 let _restoreFiles=[], _restoreTok=null;
 const GD_LOGIN_HINT='sam840711@gmail.com';   // 계정 선택창 최소화용 힌트 (틀리면 무시됨)
 const GD_TOKEN_KEY='sh_gdrive_tok';          // 토큰 보존(localStorage·만료검증) → 콜드오픈에도 재로그인 없이 무음 백업 (MST3 v0.30 패턴)
-(function _gdRestoreTok(){ try{ const o=JSON.parse(localStorage.getItem(GD_TOKEN_KEY)||'null'); if(o && o.tok && o.exp>Date.now()+60000){ _accessToken=o.tok; _tokenExp=o.exp; } }catch(_){} })();
+(function _gdRestoreTok(){ try{ const o=JSON.parse(localStorage.getItem(GD_TOKEN_KEY)||'null'); if(o && o.tok && o.exp>Date.now()+60000){ _accessToken=o.tok; _tokenExp=o.exp; } }catch(_e){window._dbg&&window._dbg(_e)} })();
 
 function gisReady(){ return !!(window.google && google.accounts && google.accounts.oauth2); }
 function gdriveLinked(){ try{ return localStorage.getItem('sh_gdrive_linked')==='1'; }catch(_){ return false; } }
@@ -9385,8 +9428,8 @@ function ensureToken(interactive){
       if(resp && resp.access_token){
         _accessToken=resp.access_token;
         _tokenExp=Date.now()+((resp.expires_in||3600)*1000);
-        try{ localStorage.setItem(GD_TOKEN_KEY, JSON.stringify({tok:_accessToken,exp:_tokenExp})); }catch(_){}
-        try{ localStorage.setItem('sh_gdrive_linked','1'); }catch(_){}
+        try{ localStorage.setItem(GD_TOKEN_KEY, JSON.stringify({tok:_accessToken,exp:_tokenExp})); }catch(_e){window._dbg&&window._dbg(_e)}
+        try{ localStorage.setItem('sh_gdrive_linked','1'); }catch(_e){window._dbg&&window._dbg(_e)}
         done(resolve,_accessToken);
       } else if(!retried){
         // 무음 실패 → prompt:'' 폴백 (자동 백업 포함 — 로그북/MST3 패턴). 이미 동의된 계정이면 흰 구글 창이 잠깐 떴다 자동으로 닫히며 토큰 발급됨.
@@ -9427,13 +9470,13 @@ async function driveDownload(tok,id){
   if(!r.ok) throw new Error('다운로드 '+r.status); return r.text();
 }
 async function driveDelete(tok,id){
-  try{ await fetch('https://www.googleapis.com/drive/v3/files/'+id,{ method:'DELETE', headers:{Authorization:'Bearer '+tok} }); }catch(_){}
+  try{ await fetch('https://www.googleapis.com/drive/v3/files/'+id,{ method:'DELETE', headers:{Authorization:'Bearer '+tok} }); }catch(_e){window._dbg&&window._dbg(_e)}
 }
 async function sha256hex(str){
   const buf=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
   return Array.from(new Uint8Array(buf)).map(x=>x.toString(16).padStart(2,'0')).join('');
 }
-async function saveStateRaw(){ try{ await window.storage.set(STORE_KEY, JSON.stringify(state)); }catch(_){} }
+async function saveStateRaw(){ try{ await window.storage.set(STORE_KEY, JSON.stringify(state)); }catch(_e){window._dbg&&window._dbg(_e)} }
 
 async function backupToGDrive(silent){
   try{
@@ -9443,7 +9486,7 @@ async function backupToGDrive(silent){
     const payload=JSON.stringify({ app:'SH Portfolio', v:3, ts:Date.now(), sha, state });
     const name='SH_Portfolio_'+new Date().toISOString().replace(/[:.]/g,'-')+'.json';
     await driveUpload(tok,name,payload);
-    try{ const files=await driveList(tok); for(const f of files.slice(30)) await driveDelete(tok,f.id); }catch(_){}  // 최근 30개 보관
+    try{ const files=await driveList(tok); for(const f of files.slice(30)) await driveDelete(tok,f.id); }catch(_e){window._dbg&&window._dbg(_e)}  // 최근 30개 보관
     state.settings.cloud=state.settings.cloud||{}; state.settings.cloud.last=Date.now();
     state.settings.lastBackup=Date.now();
     await saveStateRaw();
@@ -9519,12 +9562,12 @@ function maybeAutoBackup(){
             if(cc&&cc.auto&&gdriveLinked()&&navigator.onLine&&!_cloudBusy && (cc.last||0)<backupSlotStart()){
               _cloudBusy=true; cc.lastTry=Date.now();
               backupToGDrive(true).then(()=>{cc.lastErr=0;}).catch(e2=>{cc.lastErr=Date.now();cc.lastErrMsg=(e2&&e2.message)||String(e2);})
-                .finally(()=>{_cloudBusy=false; try{saveStateRaw();}catch(_){}; try{renderCloudUI();}catch(_){}});
-            } }catch(_){}
+                .finally(()=>{_cloudBusy=false; try{saveStateRaw();}catch(_e){window._dbg&&window._dbg(_e)}; try{renderCloudUI();}catch(_e){window._dbg&&window._dbg(_e)}});
+            } }catch(_e){window._dbg&&window._dbg(_e)}
         });
-      } }catch(_){}
+      } }catch(_e){window._dbg&&window._dbg(_e)}
     })   // 실패 시 세션 내 재시도 허용(30분 쿨다운이 남발 방지)
-    .finally(()=>{ _cloudBusy=false; try{saveStateRaw();}catch(_){}; try{renderCloudUI();}catch(_){} });
+    .finally(()=>{ _cloudBusy=false; try{saveStateRaw();}catch(_e){window._dbg&&window._dbg(_e)}; try{renderCloudUI();}catch(_e){window._dbg&&window._dbg(_e)} });
 }
 async function gdriveConnect(){
   if(!gisReady()){ toast('구글 로그인 모듈 로딩 중 — 잠시 후 다시'); return; }
@@ -9532,10 +9575,10 @@ async function gdriveConnect(){
   catch(e){ toast('연결 실패: '+(e.message||e)); }
 }
 function gdriveDisconnect(){
-  try{ if(_accessToken && gisReady()) google.accounts.oauth2.revoke(_accessToken,()=>{}); }catch(_){}
+  try{ if(_accessToken && gisReady()) google.accounts.oauth2.revoke(_accessToken,()=>{}); }catch(_e){window._dbg&&window._dbg(_e)}
   _accessToken=null; _tokenExp=0;
-  try{ localStorage.removeItem('sh_gdrive_linked'); }catch(_){}
-  try{ localStorage.removeItem(GD_TOKEN_KEY); }catch(_){}
+  try{ localStorage.removeItem('sh_gdrive_linked'); }catch(_e){window._dbg&&window._dbg(_e)}
+  try{ localStorage.removeItem(GD_TOKEN_KEY); }catch(_e){window._dbg&&window._dbg(_e)}
   toast('구글 연결 해제됨'); renderCloudUI();
 }
 function showRestoreBanner(){
@@ -9552,6 +9595,7 @@ function showRestoreBanner(){
   const sk=document.getElementById('rb-skip'); if(sk) sk.onclick=()=>{ b.remove(); };
 }
 function renderCloudUI(){
+  try{ renderDbgLog(); }catch(_e){}
   const linked=gdriveLinked();
   const cbtn=document.getElementById('gd-connect'); if(cbtn) cbtn.textContent=linked?'구글 계정 연결 해제':'구글 계정 연결';
   const st=document.getElementById('gd-status');
@@ -9584,14 +9628,14 @@ function renderCloudUI(){
    ================================================================ */
 (async function(){
   await loadState();
-  try{ if(ensureLevTechSpots()) await saveState(); }catch(_){}   // Lev Tech 대응 현물(NVDA 등) 0주 자동 생성
-  try{ if(ensureStepdownHoldings()) await saveState(); }catch(_){}  // 디레버리징 경유지(MSTU 2x 등) 0주 자동 생성
-  try{ if(ensureBasketHoldings()) await saveState(); }catch(_){}  // 바스켓 플레이스홀더 정리(0주) — [3] 별도 바스켓 제거
-  try{ if(clearPlaceholderTargets()) await saveState(); }catch(_){}  // 0주 대기 종목 목표 0 강제(전환/정착 전 매수 방지)
-  try{ if(normalizeStockTargets()) await saveState(); }catch(_){}  // 종목 목표비중 자산군별 100% 정규화(비율 유지)
-  try{ updateVolBaseline(); }catch(_){}   // 변동성 기준선(EMA) 갱신 — 목표 비중 제안용
+  try{ if(ensureLevTechSpots()) await saveState(); }catch(_e){window._dbg&&window._dbg(_e)}   // Lev Tech 대응 현물(NVDA 등) 0주 자동 생성
+  try{ if(ensureStepdownHoldings()) await saveState(); }catch(_e){window._dbg&&window._dbg(_e)}  // 디레버리징 경유지(MSTU 2x 등) 0주 자동 생성
+  try{ if(ensureBasketHoldings()) await saveState(); }catch(_e){window._dbg&&window._dbg(_e)}  // 바스켓 플레이스홀더 정리(0주) — [3] 별도 바스켓 제거
+  try{ if(clearPlaceholderTargets()) await saveState(); }catch(_e){window._dbg&&window._dbg(_e)}  // 0주 대기 종목 목표 0 강제(전환/정착 전 매수 방지)
+  try{ if(normalizeStockTargets()) await saveState(); }catch(_e){window._dbg&&window._dbg(_e)}  // 종목 목표비중 자산군별 100% 정규화(비율 유지)
+  try{ updateVolBaseline(); }catch(_e){window._dbg&&window._dbg(_e)}   // 변동성 기준선(EMA) 갱신 — 목표 비중 제안용
   // 저장소 영속성 요청 — 브라우저 저장소 압박 시 데이터 보존(설치형 PWA에서 효과)
-  try{ if(navigator.storage&&navigator.storage.persist){ navigator.storage.persisted().then(p=>{ if(!p) navigator.storage.persist().catch(()=>{}); }); } }catch(_){}
+  try{ if(navigator.storage&&navigator.storage.persist){ navigator.storage.persisted().then(p=>{ if(!p) navigator.storage.persist().catch(()=>{}); }); } }catch(_e){window._dbg&&window._dbg(_e)}
   await saveState();        // 앱 실행 시 이번 달 자산 스냅샷 기록
   renderTopbar();
   renderDashboard();
@@ -9603,10 +9647,10 @@ function renderCloudUI(){
       // 예열은 최대 2.5초만 대기 — FX가 콜드로 늦어도 본 갱신을 막지 않음
       await Promise.race([
         (async()=>{ const v=await fetchFx(); if(v>0){ state.settings.fxRate=v;
-          try{ document.getElementById('fx-val').textContent=v.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2}); }catch(_){} } })(),
+          try{ document.getElementById('fx-val').textContent=v.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2}); }catch(_e){window._dbg&&window._dbg(_e)} } })(),
         new Promise(r=>setTimeout(r,2500))
       ]);
-    }catch(_){}
+    }catch(_e){window._dbg&&window._dbg(_e)}
     refreshAllPrices(false).then(()=>{   // 첫 진입 시 무조건 시세 갱신(수동 탭과 동일) — 예열 후라 더 빠르고 덜 실패
       // 콜드 부팅 보정: 그래도 일부 실패했으면 잠시 후 1회 조용히 재시도
       if(lastFailed && lastFailed.size>0){ setTimeout(()=>{ if(!isFetching) refreshAllPrices(true); }, 2500); }
@@ -9629,7 +9673,7 @@ function renderCloudUI(){
       localStorage.setItem('sh_seen','1');
       showRestoreBanner();
     }
-  }catch(_){}
+  }catch(_e){window._dbg&&window._dbg(_e)}
   // 백업 리마인더 — 마지막 백업 후 7일 이상이면 안내
   const lb=state.settings&&state.settings.lastBackup;
   const days=lb?Math.floor((Date.now()-lb)/86400000):999;

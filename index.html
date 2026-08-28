@@ -828,6 +828,12 @@ input,select,textarea{font-family:inherit;color:inherit}
     </div>
 
     <div class="card">
+      <div class="card-title">🚀 성장형 전환 (레버 일부 유지)</div>
+      <div class="info-text" style="margin-bottom:10px">공격형과 달리 <b>레버 크립토 10%를 유지</b>하는 배분으로 <b>3단계·2주 간격</b> 점진 전환합니다. 최종: 크립토 현물 <b>30%</b> · 레버 크립토 <b>10%</b>(MSTU+BMNU 5:5) · US ETF <b>26%</b> · US 주식 <b>24%</b> · 금 <b>10%</b> · 현금 2.5%. 레버 <b>테크</b>(NVDL·TSLL·GGLL·PLTU)는 목표 0으로 <b>계속 회복연동 청산</b>하고, 레버 <b>크립토</b>는 청산에서 빠져 목표 비중으로 유지됩니다. MST3는 매도 후 MSTU 신규 매수로 교체하세요(별건). <b>크립토 방향 실효노출 약 48% — BTC −35% 시 약 −₩78M</b>. 실현손익·이주 일정은 세무사·본인 재확인 필요.</div>
+      <button class="btn btn-secondary" style="width:100%" onclick="startGrowthGlide()">성장형 3단계 전환 시작</button>
+    </div>
+
+    <div class="card">
       <div class="card-title">목표 비중 재검토 <span style="font-size:10.5px;color:var(--text-3);font-weight:400">제안형</span></div>
       <div class="info-text" style="margin-bottom:10px">변동성 등 신호가 크게 바뀌면 목표 비중 조정을 <b>제안</b>합니다. 제안값은 <b>적용 전 직접 수정</b>할 수 있어요 — 최종 결정은 항상 당신이 합니다.</div>
       <button class="btn btn-secondary" style="width:100%" onclick="openTargetProposal()">목표 비중 재검토 (제안 + 수정)</button>
@@ -1145,11 +1151,14 @@ window.renderLevLiqExclude=renderLevLiqExclude; window.toggleLevLiqExclude=toggl
    TARGETS_AGG : 공격 배분(현행 운용 목표) · TARGETS_T1 : 레버 청산 완료(T1) 이후 배분. 둘 다 합계 1.00. */
 const TARGETS_AGG = Object.freeze({us_stock:0.18, us_etf:0.22, lev_tech:0.00, lev_crypto:0.00, global_etf:0.00, crypto:0.50, gold:0.10});
 const TARGETS_T1  = Object.freeze({us_stock:0.055, us_etf:0.278, lev_tech:0.111, lev_crypto:0, global_etf:0, crypto:0.445, gold:0.111});
+/* v140: 성장형 — 레버 크립토 10% 유지(MSTU5+BMNU5), 현물 30%, 레버Tech는 청산 유지(0). 합계 1.00 */
+const TARGETS_GROWTH = Object.freeze({us_stock:0.24, us_etf:0.26, lev_tech:0.00, lev_crypto:0.10, global_etf:0.00, crypto:0.30, gold:0.10});
+window.TARGETS_GROWTH=TARGETS_GROWTH;
 window.TARGETS_AGG=TARGETS_AGG; window.TARGETS_T1=TARGETS_T1;
 /* v138: levLiq 청산 안전판 시작 시점(마감 D-N일). 글라이드 재원 조달과 동기화되도록 조정. */
 const LEVLIQ_TAPER_DAYS = 120;
 window.LEVLIQ_TAPER_DAYS=LEVLIQ_TAPER_DAYS;
-const APP_VER = 'v139';   // v139: 레버 청산 방식(회복연동/즉시청산) 종목별 토글 UI
+const APP_VER = 'v140';   // v140: 성장형 전환(레버크립토 10% 유지) 3단계 글라이드 + levLiq를 목표0 자산군만 청산하도록 스코프
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -1795,8 +1804,9 @@ window.clearPeakEpoch=function(){
   }
 };
 function initLevLiq(){
-  const L={active:true, deadline:levDeadlineTs(), origQty:{}, remain:{}, refPx:{}};
-  (state.holdings||[]).forEach(h=>{ if(isLevCat(h.cat)){ L.origQty[h.id]=h.qty; L.remain[h.id]=1; L.refPx[h.id]=(isUSDcat(h.cat)?h.curUSD:h.curKRW)||0; } });
+  const L={active:true, deadline:levDeadlineTs(), origQty:{}, remain:{}, refPx:{}, exclude:(state.settings.levLiq&&state.settings.levLiq.exclude)||[]};
+  // v140: 최종 목표 0인 레버 자산군만 청산 등록(성장형에선 lev_crypto 유지 → 미등록). 목표 0이면 즉시 청산 대상.
+  (state.holdings||[]).forEach(h=>{ if(isLevCat(h.cat) && finalClassTarget(h.cat)<=0.0001){ L.origQty[h.id]=h.qty; L.remain[h.id]=1; L.refPx[h.id]=(isUSDcat(h.cat)?h.curUSD:h.curKRW)||0; } });
   state.settings.levLiq=L;
 }
 function levBaseSym(h){ return (h.symbol||'').replace('.KS','').replace('.L','').toUpperCase(); }
@@ -1808,6 +1818,8 @@ function updateLevLiq(){
   let anyLeft=false;
   (state.holdings||[]).forEach(h=>{
     if(!isLevCat(h.cat)||L.remain[h.id]==null) return;
+    // v140: 최종 목표가 0이 아닌 레버 자산군은 청산 대상에서 제외(성장형: lev_crypto 10% 유지). lev_tech는 목표 0이라 계속 청산.
+    if(finalClassTarget(h.cat)>0.0001){ return; }
     if(past){ L.remain[h.id]=0; return; }                 // 마감일 → 전량 정리
     // v134 ①: 제외 종목 — 회복연동(levLiq) 대상에서 빼고 즉시 전량 청산 대상으로 (감가상각형 상품 대응)
     if(_exc.includes(levBaseSym(h))){ L.remain[h.id]=0; return; }
@@ -1868,6 +1880,21 @@ function startGlide(toTargets, steps, cashTo){
     started:Date.now(), lastStepAt:Date.now(), intervalDays:14 };
   initLevLiq();   // 레버리지는 단계와 분리 — 트레일링 회복 청산(신고가 경신 시 매도) + 12.31 마감
 }
+/* v140: 성장형 전환 — 현재 배분에서 성장형 최종(TARGETS_GROWTH)으로 3단계 글라이드 시작.
+   레버 크립토는 목표 10%라 청산 대상에서 자동 제외, 레버Tech(목표 0)만 계속 청산. */
+async function startGrowthGlide(){
+  const msg='성장형 포트폴리오로 전환할까요?\n\n'
+    +'• 크립토 현물 30% · 레버크립토 10%(MSTU+BMNU) · US ETF 26% · US주식 24% · 금 10%\n'
+    +'• 레버 테크는 계속 청산(목표 0)\n'
+    +'• 3단계 · 2주 간격으로 점진 이동\n\n'
+    +'※ 실현손익·이주 일정 영향은 세무사·본인 재확인 필요';
+  if(!confirm(msg)) return;
+  startGlide({...TARGETS_GROWTH}, 3, state.settings.reserveTargetPct!=null?state.settings.reserveTargetPct:0.025);
+  await saveState();
+  toast('성장형 3단계 글라이드 시작 — 1/3 반영');
+  try{ if(currentView) switchView(currentView); }catch(_e){window._dbg&&window._dbg(_e)}
+}
+window.startGrowthGlide=startGrowthGlide;
 /* 종목 목표비중(자산군내) — 글라이드 중이면 현재→최종을 단계 보간, 아니면 최종값.
    단, 청산 자산군(최종 목표 0%)은 종목간 리밸런싱 무의미 → 현재 자산군내 비중 유지(전 종목 비례 청산만). */
 function effectiveTargetWt(h){

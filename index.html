@@ -822,12 +822,6 @@ input,select,textarea{font-family:inherit;color:inherit}
     </div>
 
     <div class="card">
-      <div class="card-title">⏩ 공격 다이얼 점진 전환</div>
-      <div class="info-text" style="margin-bottom:10px">현재 비중에서 공격 목표(크립토 BTC+ETH 50 / US ETF 22 [MAGS·ARKK] / US 단일 18 [8종] / 금(IAUM) 10 · 레버리지 0 · 현금 5%(가속 시 ½) · 가속 1.25)까지 <b>10단계로 나눠</b> 점진 전환을 시작합니다. 레버리지(MST3·BMNU·NVDL·TSLL·GGLL·PLTU)는 단계와 분리된 <b>회복연동 청산</b> — 직전 기준가보다 오르면(신고가 경신) 그 회복분 비례로 매도(오를수록 더), 빠지면 보류(회복 대기). 단 <b>2026-12-31(거주자·과세연도 마감)</b>엔 잔량 전량 정리. 배분 페이지에 단계별 진행 카드가 뜨고, 그 수량대로 매매·"다음 단계"를 반복하면 됩니다. 한 번에 갈아엎지 않아 타이밍·세금이 분산됩니다.</div>
-      <button class="btn btn-secondary" style="width:100%" onclick="applyRecommendedTargets()">공격 다이얼 점진 전환 시작</button>
-    </div>
-
-    <div class="card">
       <div class="card-title">🚀 성장형 전환 (레버 일부 유지)</div>
       <div class="info-text" style="margin-bottom:10px">공격형과 달리 <b>레버 크립토 10%를 유지</b>하는 배분으로 <b>3단계·2주 간격</b> 점진 전환합니다. 최종: 크립토 현물 <b>30%</b> · 레버 크립토 <b>10%</b>(MSTU+BMNU 5:5) · US ETF <b>26%</b> · US 주식 <b>24%</b> · 금 <b>10%</b> · 현금 2.5%. 레버 <b>테크</b>(NVDL·TSLL·GGLL·PLTU)는 목표 0으로 <b>계속 회복연동 청산</b>하고, 레버 <b>크립토</b>는 청산에서 빠져 목표 비중으로 유지됩니다. MST3는 매도 후 MSTU 신규 매수로 교체하세요(별건). <b>크립토 방향 실효노출 약 48% — BTC −35% 시 약 −₩78M</b>. 실현손익·이주 일정은 세무사·본인 재확인 필요.</div>
       <button class="btn btn-secondary" style="width:100%" onclick="startGrowthGlide()">성장형 3단계 전환 시작</button>
@@ -1158,7 +1152,7 @@ window.TARGETS_AGG=TARGETS_AGG; window.TARGETS_T1=TARGETS_T1;
 /* v138: levLiq 청산 안전판 시작 시점(마감 D-N일). 글라이드 재원 조달과 동기화되도록 조정. */
 const LEVLIQ_TAPER_DAYS = 120;
 window.LEVLIQ_TAPER_DAYS=LEVLIQ_TAPER_DAYS;
-const APP_VER = 'v141';   // v141: 보유 편집에 계좌 선택(KB·키움·업비트) 추가 — 종목별 계좌 이전 가능
+const APP_VER = 'v142';   // v142: 공격 다이얼 카드 제거(성장형 확정) + 죽은 코드 청소(backupToDrive/markBackup/depositAccountKRW/eokFmt)
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -1325,7 +1319,6 @@ const SEED = {
 };
 
 /* === NAV 마일스톤 청산 전략 제거(A) — 백스톱은 하방 보호 규칙(risk)으로 이전 === */
-function eokFmt(n){ return (n==null||isNaN(n))?'—':(n/1e8).toFixed(1)+'억'; }
 
 let state = null;
 let isFetching = false;
@@ -2061,7 +2054,6 @@ function cashByAccountKRW(){
   let s=0; for (const a in cb){ s += (cb[a].krw||0) + (cb[a].usd||0)*fx; }
   return s;
 }
-function depositAccountKRW(a){ const d=(state.settings.cashByAccount||{})[a]||{krw:0,usd:0}; return (d.krw||0)+(d.usd||0)*(state.settings.fxRate||0); }
 function cashByClassKRW(){ return cashByAccountKRW(); }   // 호환 별칭(예수금 총액) — 기존 호출부 유지
 function totalCash(){ return cashByAccountKRW() + cashAccountKRW(); }
 /* 미정산금 — 매도 실행했으나 아직 정산(T+2~3) 안 된 돈. 계좌별로 보유(어느 계좌 정산분인지 추적). 총자산엔 포함, '쓸 수 있는 예수금'과는 분리. */
@@ -3925,70 +3917,6 @@ function kellyCutBreakdown(cutAmt){
   }
   return rows;
 }
-/* 추천 자산군·종목 목표비중 1회 적용 — 2x 테크 이동 + 자산군 타깃 + 종목 타깃(자산군별 정규화) */
-function applyRecommendedTargets(){
-  const _gActive = state.settings.glide && state.settings.glide.active;
-  if(_gActive){
-    if(!confirm('이미 진행 중인 전환이 있습니다.\n\n[확인] 지금 보유를 시작점으로 10단계를 처음부터(1/10) 다시 짭니다.\n[취소] 그대로 유지 — 아무 것도 안 바뀜.\n\n※ 평소 진행은 글라이드 카드의 "다음 단계"로 하세요. 다이얼을 반복해서 누르면 매번 1단계로 리셋됩니다.')) return;
-  } else {
-    if(!confirm('공격 다이얼로 점진 전환을 시작합니다 (10단계 글라이드).\n· 목표: 크립토(BTC+ETH) 50 / US ETF 22(MAGS·ARKK) / US 단일 18(8종) / 금 IAUM 10 / 레버리지 0\n· 크립토 분할 BTC 70 : ETH 30 · 현금 5%(가속 시 ½) · 가속 1.25\n· 레버리지는 회복연동 청산(신고가 경신 시 매도·빠지면 보류, 2026-12-31 마감 정리)\n· 한 번에 안 옮기고 10단계로 나눠 이동 (타이밍·세금 분산)\n· 매 단계 리밸런싱대로 매매 후 "다음 단계" 진행\n계속할까요?')) return;
-  }
-  const base=h=>(h.symbol||'').replace('.KS','').replace('.L','').toUpperCase();
-  // 1) 2x 테크 이동
-  const TECH=['NVDL','TSLL','GGLL','PLTU'];
-  for(const h of state.holdings){
-    if(TECH.includes(base(h)) && h.cat!=='lev_tech') h.cat='lev_tech';
-    if(isUSDcat(h.cat)&&(h.avgFx==null||isNaN(h.avgFx))) h.avgFx=isLevCat(h.cat)?1486.95:1465.57;
-  }
-  // 2) 자산군 목표비중 (합 100%) — 공격 다이얼. 점진 전환은 글라이드가 처리.
-  const AGG={...TARGETS_AGG};   // v137: 단일 소스 참조
-  state.settings.classTargets={...AGG};   // 최종(글라이드 완료 시 도달)
-  if(state.settings.risk) state.settings.risk.accelMax=1.25;   // 가속 상한 1.25
-  // 2-1) 현물 코인 자리 종목 자동 생성(없으면 수량 0으로) — 리밸런싱에 BTC/ETH 매수액이 뜨도록
-  const haveCrypto=state.holdings.filter(h=>h.cat==='crypto').map(h=>base(h));
-  ['BTC','ETH'].forEach(sym=>{
-    if(!haveCrypto.includes(sym)){
-      state.holdings.push({id:'crypto_'+sym+'_'+Date.now().toString(36)+Math.floor(Math.random()*1e3),
-        cat:'crypto', symbol:sym, name:sym, qty:0, avgKRW:0, curKRW:0, targetWt:0});
-    }
-  });
-  // 2-2) US 코어 ETF 자리(MAGS·ARKK) 자동 생성(없으면 수량 0) — us_etf 자산군, 글라이드에 매수액이 뜨도록
-  const haveETF=state.holdings.filter(h=>h.cat==='us_etf').map(h=>base(h));
-  [['MAGS','Roundhill Magnificent Seven ETF'],['ARKK','ARK Innovation ETF']].forEach(([sym,nm])=>{
-    if(!haveETF.includes(sym)){
-      state.holdings.push({id:'usetf_'+sym+'_'+Date.now().toString(36)+Math.floor(Math.random()*1e3),
-        cat:'us_etf', symbol:sym, name:nm, qty:0, avgUSD:0, curUSD:0, avgFx:1465.57, targetWt:0});
-    }
-  });
-  // 2-3) 금 자리(IAUM) 자동 생성(없으면 수량 0) — 닻/분산용 골드 슬리브
-  const haveGold=state.holdings.filter(h=>h.cat==='gold').map(h=>base(h));
-  if(!haveGold.includes('IAUM')){
-    state.holdings.push({id:'gold_IAUM_'+Date.now().toString(36)+Math.floor(Math.random()*1e3),
-      cat:'gold', symbol:'IAUM', name:'iShares Gold Trust Micro', qty:0, avgUSD:0, curUSD:0, avgFx:1465.57, targetWt:0});
-  }
-  // 3) 종목 목표비중 — 원시 가중치 → 자산군별 정규화(누락/추가 종목 있어도 합 100% 보장)
-  const RAW={ MAGS:14,ARKK:8, RKLB:2.5,IONQ:2.5,SMR:2.5,JOBY:2.5, MU:2,CRWD:2, PLUG:2,SPCX:2, IAUM:5,
-    RGTI:0,CRSP:0,RBLX:0,ARQQ:0,BWXT:0,NVDA:0,TSLA:0,GOOGL:0,PLTR:0,
-    NVDL:0,GGLL:0,TSLL:0,PLTU:0, BMNU:0,MST3:0,MSTU:0,
-    '453630':0,'453640':0,'390390':0,'494840':0,'218420':0,
-    BTC:70,ETH:30 };
-  const byCat={};
-  for(const h of state.holdings){ (byCat[h.cat]=byCat[h.cat]||[]).push(h); }
-  for(const cat in byCat){
-    const arr=byCat[cat]; let sum=0;
-    const raw=arr.map(h=>{ const w=RAW[base(h)]!=null?RAW[base(h)]:1; sum+=w; return w; });
-    arr.forEach((h,i)=>{ h.targetWt = sum>0 ? raw[i]/sum : (1/arr.length); });
-  }
-  pruneEmptyHoldings();   // 새 목표 적용 직후 — 0주+실효목표0% 미사용 종목(옛 0주 placeholder 등) 제거
-  // 4) 점진 전환 시작 — 현재 비중에서 공격 목표까지 6단계 글라이드 (현금 →5%)
-  startGlide(AGG, 10, 0.05);
-  saveState();
-  try{ renderDashboard(); }catch(_e){window._dbg&&window._dbg(_e)}
-  try{ if(currentView) switchView(currentView); }catch(_e){window._dbg&&window._dbg(_e)}
-  try{ if(typeof refreshAllPrices==='function') refreshAllPrices(); }catch(_e){window._dbg&&window._dbg(_e)}   // 신규 BTC/ETH 시세 즉시 갱신
-  toast('점진 전환 시작 — 1/6 단계 (배분 페이지 확인)');
-}
-window.applyRecommendedTargets=applyRecommendedTargets;
 window.advanceGlide=advanceGlide; window.cancelGlide=cancelGlide; window.tryAdvanceGlide=tryAdvanceGlide;
 function computeBackstop(s){
   // 트레일링 백스톱 — 고점(전진식) 대비 낙폭이 backstop 이상이면 레버리지 절반 방어 매도(현금 디리스크)
@@ -5880,7 +5808,7 @@ function renderStockRebalance(){
     else { btnLabel=`${moveTxt} 준비됨 ✓`; btnColor='#1E9E5A'; guide=`<b>${g.step}단계</b> 매매·입력 다 끝났으면 → 아래 버튼으로 <b>${isLast?'전환 완료':nextN+'단계'}</b> 진행.`; }
     ge.innerHTML=`<div style="margin:0 0 12px;padding:11px 13px;background:rgba(30,158,90,0.10);border:1px solid #1E9E5A;border-radius:11px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;cursor:pointer" onclick="toggleGlideCard()">
-        <span style="font-weight:800;font-size:13px;color:#1E9E5A;display:inline-flex;align-items:center;gap:6px"><span id="glide-chev" style="color:var(--text-3);font-size:11px">${_glideFold?'▸':'▾'}</span>⏩ 공격 다이얼 점진 전환</span>
+        <span style="font-weight:800;font-size:13px;color:#1E9E5A;display:inline-flex;align-items:center;gap:6px"><span id="glide-chev" style="color:var(--text-3);font-size:11px">${_glideFold?'▸':'▾'}</span>⏩ 점진 전환</span>
         <span style="font-size:12px;font-weight:700;color:var(--text-2)">${g.step} / ${g.steps} 단계</span></div>
       <div style="height:6px;background:var(--bg-2);border-radius:3px;overflow:hidden;margin-bottom:8px"><div style="height:100%;width:${pct}%;background:#1E9E5A;border-radius:3px"></div></div>
       ${_doneBadge}
@@ -9219,7 +9147,6 @@ function renderSettings(){
     b.classList.toggle('active',Number(b.dataset.min)===state.prices.autoMin));
   const meta=document.getElementById('last-fetch-meta');
   meta.textContent=state.prices.lastFetch?'최근 시세 갱신: '+new Date(state.prices.lastFetch).toLocaleString('ko-KR'):'시세를 아직 갱신하지 않았습니다';
-  renderBackupMeta();
   // 레버리지 청산 전략 제거(A) — 백스톱은 하방 보호 규칙 카드로 이전
   // 하방 보호 규칙 요약
   const rs=document.getElementById('risk-summary');
@@ -9344,46 +9271,6 @@ document.getElementById('export-btn').onclick=()=>{
   toast('데이터 내보냄 — 다운로드 폴더를 확인하세요');
 };
 
-/* === 구글 드라이브 백업 (공유시트) + 리마인더 === */
-function backupFileName(){ return 'SH_Portfolio_'+new Date().toISOString().slice(0,10)+'.json'; }
-function renderBackupMeta(){ return; // 금색 백업 버튼 제거로 메타 표시도 중단(자동 동기화 섹션이 대표)
-  const el=document.getElementById('backup-meta');
-  if(!el) return;
-  const lb=state.settings&&state.settings.lastBackup;
-  if(!lb){ el.innerHTML='<span class="up">아직 백업한 적이 없습니다 — 백업을 권장합니다</span>'; return; }
-  const days=Math.floor((Date.now()-lb)/86400000);
-  const stale=days>=7;
-  const txt=days<=0?'오늘':days+'일 전';
-  el.innerHTML=`<span ${stale?'class="up"':'style="color:var(--text-3)"'}>마지막 백업: ${txt}${stale?' — 백업을 권장합니다':''}</span>`;
-}
-async function markBackup(){
-  state.settings.lastBackup=Date.now();
-  await saveState();
-  renderBackupMeta();
-}
-async function backupToDrive(){
-  const json=JSON.stringify(state,null,2);
-  const fname=backupFileName();
-  // 1) 공유 시트 — 구글 드라이브로 바로 저장
-  if(navigator.canShare){
-    try{
-      const file=new File([json],fname,{type:'application/json'});
-      if(navigator.canShare({files:[file]})){
-        await navigator.share({files:[file]});
-        await markBackup();
-        toast('백업 완료 — 구글 드라이브를 선택했는지 확인하세요');
-        return;
-      }
-    }catch(err){
-      if(err && err.name==='AbortError') return;   // 사용자가 공유 취소 → 중단
-      // 그 외 오류 → 다운로드로 폴백
-    }
-  }
-  // 2) 폴백 — 파일 다운로드
-  downloadFile(json,fname);
-  await markBackup();
-  toast('백업 파일이 다운로드됐어요 — 구글 드라이브 앱으로 옮겨주세요');
-}
 
 let pendingImport=null;
 let impMode='full';

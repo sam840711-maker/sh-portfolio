@@ -1158,7 +1158,7 @@ window.TARGETS_AGG=TARGETS_AGG; window.TARGETS_T1=TARGETS_T1;
 /* v138: levLiq 청산 안전판 시작 시점(마감 D-N일). 글라이드 재원 조달과 동기화되도록 조정. */
 const LEVLIQ_TAPER_DAYS = 120;
 window.LEVLIQ_TAPER_DAYS=LEVLIQ_TAPER_DAYS;
-const APP_VER = 'v140';   // v140: 성장형 전환(레버크립토 10% 유지) 3단계 글라이드 + levLiq를 목표0 자산군만 청산하도록 스코프
+const APP_VER = 'v141';   // v141: 보유 편집에 계좌 선택(KB·키움·업비트) 추가 — 종목별 계좌 이전 가능
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -8216,6 +8216,8 @@ function openHoldingDetail(id){
   if(!h) return;
   const fx=state.settings.fxRate, usd=isUSDcat(h.cat);
   const catOpts=Object.keys(CATEGORIES).map(k=>`<option value="${k}" ${k===h.cat?'selected':''}>${CATEGORIES[k].label}</option>`).join('');
+  const _curAcct=holdingAccount(h);
+  const acctOpts=ACCOUNT_ORDER.map(k=>`<option value="${k}" ${k===_curAcct?'selected':''}>${ACCOUNTS[k].label}</option>`).join('');
   const v=holdingValue(h,fx), pnl=v.current-v.invested, pct=v.invested>0?pnl/v.invested:0;
   const cur=usd?h.curUSD:h.curKRW, avg=usd?h.avgUSD:h.avgKRW;
   const unit=usd?'$':'₩';
@@ -8317,6 +8319,9 @@ function openHoldingDetail(id){
     <div class="field"><label>자산군</label>
       <select id="d-cat">${catOpts}</select>
       <small>변경 시 통화(USD/원)가 바뀌면 단가를 다시 확인하세요</small></div>
+    <div class="field"><label>보유 계좌</label>
+      <select id="d-acct">${acctOpts}</select>
+      <small>이 종목이 실제로 담긴 증권사·거래소 (KB·키움·업비트)</small></div>
     <div class="field"><label>보유수량</label><input id="d-qty" type="number" step="0.00000001" value="${h.qty}" oninput="syncPurchase('d','qty')"></div>
     <div class="field"><label>목표 비중 (${CATEGORIES[h.cat].label} 내 %)</label>
       <input id="d-tw" type="number" step="0.1" value="${((h.targetWt||0)*100).toFixed(1)}">
@@ -8345,6 +8350,9 @@ async function saveHoldingDetail(id){
   const catEl=document.getElementById('d-cat');
   const newCat=catEl?catEl.value:h.cat;
   if(newCat && CATEGORIES[newCat]) h.cat=newCat;
+  // 보유 계좌 저장 — 명시 지정 시 defaultAccount(심볼/카테고리 자동배정)보다 우선
+  const acctEl=document.getElementById('d-acct');
+  if(acctEl && ACCOUNTS[acctEl.value]) h.account=acctEl.value;
   h.qty=qty;
   if(!isNaN(tw)&&tw>=0) h.targetWt=tw/100;
   // 통화별 단가 저장 — 변경된 자산군 기준으로 정리 (반대 통화 필드는 제거해 잔류 방지)

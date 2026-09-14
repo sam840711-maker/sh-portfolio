@@ -631,7 +631,7 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div class="seg trend-seg" id="btc-sym-seg" style="margin-bottom:10px">
         <button data-bsym="btc" class="active" onclick="setBtcSym('btc',this)">BTC</button>
         <button data-bsym="mstr" onclick="setBtcSym('mstr',this)">MSTR</button>
-        <button data-bsym="mst3" onclick="setBtcSym('mst3',this)">MST3.L</button>
+        <button data-bsym="bitx" onclick="setBtcSym('bitx',this)">BITX</button>
       </div>
       <div style="display:flex;align-items:baseline;gap:10px;margin:2px 0 4px">
         <span class="num" id="btc-val" style="font-size:26px;font-weight:700">—</span>
@@ -658,7 +658,7 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div class="seg trend-seg" id="ec-sym-seg" style="margin-bottom:10px">
         <button data-esym="eth" class="active" onclick="setEthSym('eth',this)">ETH</button>
         <button data-esym="bmnr" onclick="setEthSym('bmnr',this)">비트마인</button>
-        <button data-esym="bmnu" onclick="setEthSym('bmnu',this)">BMNU</button>
+        <button data-esym="ethu" onclick="setEthSym('ethu',this)">ETHU</button>
       </div>
       <div style="display:flex;align-items:baseline;gap:10px;margin:2px 0 4px">
         <span class="num" id="ec-val" style="font-size:26px;font-weight:700">—</span>
@@ -823,7 +823,7 @@ input,select,textarea{font-family:inherit;color:inherit}
 
     <div class="card">
       <div class="card-title">🚀 성장형 전환 (레버 일부 유지)</div>
-      <div class="info-text" style="margin-bottom:10px">공격형과 달리 <b>레버 크립토 10%를 유지</b>하는 배분으로 <b>3단계·2주 간격</b> 점진 전환합니다. 최종: 크립토 현물 <b>30%</b> · 레버 크립토 <b>10%</b>(MSTU+BMNU 5:5) · US ETF <b>26%</b> · US 주식 <b>24%</b> · 금 <b>10%</b> · 현금 2.5%. 레버 <b>테크</b>(NVDL·TSLL·GGLL·PLTU)는 목표 0으로 <b>계속 회복연동 청산</b>하고, 레버 <b>크립토</b>는 청산에서 빠져 목표 비중으로 유지됩니다. MST3는 매도 후 MSTU 신규 매수로 교체하세요(별건). <b>크립토 방향 실효노출 약 48% — BTC −35% 시 약 −₩78M</b>. 실현손익·이주 일정은 세무사·본인 재확인 필요.</div>
+      <div class="info-text" style="margin-bottom:10px">공격형과 달리 <b>레버 크립토 10%를 유지</b>하는 배분으로 <b>3단계·2주 간격</b> 점진 전환합니다. 최종: 크립토 현물 <b>30%</b> · 레버 크립토 <b>10%</b>(BITX·ETHU 2x) · US ETF <b>26%</b> · US 주식 <b>24%</b> · 금 <b>10%</b> · 현금 2.5%. 레버 <b>테크</b>(NVDL·TSLL·GGLL·PLTU)는 목표 0으로 <b>계속 회복연동 청산</b>하고, 레버 <b>크립토</b>는 청산에서 빠져 목표 비중으로 유지됩니다. <b>레버 크립토는 2x — BTC·ETH 급락 시 해당 슬리브는 배 이상으로 감소(일간 리셋 복리효과)</b>. 실현손익·이주 일정은 세무사·본인 재확인 필요.</div>
       <button class="btn btn-secondary" style="width:100%" onclick="startGrowthGlide()">성장형 3단계 전환 시작</button>
     </div>
 
@@ -1143,14 +1143,14 @@ window.renderLevLiqExclude=renderLevLiqExclude; window.toggleLevLiqExclude=toggl
    TARGETS_AGG : 공격 배분(현행 운용 목표) · TARGETS_T1 : 레버 청산 완료(T1) 이후 배분. 둘 다 합계 1.00. */
 const TARGETS_AGG = Object.freeze({us_stock:0.18, us_etf:0.22, lev_tech:0.00, lev_crypto:0.00, global_etf:0.00, crypto:0.50, gold:0.10});
 const TARGETS_T1  = Object.freeze({us_stock:0.055, us_etf:0.278, lev_tech:0.111, lev_crypto:0, global_etf:0, crypto:0.445, gold:0.111});
-/* v140: 성장형 — 레버 크립토 10% 유지(MSTU5+BMNU5), 현물 30%, 레버Tech는 청산 유지(0). 합계 1.00 */
+/* 성장형 — 레버 크립토 10% 유지(BITX·ETHU), 현물 30%, 레버Tech는 청산 유지(0). 합계 1.00 */
 const TARGETS_GROWTH = Object.freeze({us_stock:0.24, us_etf:0.26, lev_tech:0.00, lev_crypto:0.10, global_etf:0.00, crypto:0.30, gold:0.10});
 window.TARGETS_GROWTH=TARGETS_GROWTH;
 window.TARGETS_AGG=TARGETS_AGG; window.TARGETS_T1=TARGETS_T1;
 /* v138: levLiq 청산 안전판 시작 시점(마감 D-N일). 글라이드 재원 조달과 동기화되도록 조정. */
 const LEVLIQ_TAPER_DAYS = 120;
 window.LEVLIQ_TAPER_DAYS=LEVLIQ_TAPER_DAYS;
-const APP_VER = 'v143';   // v143: 키움=레버크립토(BITX·ETHU) 전환 반영 — 통합 진행률 위젯 제거, 계좌 설명/고배율 라벨 갱신
+const APP_VER = 'v144';   // v144: 성장형 카드·확인팝업·차트 셀렉터를 BITX·ETHU 기준으로 갱신(MSTU·BMNU·MST3 잔재 제거)
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -1875,7 +1875,7 @@ function startGlide(toTargets, steps, cashTo){
    레버 크립토는 목표 10%라 청산 대상에서 자동 제외, 레버Tech(목표 0)만 계속 청산. */
 async function startGrowthGlide(){
   const msg='성장형 포트폴리오로 전환할까요?\n\n'
-    +'• 크립토 현물 30% · 레버크립토 10%(MSTU+BMNU) · US ETF 26% · US주식 24% · 금 10%\n'
+    +'• 크립토 현물 30% · 레버크립토 10%(BITX·ETHU) · US ETF 26% · US주식 24% · 금 10%\n'
     +'• 레버 테크는 계속 청산(목표 0)\n'
     +'• 3단계 · 2주 간격으로 점진 이동\n\n'
     +'※ 실현손익·이주 일정 영향은 세무사·본인 재확인 필요';
@@ -2541,15 +2541,15 @@ const BTC_SYMS={
   mstr:{ yahoo:'MSTR', title:'MSTR (마이크로스트래티지)', color:'#4FB6C4', rgb:'79,182,196',
         krw:false, badge24:false, adjusted:true,
         foot:'MSTR · 나스닥 상장 — <span style="color:#E2C285">━ 200일 이평선</span> · ┄ ATH(전고점)' },
-  mst3:{ yahoo:'MST3.L', title:'MST3.L (3x 레버리지 MSTR)', color:'#E5484D', rgb:'229,72,77',
+  bitx:{ yahoo:'BITX', title:'BITX (2x 비트코인 전략)', color:'#E5484D', rgb:'229,72,77',
         krw:false, badge24:false, adjusted:true,
-        foot:'MST3.L · 런던 상장 3x 레버리지 ETP — <span style="color:#E2C285">━ 200일 이평선</span> · ┄ ATH(전고점)' },
+        foot:'BITX · 2x 비트코인 선물 전략 ETF(일간 리셋) — <span style="color:#E2C285">━ 200일 이평선</span> · ┄ ATH(전고점)' },
   bmnr:{ yahoo:'BMNR', title:'비트마인 (BMNR)', color:'#34C77B', rgb:'52,199,123',
         krw:false, badge24:false, adjusted:true,
         foot:'BMNR · BitMine Immersion(ETH 트레저리) · NYSE American — <span style="color:#E2C285">━ 200일 이평선</span> · ┄ ATH(전고점)' },
-  bmnu:{ yahoo:'BMNU', title:'BMNU (2x 레버리지 비트마인)', color:'#E5894D', rgb:'229,137,77',
+  ethu:{ yahoo:'ETHU', title:'ETHU (2x 이더리움)', color:'#E5894D', rgb:'229,137,77',
         krw:false, badge24:false, adjusted:true,
-        foot:'BMNU · 2x 레버리지 BMNR — <span style="color:#E2C285">━ 200일 이평선</span> · ┄ ATH(전고점)' }
+        foot:'ETHU · 2x 이더 선물 전략 ETF(일간 리셋) — <span style="color:#E2C285">━ 200일 이평선</span> · ┄ ATH(전고점)' }
 };
 let btcSym='btc';
 let btcRange='3mo';

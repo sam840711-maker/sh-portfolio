@@ -1150,7 +1150,7 @@ window.TARGETS_AGG=TARGETS_AGG; window.TARGETS_T1=TARGETS_T1;
 /* v138: levLiq 청산 안전판 시작 시점(마감 D-N일). 글라이드 재원 조달과 동기화되도록 조정. */
 const LEVLIQ_TAPER_DAYS = 120;
 window.LEVLIQ_TAPER_DAYS=LEVLIQ_TAPER_DAYS;
-const APP_VER = 'v145';   // v145: 청산액 재배분 이중매수 수정(결손을 사후값 기준으로 산출) — 방어 현금 플로어 정상화
+const APP_VER = 'v146';   // v146: 장 시간 배너에서 영국(런던) 행 제거 — MST3.L 매도 완료로 LSE 종목 없음
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -2212,13 +2212,12 @@ function toKSTfromLocal(tz, ymd, hh, mm){
 }
 const MARKET_HOURS={   // 각 시장 정규장 (현지 시간)
   kr:    {tz:'Asia/Seoul',        open:[9,0],  close:[15,30]},
-  us:    {tz:'America/New_York',  open:[9,30], close:[16,0]},
-  london:{tz:'Europe/London',     open:[8,0],  close:[16,30]}
+  us:    {tz:'America/New_York',  open:[9,30], close:[16,0]}
 };
 function renderMarketBanner(){
   const el=document.getElementById('market-banner');
   if(!el) return;
-  const order=[['kr','국내'],['us','미국'],['london','영국']];
+  const order=[['kr','국내'],['us','미국']];
   const lines=[];
   let anyHol=false;
   for(const [mk,name] of order){
@@ -2228,11 +2227,10 @@ function renderMarketBanner(){
     const refTz = (mk==='us') ? 'Asia/Seoul' : h.tz;
     const ymd=new Date().toLocaleDateString('en-CA',{timeZone:refTz});
     // 주말이면 표시 안 함 — 사용자(한국) 기준 요일로 판단
-    // (영국장은 한국 토요일 오전 = 런던 금요일 밤이라 평일로 오인돼 뜨던 문제 해결)
     const wd=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Seoul',weekday:'short'}).format(new Date());
     if(wd==='Sat'||wd==='Sun') continue;
     // 휴장일 체크
-    const holKey={us:'us',kr:'kr',london:'uk'}[mk];
+    const holKey={us:'us',kr:'kr'}[mk];
     const hol=(MARKET_HOLIDAYS[holKey]||{})[ymd];
     if(hol){
       anyHol=true;
@@ -2251,14 +2249,12 @@ function renderMarketBanner(){
         const regCls = sess.label==='장중'    ? 'ses-open' : 'ses-closed';
         const aftCls = sess.label==='애프터'  ? 'ses-ext'  : 'ses-closed';
         timeHtml=`<span class="mb-chip ${preCls}">프리 ${po}–${pc}</span> <span class="mb-chip ${regCls}">${o}–${c}</span> <span class="mb-chip ${aftCls}">애프터 ${ao}–${ac}</span>`;
-      } else if(mk==='kr'){
+      } else {
+        // 국내: 정규장 + 장후
         const ac=toKSTfromLocal(h.tz,ymd,18,0);  // 장후 끝 (15:30 + 2.5h)
         const regCls = sess.label==='장중' ? 'ses-open' : 'ses-closed';
         const aftCls = sess.label==='장후' ? 'ses-ext'  : 'ses-closed';
         timeHtml=`<span class="mb-chip ${regCls}">${o}–${c}</span> <span class="mb-chip ${aftCls}">장후 ${c}–${ac}</span>`;
-      } else {
-        // 영국: 정규장만 (장중=초록 / 장마감=회색)
-        timeHtml=`<span class="mb-chip ${sess.cls||'ses-closed'}">${o}–${c}</span>`;
       }
       lines.push(`<span class="mb-name">${name}</span> ${timeHtml}`);
     }

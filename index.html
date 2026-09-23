@@ -823,8 +823,8 @@ input,select,textarea{font-family:inherit;color:inherit}
 
     <div class="card">
       <div class="card-title">🚀 성장형 전환 (레버 일부 유지)</div>
-      <div class="info-text" style="margin-bottom:10px">공격형과 달리 <b>레버 크립토 10%를 유지</b>하는 배분으로 <b>3단계·2주 간격</b> 점진 전환합니다. 최종: 크립토 현물 <b>30%</b> · 레버 크립토 <b>10%</b>(BITX·ETHU 2x) · US ETF <b>26%</b> · US 주식 <b>24%</b> · 금 <b>10%</b> · 현금 2.5%. 레버 <b>테크</b>(NVDL·TSLL·GGLL·PLTU)는 목표 0으로 <b>계속 회복연동 청산</b>하고, 레버 <b>크립토</b>는 청산에서 빠져 목표 비중으로 유지됩니다. <b>레버 크립토는 2x — BTC·ETH 급락 시 해당 슬리브는 배 이상으로 감소(일간 리셋 복리효과)</b>. 실현손익·이주 일정은 세무사·본인 재확인 필요.</div>
-      <button class="btn btn-secondary" style="width:100%" onclick="startGrowthGlide()">성장형 3단계 전환 시작</button>
+      <div class="info-text" style="margin-bottom:10px">공격형과 달리 <b>레버 크립토 10%를 유지</b>하는 배분으로 <b>10단계·10일 간격</b>(약 90일) 점진 전환합니다. 다시 누르면 현재 비중에서 재시작하되, 진행 중인 레버 테크 청산 추적은 유지됩니다. 최종: 크립토 현물 <b>30%</b> · 레버 크립토 <b>10%</b>(BITX·ETHU 2x) · US ETF <b>26%</b> · US 주식 <b>24%</b> · 금 <b>10%</b> · 현금 2.5%. 레버 <b>테크</b>(NVDL·TSLL·GGLL·PLTU)는 목표 0으로 <b>계속 회복연동 청산</b>하고, 레버 <b>크립토</b>는 청산에서 빠져 목표 비중으로 유지되며, <b>조건부 방어 면제</b>(고점 −15% 도달 시 자동 해제 → 켈리 방어 복귀)로 글라이드를 따라 점진 축소됩니다. <b>레버 크립토는 2x — BTC·ETH 급락 시 해당 슬리브는 배 이상으로 감소(일간 리셋 복리효과)</b>. 실현손익·이주 일정은 세무사·본인 재확인 필요.</div>
+      <button class="btn btn-secondary" style="width:100%" onclick="startGrowthGlide()">성장형 10단계 전환 시작</button>
     </div>
 
     <div class="card">
@@ -850,7 +850,7 @@ input,select,textarea{font-family:inherit;color:inherit}
       <div class="info-text" style="line-height:1.7"><b>정착 포트 (T1 도달 시):</b> BTC <b>30%</b> · ETH <b>10%</b> · 나스닥100 현물(QQQM) <b>25%</b> · <b style="color:var(--gold)">QLD 10%</b>(2x·조건부) · 프런티어 개별주 <b>5%</b> · 금 <b>10%</b> · 현금 <b>10%</b></div>
       <div class="info-text" style="margin-top:8px;line-height:1.7"><b>T1 전환 조건 (셋 다 충족 시 재글라이드 5단계·2주 간격):</b><br>① 레버리지 청산 완료(12/31) · ② 비거주자 전환 확정 · ③ <b>세무사 클리어</b><br>크립토 재편 BTC:ETH = 75:25 (전환 시점 ETH/BTC 200일선 위 회복 시 ETH 12~15% 재량)</div>
       <div class="info-text" style="margin-top:8px;line-height:1.7"><b>QLD 운용 규칙:</b> 나스닥100 <b>200일선 위에서만</b> 보유 · 이탈 2일 확인 → <b>QQQM 대피 전환</b>(현금화 아님) · 회복 시 복귀 · ½켈리 상한 · levLiq·마감 면제</div>
-      <div class="info-text" style="margin-top:8px;line-height:1.7"><b>골인 래더 연동:</b> 10억→인덱스(QQQM+QLD 합산) 30% · 15억→50%+<b>QLD 축소 시작</b> · 20억→70%·<b>QLD 0</b>·S&P 혼합 · 27억→인덱스+현금(게임 종료)<br><span style="color:var(--text-3)">원칙: 공격 상향(QLD 도입)은 조건 3개 필요, 하향(래더)은 NAV 하나로 자동 — 비대칭이 의도. 유포리아에서 재협상 금지.</span></div>
+      <div class="info-text" style="margin-top:8px;line-height:1.7"><b>골인 래더 연동:</b> 10억→인덱스 30%+ · <b>QLD 절반 자동 축소</b> · 15억→인덱스 50% · <b>QLD 0 자동</b> · 20억→70%·S&P 혼합(수비) · 27억→인덱스+현금(게임 종료)<br><span style="color:var(--text-3)">원칙: 공격 상향(QLD 도입)은 조건 3개 필요, 하향(래더)은 NAV 하나로 자동 — 비대칭이 의도. 유포리아에서 재협상 금지.</span><br><b>10억 자동 전환(T1 전 성장형 경로):</b> NAV 10억 도달 시 레버 크립토 조건부 면제가 <b>자동 해제</b>(브레이크 복귀)되고, 할 일에서 확인하면 안정형(레버 0 · US ETF 53 · 크립토 23.5 · 금 17.5 · 소형주 6 · 현금 15) 10단계·10일 전환이 시작됩니다. T1 정착 포트로 이미 전환했다면 골인 래더가 대신 담당.</div>
       <div class="info-text" style="margin-top:8px;font-size:10.5px;color:var(--text-3)">※ 실무 확인(T1 전 세무사 안건): 비거주자의 업비트 현물 유지 가능 여부(불가 시 BTC→IBIT 등 ETF로 대체) · 전환 매매 과세 타이밍</div>
     </div>
 
@@ -1054,13 +1054,87 @@ const _normSym = s => String(s||'').replace('.KS','').replace('.L','').toUpperCa
 function defenseExemptList(){
   return (state.settings && Array.isArray(state.settings.defenseExempt)) ? state.settings.defenseExempt : DEFENSE_EXEMPT_DEFAULT;
 }
-function isDefenseExempt(h){ return defenseExemptList().map(_normSym).includes(_normSym(h&&h.symbol)); }
+/* v149: 조건부 방어 면제 — 평소엔 켈리 방어 축소에서 빼고 글라이드로만 점진 축소,
+   고점 대비 ddTrip(기본 −15%) 도달 시 자동 해제되어 켈리 방어가 즉시 복귀.
+   해제는 래치(고정) — 경계에서 면제가 켜졌다 꺼졌다 하는 것 방지. 재활성은 설정에서 수동. */
+function condExemptCfg(){ const c=state.settings&&state.settings.condExempt; return (c&&typeof c==='object')?c:null; }
+function isCondExempt(h){
+  const c=condExemptCfg(); if(!c||!c.on||c.tripped) return false;
+  return (c.syms||[]).map(_normSym).includes(_normSym(h&&h.symbol));
+}
+function checkCondExemptTrip(s){
+  const c=condExemptCfg(); if(!c||!c.on||c.tripped) return false;
+  let dd=0; try{ dd=drawdownTier(s).dd||0; }catch(_e){ return false; }
+  if(dd>=(c.ddTrip||0.15)){
+    c.tripped=true; c.trippedAt=Date.now(); c.trippedDd=dd;
+    try{ saveState(); }catch(_e){window._dbg&&window._dbg(_e)}
+    try{ toast('🛑 조건부 면제 해제 — 고점 대비 −'+(dd*100).toFixed(1)+'% 도달 · '+(c.syms||[]).join('·')+' 켈리 방어 복귀'); }catch(_e){}
+    return true;
+  }
+  return false;
+}
+function isDefenseExempt(h){ return defenseExemptList().map(_normSym).includes(_normSym(h&&h.symbol)) || isCondExempt(h); }
+/* v151: 골인 래더 QLD 하향 자동화(T1 정착 포트 경로) — 10억: QLD(lev_tech) 목표 절반 · 15억: QLD 0.
+   빠지는 비중은 인덱스(us_etf)로. 원칙 '하향은 NAV 하나로 자동'을 코드로 강제(래치 · 재협상 금지). */
+function ladderShiftLev(frac){
+  const move=(t)=>{ if(!t) return; const cur=Number(t.lev_tech)||0; const cut=cur*frac; t.lev_tech=cur-cut; t.us_etf=(Number(t.us_etf)||0)+cut; };
+  move(state.settings.classTargets);
+  const g=state.settings.glide; if(g && g.active && g.to) move(g.to);
+}
+/* v151: T1 정착 포트(B안) 종목 세팅 — 앱에 없던 QQQM·QLD 행을 수량 0으로 추가하고 자산군 내 목표비중을 B안대로.
+   (구버전: 인덱스 슬롯이 MAGS·ARKK로, QLD 슬롯은 종목이 없어 현금으로 방치되던 문제) 실제 체결은 빠른 입력으로 기록. */
+function ensureT1Holdings(){
+  const H=state.holdings, fx=state.settings.fxRate||0;
+  const find=sym=>H.find(h=>_normSym(h.symbol)===sym);
+  const add=(sym,cat,name,lev)=>{ let h=find(sym); if(!h){ h={id:'t1_'+sym,cat,symbol:sym,name,qty:0,avgUSD:0,curUSD:0,avgFx:fx,targetWt:0,account:'kb'}; if(lev) h.lev=lev; H.push(h); } return h; };
+  const q=add('QQQM','us_etf','Invesco NASDAQ 100 ETF'), l=add('QLD','lev_tech','ProShares Ultra QQQ (2x)',2);
+  H.forEach(h=>{
+    if(h.cat==='us_etf') h.targetWt=(h===q)?1:0;          // MAGS·ARKK → QQQM
+    if(h.cat==='lev_tech') h.targetWt=(h===l)?1:0;        // NVDL·TSLL·GGLL·PLTU → QLD
+    if(h.cat==='crypto'){ const s=_normSym(h.symbol); if(s==='BTC') h.targetWt=0.75; else if(s==='ETH') h.targetWt=0.25; }   // BTC:ETH 75:25
+  });
+}
+function checkLadderQLD(s){
+  if(!state.settings._t1Done) return false;
+  const nav=(s&&s.totalWithCash)||0; let hit=false;
+  if(nav>=1.0e9 && !state.settings._qldCut10){ ladderShiftLev(0.5); state.settings._qldCut10=Date.now(); hit=true;
+    try{ toast('🏁 골인 래더 1단(10억) — QLD 목표 절반 자동 축소 → 인덱스로'); }catch(_e){} }
+  if(nav>=1.5e9 && !state.settings._qldCut15){ ladderShiftLev(1.0); state.settings._qldCut15=Date.now(); hit=true;
+    try{ toast('🏁 골인 래더 2단(15억) — QLD 0 자동 · 레버 전량 청산'); }catch(_e){} }
+  if(hit){ try{ saveState(); }catch(_e){window._dbg&&window._dbg(_e)} }
+  return hit;
+}
+/* v150: 10억 도달(래치) — 조건부 면제 자동 해제(브레이크 복귀). 안정형 전환은 할 일 알림에서 확인 후 시작. */
+function checkGoal1B(s){
+  if(state.settings._goal1B) return false;
+  const nav=(s&&s.totalWithCash)||0; if(nav<GOAL1B_NAV) return false;
+  state.settings._goal1B=Date.now();
+  const c=state.settings.condExempt; if(c && c.on){ c.on=false; }
+  try{ saveState(); }catch(_e){window._dbg&&window._dbg(_e)}
+  try{ toast('🏁 NAV 10억 도달 — 조건부 면제 해제(브레이크 복귀) · 할 일에서 안정형 전환 확인'); }catch(_e){}
+  return true;
+}
+window.condExemptRearm=async function(){
+  const c=condExemptCfg(); if(!c) return;
+  if(!confirm('조건부 면제를 다시 켤까요?\n\n'+(c.syms||[]).join('·')+'를 켈리 방어에서 다시 빼고, 고점 대비 −'+((c.ddTrip||0.15)*100).toFixed(0)+'% 도달 시 자동 해제됩니다.')) return;
+  c.on=true; c.tripped=false; c.trippedAt=null; c.trippedDd=null;
+  await saveState(); try{ renderSettings(); }catch(_e){}
+  toast('조건부 면제 재활성');
+};
+window.condExemptOff=async function(){
+  const c=condExemptCfg(); if(!c) return;
+  if(!confirm('조건부 면제를 끌까요?\n\n'+(c.syms||[]).join('·')+'에 켈리 방어가 즉시 다시 적용됩니다.')) return;
+  c.on=false; await saveState(); try{ renderSettings(); }catch(_e){}
+  toast('조건부 면제 꺼짐 — 켈리 방어 적용');
+};
 // 제외 종목이 전량 청산(보유 0)되면 목록에서 영구 제거 — 이후 같은 티커 재매수 시 방어 정상 작동
 function pruneDefenseExempt(){
   if(!state.settings || !Array.isArray(state.settings.defenseExempt)) return false;
   const held=new Set((state.holdings||[]).filter(h=>(h.qty||0)>0).map(h=>_normSym(h.symbol)));
   const before=state.settings.defenseExempt.length;
   state.settings.defenseExempt = state.settings.defenseExempt.filter(s=>held.has(_normSym(s)));
+  const _c=state.settings.condExempt;
+  if(_c && Array.isArray(_c.syms)){ _c.syms=_c.syms.filter(s=>held.has(_normSym(s))); if(!_c.syms.length) _c.on=false; }
   return before!==state.settings.defenseExempt.length;
 }
 const STORE_KEY = 'sh_portfolio_v3';
@@ -1145,12 +1219,16 @@ const TARGETS_AGG = Object.freeze({us_stock:0.18, us_etf:0.22, lev_tech:0.00, le
 const TARGETS_T1  = Object.freeze({us_stock:0.055, us_etf:0.278, lev_tech:0.111, lev_crypto:0, global_etf:0, crypto:0.445, gold:0.111});
 /* 성장형 — 레버 크립토 10% 유지(BITX·ETHU), 현물 30%, 레버Tech는 청산 유지(0). 합계 1.00 */
 const TARGETS_GROWTH = Object.freeze({us_stock:0.24, us_etf:0.26, lev_tech:0.00, lev_crypto:0.10, global_etf:0.00, crypto:0.30, gold:0.10});
+/* v150→v151: 10억 이후 안정형(T1 미전환 시 안전망) — 레버 0 · 인덱스(US ETF 슬롯) · 크립토 · 금 · 프런티어 소형주 6%(B안 프런티어와 정합) · 현금 15.
+   투자분 기준 합계 1.00. US ETF 슬롯의 인덱스(QQQM 등) 교체는 종목 추가로 별도 진행. */
+const TARGETS_STABLE = Object.freeze({us_stock:0.06, us_etf:0.53, lev_tech:0.00, lev_crypto:0.00, global_etf:0.00, crypto:0.235, gold:0.175});
+const GOAL1B_NAV = 1e9;
 window.TARGETS_GROWTH=TARGETS_GROWTH;
 window.TARGETS_AGG=TARGETS_AGG; window.TARGETS_T1=TARGETS_T1;
 /* v138: levLiq 청산 안전판 시작 시점(마감 D-N일). 글라이드 재원 조달과 동기화되도록 조정. */
 const LEVLIQ_TAPER_DAYS = 120;
 window.LEVLIQ_TAPER_DAYS=LEVLIQ_TAPER_DAYS;
-const APP_VER = 'v147';   // v147: 자산탭 매도액 성분 분해 표시(목표비중 / 방어 축소) — %p와 금액 기준차 혼동 해소
+const APP_VER = 'v151';   // v151: B안 실행 가능화(QQQM·QLD 종목 세팅) · 골인 래더 QLD 하향 자동(10억 절반/15억 0) · 안정형 소형주 6%
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -1372,6 +1450,13 @@ function normalizeState(){
   }
   if(state.settings.strategy) delete state.settings.strategy;   // A: NAV 마일스톤 청산 전략 완전 제거
   if(!Array.isArray(state.settings.defenseExempt)) state.settings.defenseExempt = DEFENSE_EXEMPT_DEFAULT.slice();   // 방어 제외 목록(영속)
+  // v149: 레버 크립토(BITX·ETHU) 조건부 방어 면제 1회 등록 — 고점 −15% 시 자동 해제
+  if(!state.settings._condExV149){
+    state.settings._condExV149=true;
+    const _held=new Set((state.holdings||[]).filter(h=>(h.qty||0)>0).map(h=>_normSym(h.symbol)));
+    const _syms=['BITX','ETHU'].filter(s=>_held.has(s));
+    if(_syms.length && !state.settings.condExempt) state.settings.condExempt={on:true, syms:_syms, ddTrip:0.15, tripped:false, trippedAt:null, since:Date.now()};
+  }
   // 진행 중 글라이드가 1단계(시작 직후)면 6→10단계로 완만화 (진행 손실 없음 · from 스냅샷 유지)
   if(state.settings.glide && state.settings.glide.active && state.settings.glide.steps===6 && (state.settings.glide.step||1)===1){
     state.settings.glide.steps=10;
@@ -1769,7 +1854,9 @@ function levDeadlineTs(){ return new Date('2026-12-31T23:59:59+09:00').getTime()
 function levLiquidationDone(){
   try{ if(Date.now() <= levDeadlineTs()) return false;
     const s=portfolioStats();
-    const lev=((s.totals.lev_tech&&s.totals.lev_tech.current)||0)+((s.totals.lev_crypto&&s.totals.lev_crypto.current)||0);
+    // v150: '청산 대상'(최종 목표 0) 레버만 판정 — 성장형은 레버 크립토 10%를 유지하므로 합산하면 T1이 영원히 안 뜸
+    const lev=['lev_tech','lev_crypto'].filter(c=>finalClassTarget(c)<=0.0001)
+      .reduce((a,c)=>a+((s.totals[c]&&s.totals[c].current)||0),0);
     return s.totalWithCash>0 && (lev/s.totalWithCash)<0.01;
   }catch(_){ return false; }
 }
@@ -1852,7 +1939,8 @@ function updateLevLiq(){
   if(!anyLeft && !past){ /* 전량 매도 완료 시에도 마감 전엔 active 유지(재계산 무해) */ }
   if(past) L.active=false;   // 마감일 지나면 일반 리밸런싱(목표 0)으로 복귀
 }
-function startGlide(toTargets, steps, cashTo){
+function startGlide(toTargets, steps, cashTo, opts){
+  opts=opts||{};
   const s=portfolioStats();
   const invested=Object.keys(CATEGORIES).reduce((a,k)=>a+((s.totals[k]&&s.totals[k].current)||0),0);
   const from={};
@@ -1868,21 +1956,29 @@ function startGlide(toTargets, steps, cashTo){
   });
   state.settings.glide={ from, fromWt, to:{...toTargets}, steps:steps||6, step:1, active:true,
     cashFrom:(state.settings.reserveTargetPct!=null?state.settings.reserveTargetPct:0.10), cashTo:(cashTo!=null?cashTo:0.05),
-    started:Date.now(), lastStepAt:Date.now(), intervalDays:14 };
-  initLevLiq();   // 레버리지는 단계와 분리 — 트레일링 회복 청산(신고가 경신 시 매도) + 12.31 마감
+    started:Date.now(), lastStepAt:Date.now(), intervalDays:(opts.intervalDays||14) };
+  // 레버리지는 단계와 분리 — 트레일링 회복 청산(신고가 경신 시 매도) + 12.31 마감.
+  // v148: 글라이드 '재조정'(opts.keepLevLiq)일 땐 진행 중인 청산 추적을 보존 —
+  //   재초기화하면 refPx(회복 판정 기준가)가 오늘 가격으로 리셋돼 상승장에서 청산 트리거가 뒤로 밀림.
+  if(!opts.keepLevLiq) initLevLiq();
 }
-/* v140: 성장형 전환 — 현재 배분에서 성장형 최종(TARGETS_GROWTH)으로 3단계 글라이드 시작.
+/* v148: 성장형 전환 — 현재 배분에서 성장형 최종(TARGETS_GROWTH)으로 10단계·10일 간격 글라이드.
+   (v140~147: 3단계·14일) 마지막 단계 ≈ 시작+90일 → 레버 테크 마감(12/31) 이전 종료.
    레버 크립토는 목표 10%라 청산 대상에서 자동 제외, 레버Tech(목표 0)만 계속 청산. */
 async function startGrowthGlide(){
   const msg='성장형 포트폴리오로 전환할까요?\n\n'
     +'• 크립토 현물 30% · 레버크립토 10%(BITX·ETHU) · US ETF 26% · US주식 24% · 금 10%\n'
     +'• 레버 테크는 계속 청산(목표 0)\n'
-    +'• 3단계 · 2주 간격으로 점진 이동\n\n'
+    +'• 10단계 · 10일 간격으로 점진 이동(마지막 단계 약 90일 후)\n'
+    +'• 진행 중인 레버 테크 청산 추적(12/31 마감)은 그대로 유지\n\n'
     +'※ 실현손익·이주 일정 영향은 세무사·본인 재확인 필요';
   if(!confirm(msg)) return;
-  startGlide({...TARGETS_GROWTH}, 3, state.settings.reserveTargetPct!=null?state.settings.reserveTargetPct:0.025);
+  const _L=state.settings.levLiq;
+  const _keep=!!(_L && _L.active && _L.remain && Object.values(_L.remain).some(v=>v>0));
+  startGlide({...TARGETS_GROWTH}, 10, state.settings.reserveTargetPct!=null?state.settings.reserveTargetPct:0.025,
+             {intervalDays:10, keepLevLiq:_keep});
   await saveState();
-  toast('성장형 3단계 글라이드 시작 — 1/3 반영');
+  toast('성장형 10단계 글라이드 시작 — 1/10 반영'+(_keep?' · 레버 청산 추적 유지':''));
   try{ if(currentView) switchView(currentView); }catch(_e){window._dbg&&window._dbg(_e)}
 }
 window.startGrowthGlide=startGrowthGlide;
@@ -3454,6 +3550,9 @@ function computeAccelRegime(s, track){
   return {on:true, regime, expo, label, color, why, winnerRun, bestGap, bestMom, track:track||'stock'};
 }
 function computeRiskStatus(s){
+  try{ checkCondExemptTrip(s); }catch(_e){window._dbg&&window._dbg(_e)}   // v149: 조건부 면제 해제 판정(래치)
+  try{ checkGoal1B(s); }catch(_e){window._dbg&&window._dbg(_e)}         // v150: 10억 도달 판정(래치)
+  try{ checkLadderQLD(s); }catch(_e){window._dbg&&window._dbg(_e)}      // v151: 골인 래더 QLD 하향(래치)
   const risk=state.settings.risk||{};
   const nav=s.totalWithCash;
   // ④ 절대 플로어
@@ -4180,8 +4279,8 @@ function computeActionAlerts(s){
   //   10억→나스닥100계열 30% / 15억→50% / 20억→70%(S&P 혼합·수비 전환) / 27억(10년 목표)→인덱스+현금 위주.
   //   각 계단 1회 알림(확인 시 그 계단 끔). 구체 비중은 도달 시점에 재확정 가능 — 방향의 기록이 목적.
   try{
-    const LADDER=[[1.0e9,'1단 — 인덱스(나스닥100 계열) 30% 전환 검토'],
-                  [1.5e9,'2단 — 인덱스 50%로'],
+    const LADDER=[[1.0e9,'1단 — 인덱스(나스닥100 계열) 30%+ · QLD 절반 자동 축소'],
+                  [1.5e9,'2단 — 인덱스 50% · QLD 0 자동(레버 전량 청산)'],
                   [2.0e9,'3단 — 인덱스 70% · S&P 혼합 시작(수비 전환)'],
                   [2.7e9,'골인 — 10년 목표 도달 · 인덱스+현금 위주, 게임 종료']];
     const ack=state.settings._ladderAck||[];
@@ -4193,6 +4292,15 @@ function computeActionAlerts(s){
         why:`🏁 골인 래더 ${hit[1]} (NAV ₩${fmtKRW(hit[0])} 돌파)`,
         sub:`2026-07에 냉정할 때 정해둔 사전 약속이에요: 이긴 만큼 인덱스로 잠급니다. 지금이 유포리아일수록 이 규칙이 필요한 순간 — 재협상하지 말고 전환 계획을 세우세요. 구체 비중은 검토 후 확정. 탭하면 이 계단 확인 처리 ▸`,
         act:'ladder'});
+    }
+  }catch(_e){window._dbg&&window._dbg(_e)}
+  // [10억 전환] v150 — 10억 도달 시 브레이크는 자동 복귀, 안정형 글라이드는 확인 후 시작. T1(정착 포트) 완료 시엔 골인 래더가 담당.
+  try{
+    if(state.settings._goal1B && !state.settings._goal1BDone && !state.settings._t1Done){
+      out.push({tag:'10억 전환',sev:'warn',
+        why:'🏁 NAV 10억 도달 — 레버 청산·안정형 전환',
+        sub:'브레이크(조건부 면제 해제)는 이미 자동 복귀했어요. 탭 → 확인 시 안정형(레버 0 · US ETF 53% · 크립토 23.5% · 금 17.5% · 소형주 6% · 현금 15%)으로 10단계·10일 간격 전환이 시작됩니다. 유포리아에서 재협상 금지 — 냉정할 때 정한 약속이에요 ▸',
+        act:'goal1B'});
     }
   }catch(_e){window._dbg&&window._dbg(_e)}
   // [T1 정착 전환] 반자동 — 앱이 감지 가능한 조건(①레버 청산 완료 + 2027년 진입) 충족 시 상시 알림.
@@ -4216,14 +4324,25 @@ function acDispatch(act){
       if(confirm('레버리지 정리가 끝났으면 고점(peak) 기준을 지금 포트로 리셋합니다.\n· 이후 낙폭·방어가 현재 포트 기준으로 현실화됩니다\n· 설정에서 되돌릴 수 있습니다\n계속할까요?')) window.resetPeakEpoch();
     }
     else if(act==='t1'){
-      if(confirm('T1 체크리스트\n\n② 비거주자 전환 확정됐나요?\n③ 세무사 클리어(전환매매 과세 타이밍) 받았나요?\n\n둘 다 YES면 [확인] — 정착 포트 B안 재글라이드(5단계·2주)를 시작합니다.\n아니면 [취소] — 알림은 유지됩니다.')){
+      if(confirm('T1 체크리스트\n\n② 비거주자 전환 확정됐나요?\n③ 세무사 클리어(전환매매 과세 타이밍) 받았나요?\n\n둘 다 YES면 [확인] — 정착 포트 B안 재글라이드(5단계·2주)를 시작합니다.\n• QQQM·QLD 종목 자동 추가(수량 0) · MAGS·ARKK→QQQM · BTC:ETH 75:25\n• BITX·ETHU → 0 (단계별 축소)\n아니면 [취소] — 알림은 유지됩니다.')){
+        ensureT1Holdings();        // v151: B안 종목 세팅(글라이드 스냅샷 전에)
         const B={...TARGETS_T1};   // v137: 단일 소스 참조
         startGlide(B, 5, 0.10);
         try{ if(state.settings.levLiq) state.settings.levLiq.active=false; }catch(_e){window._dbg&&window._dbg(_e)}   // QLD는 levLiq·마감 면제 — 재가동 방지(startGlide 뒤에 꺼야 함)
         state.settings._t1Done=true;
         try{ saveState(); }catch(_e){window._dbg&&window._dbg(_e)}
         try{ renderActionCenter(portfolioStats()); switchView('allocation'); }catch(_e){window._dbg&&window._dbg(_e)}
-        try{ toast('🧭 정착 포트 전환 시작 — 5단계·2주 간격 · QLD 세부 규칙은 편입 시 함께 점검'); }catch(_e){window._dbg&&window._dbg(_e)}
+        try{ toast('🧭 정착 포트 전환 시작 — 5단계·2주 간격 · QQQM·QLD 추가됨(시세 갱신 중)'); }catch(_e){window._dbg&&window._dbg(_e)}
+        try{ refreshAllPrices(true); }catch(_e){window._dbg&&window._dbg(_e)}   // 신규 행 시세 채우기(가격 0이면 수량 0으로 안전 처리됨)
+      }
+    }
+    else if(act==='goal1B'){
+      if(confirm('10억 전환\n\n안정형으로 10단계·10일 간격 전환을 시작합니다.\n• 레버 크립토·레버 테크 → 0 (단계별 축소)\n• US ETF 53% · 크립토 23.5% · 금 17.5% · US 주식 6% · 현금 15%\n• 진행 중인 레버 청산 추적은 유지\n\n※ 전환 매매 실현손익·과세 타이밍은 세무사 확인\n시작할까요?')){
+        startGlide({...TARGETS_STABLE}, 10, 0.15, {intervalDays:10, keepLevLiq:true});
+        state.settings._goal1BDone=Date.now();
+        try{ saveState(); }catch(_e){window._dbg&&window._dbg(_e)}
+        try{ renderActionCenter(portfolioStats()); switchView('allocation'); }catch(_e){window._dbg&&window._dbg(_e)}
+        try{ toast('🏁 안정형 전환 시작 — 10단계·10일 간격'); }catch(_e){}
       }
     }
     else if(act==='ladder'){
@@ -4272,7 +4391,7 @@ function renderActionCenter(s){
   if(!acts.length){ el.style.display='none'; el.onclick=null; return; }
   const sev = acts.some(a=>a.sev==='crit')?'crit':(acts.some(a=>a.sev==='warn')?'warn':'');
   el.className='card action-center'+(sev?' '+sev:'');
-  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','크립토 브레이크':'#E5663D','크립토 하드캡':'#E5484D','peak 리셋':'#5AA0A6','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A','QLD 편입':'#3B9EFF','백업 지연':'#E8A23D','목표 재검토':'#C44ED9','정산 확인':'#B7791F','세금 통산':'#3B9EFF','과세 구간':'#E8A23D','골인 래더':'#1E9E5A','정착 전환':'#C9A66B','실현손익 확정':'#3B9EFF','글라이드 단계':'#43B77E'};
+  const tagColor={방어:'#E5663D','급락 경고':'#E5484D','크립토 추세':'#D98A3D','크립토 브레이크':'#E5663D','크립토 하드캡':'#E5484D','peak 리셋':'#5AA0A6','1차 방어':'#E8A23D','2차 방어':'#E5663D',전환:'#C44ED9',정착:'#5AA0A6',백스톱:'#E5484D',리밸런싱:'#4FB6C4',디레버리지:'#B7791F',상승가속:'#1E9E5A','QLD 편입':'#3B9EFF','백업 지연':'#E8A23D','목표 재검토':'#C44ED9','정산 확인':'#B7791F','세금 통산':'#3B9EFF','과세 구간':'#E8A23D','골인 래더':'#1E9E5A','10억 전환':'#1E9E5A','정착 전환':'#C9A66B','실현손익 확정':'#3B9EFF','글라이드 단계':'#43B77E'};
   window._acOpen = window._acOpen || new Set();   // 펼친 항목(태그 기준) — 메모리만, 앱 새로 열면 초기화(기본 접힘)
   const rows=acts.map(a=>{
     const open=window._acOpen.has(a.tag);
@@ -5599,11 +5718,33 @@ function nonLevClassSum(){
    → 배분 페이지·리밸런싱 페이지가 같은 소스를 봄(글로벌ETF 등 청산 자산군의 가짜 매수 표시 제거). */
 function classTargetValKRW(cat, s){
   if(isLevCat(cat)) return stockRebalance(cat,'portfolio',s).reduce((a,x)=>a+(x.targetVal||0),0);
-  const basis=(s.totalWithCash||0)*(1-effectiveCashPct(s));
-  const nonLevBudget=Math.max(0, basis - levHeldKRW(s));
-  const nlSum=nonLevClassSum();
-  return nlSum>0 ? nonLevBudget*(classTarget(cat)/nlSum) : 0;
+  // v150: 엔진(stockRebalance)과 동일 출처 — 감소 자산군 상한·재분배 반영 → 자산탭·밴드 알림·플랜 일치
+  return nonLevTargetMap(s)[cat]||0;
 }
+/* v150: 비레버 자산군 목표가치 일괄 산출 — 글라이드상 '감소 중'(to<from)인 자산군은 현재가치를 상한으로
+   (늘렸다가 다음 단계에 되파는 헛매수 차단). 상한으로 남는 예산은 증가·유지 자산군에 목표가치 비례 재분배.
+   현금 목표%는 basis 단계에서 이미 보존되므로 재분배로 현금이 줄지 않음. */
+function nonLevTargetMap(s){
+  const cashPct=effectiveCashPct(s);
+  const basis=s.totalWithCash*(1-cashPct);
+  const nlb=Math.max(0, basis-levHeldKRW(s));
+  const nlSum=nonLevClassSum();
+  const cats=Object.keys(CATEGORIES).filter(k=>!isLevCat(k));
+  const out={}; cats.forEach(k=>{ out[k]= nlSum>0 ? nlb*(classTarget(k)/nlSum) : 0; });
+  const g=state.settings.glide;
+  if(g && g.active && g.from && g.to){
+    let freed=0; const recv=[];
+    cats.forEach(k=>{
+      const cur=(s.totals[k]&&s.totals[k].current)||0;
+      const down=(g.to[k]||0) < (g.from[k]||0)-1e-4;
+      if(down){ if(out[k]>cur){ freed+=out[k]-cur; out[k]=cur; } }
+      else recv.push(k);
+    });
+    if(freed>0){ const rs=recv.reduce((a,k)=>a+out[k],0); if(rs>0) recv.forEach(k=>{ out[k]+=freed*(out[k]/rs); }); }
+  }
+  return out;
+}
+function isGlideDownCat(k){ const g=state.settings.glide; return !!(g&&g.active&&g.from&&g.to&&((g.to[k]||0)<(g.from[k]||0)-1e-4)); }
 function stockRebalance(cat, mode, s){
   const fx=state.settings.fxRate;
   const holdings=state.holdings.filter(h=>h.cat===cat);
@@ -5620,9 +5761,8 @@ function stockRebalance(cat, mode, s){
   else if(isLevCat(cat)){ catTargetVal=basis*classTarget(cat); }   // 레버는 아래 종목별 levLiq 잔량으로 덮어씀
   else {
     // 비레버 = (basis − 레버홀드)를 비레버 classTarget 비율로 배분 → 비레버+레버홀드=basis → 현금 목표% 정확 보존
-    const nonLevBudget=Math.max(0, basis - levHeldKRW(s));
-    const nlSum=nonLevClassSum();
-    catTargetVal = nlSum>0 ? nonLevBudget*(classTarget(cat)/nlSum) : 0;
+    // v150: 감소 자산군 상한·재분배 반영(nonLevTargetMap). 합계는 기존과 동일(basis−레버홀드).
+    catTargetVal = nonLevTargetMap(s)[cat]||0;
   }
   // 종목 목표비중을 자산군 합으로 정규화 — 합이 100%가 아니어도(반올림 등) 자산군 목표를 정확히 지킴
   const twSumCat = holdings.reduce((s,h)=>s+effectiveTargetWt(h),0);
@@ -6221,7 +6361,8 @@ function computeUnifiedPlan(s){
     //    같은 자산군을 두 번 매수해 목표를 최대 2배까지 초과, 순현금이 0으로 고정됐음)
     const plannedByCat={};
     rows.forEach(x=>{ plannedByCat[x.cat]=(plannedByCat[x.cat]||0)+(x.val||0); });
-    const defs=nonLev.map(k=>({k,deficit:Math.max(0, (nlSum>0?nlBudget*(classTarget(k)/nlSum):0)
+    const _nlMap=nonLevTargetMap(s);   // v150: 재배분도 동일 목표 사용 — 감소 자산군을 뒷문으로 재매수하지 않게
+    const defs=nonLev.map(k=>({k,deficit:Math.max(0, (_nlMap[k]||0)
       - ((s.totals[k]?s.totals[k].current:0) + (plannedByCat[k]||0)))}));
     let defSum=defs.reduce((a,x)=>a+x.deficit,0);
     let alloc={};
@@ -9160,6 +9301,14 @@ function renderSettings(){
         st+=`<br>⑧ 크립토 소프트 브레이크: ${_bOn?`<b style="color:#E5663D">발동 — 현금 ${(CRYPTO_BRAKE_CASH*100).toFixed(0)}%·가속 추가투입 보류</b>`:(_cbroken?'<b style="color:#D98A3D">관찰 — 1일 이탈(2일 확인 시 발동)</b>':'<span style="color:var(--up)">정상</span>')}`
           +`<br><span style="color:var(--text-3);font-size:11px">BTC·ETH 200일선 2거래일↑ 이탈 시 가속분만 차단 · 글라이드 기본 매집(DCA)은 유지 · 회복 시 자동 해제</span>`;
       }catch(_e){window._dbg&&window._dbg(_e)}
+      st+=(function(){ const c=condExemptCfg(); if(!c||!(c.syms||[]).length) return '';
+            let pk=0; try{ pk=peakNavAll()||0; }catch(_e){}
+            const tripNav=pk*(1-(c.ddTrip||0.15));
+            const head=`<br>⑨ 조건부 면제 <b>${esc((c.syms||[]).join('·'))}</b> · 고점 −${((c.ddTrip||0.15)*100).toFixed(0)}%${pk?` (₩${fmtKRW(tripNav)})`:''} 도달 시 자동 해제 · `;
+            if(c.tripped) return head+`<b style="color:#E5484D">해제됨</b>${c.trippedAt?` (${new Date(c.trippedAt).toLocaleDateString('ko-KR')} · −${((c.trippedDd||0)*100).toFixed(1)}%)`:''} <span style="color:var(--gold);text-decoration:underline;cursor:pointer" onclick="window.condExemptRearm()">다시 켜기</span>`;
+            if(!c.on) return head+`<b style="color:var(--text-3)">꺼짐</b> <span style="color:var(--gold);text-decoration:underline;cursor:pointer" onclick="window.condExemptRearm()">켜기</span>`;
+            return head+`<b style="color:#46A758">활성</b> <span style="color:var(--text-3);text-decoration:underline;cursor:pointer" onclick="window.condExemptOff()">끄기</span>`;
+          })();
     }catch(e){ st=`② 추세 ${rk.trendOn?'사용':'끔'} · ④ 플로어 <b>${floorTxt}</b>`; }
     rs.innerHTML=st;
   }

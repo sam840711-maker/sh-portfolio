@@ -1228,7 +1228,7 @@ window.TARGETS_AGG=TARGETS_AGG; window.TARGETS_T1=TARGETS_T1;
 /* v138: levLiq 청산 안전판 시작 시점(마감 D-N일). 글라이드 재원 조달과 동기화되도록 조정. */
 const LEVLIQ_TAPER_DAYS = 120;
 window.LEVLIQ_TAPER_DAYS=LEVLIQ_TAPER_DAYS;
-const APP_VER = 'v151';   // v151: B안 실행 가능화(QQQM·QLD 종목 세팅) · 골인 래더 QLD 하향 자동(10억 절반/15억 0) · 안정형 소형주 6%
+const APP_VER = 'v152';   // v152: 현금 하한 5%(상승가속 반감 후에도) + 매수 재원에서 현금 준비금 제외(실행 후 현금 목표 보장)
 const APP_BUILD = '2026-07-11 16:20';
 
 /* === v102 개선: IndexedDB 우선 저장소 (localStorage 폴백) === */
@@ -3492,7 +3492,10 @@ function drawdownTier(s){
     return {dd,tier,cashFloor,peak,nav};
   }catch(_){ return {dd:0,tier:0,cashFloor:0}; }
 }
+/* v152: 현금 하한 — 가속 반감·방어 계산 뒤 최종값에 적용. 기본 5%. (state.settings.cashMinPct) */
+function cashMinPct(){ const v=state.settings&&state.settings.cashMinPct; return (typeof v==='number'&&v>=0&&v<0.5)?v:0.05; }
 function effectiveCashPct(s){
+  const _min=cashMinPct();
   const base=glideCashPct();
   try{
     const dt=drawdownTier(s);
@@ -3512,9 +3515,9 @@ function effectiveCashPct(s){
     if(cryptoBrakeOn())              f=Math.max(f, CRYPTO_BRAKE_CASH);                    // 크립토 소프트 브레이크
     if(dt.tier>=2)                   f=Math.max(f, dt.cashFloor||0);                      // 2차 방어(−20%) — 면제 없음
     if(dt.tier>=1 && !accelOn)       f=Math.max(f, dt.cashFloor||0);                      // 1차 방어(−10%) — 가속 중 면제(설계 의도)
-    return Math.max(b, f);
+    return Math.max(b, f, _min);                                             // v152: 최종 하한
   }catch(_e){window._dbg&&window._dbg(_e)}
-  return base;
+  return Math.max(base, _min);
 }
 /* ================================================================
    상승 가속 엔진 — 조기 진입(2단계) · 윈너라이딩
@@ -6205,9 +6208,9 @@ function renderStockRebalance(){
           ${fromCashAcc>0?fRow('현금계정에서 충당', fromCashAcc, 'var(--up)'):''}
           ${fromPend>10000?fRow('미정산금에서 충당 <span style="font-size:9px;color:var(--text-3)">· T+2 후</span>', fromPend, '#B7791F'):''}
           ${trimmed>10000
-            ? fRow('목표까지 보류 (자금 한도)', trimmed, 'var(--text-3)')
+            ? fRow('목표까지 보류 (자금 한도·현금 하한 보존)', trimmed, 'var(--text-3)')
             : `<div style="font-size:10px;color:var(--up);padding:2px 0">전액 충당 — 목표 비중 도달</div>`}
-          <div style="font-size:9px;color:var(--text-3);margin-top:4px;line-height:1.5">매수 추천은 동원가능액(예수금+매도정산+미정산) 한도로 우선순위대로 캡 — 실행 가능${trimmed>10000?` · 보류 ₩${fmtKRW(trimmed)}는 다음 회차 이월 또는 입금 시 집행`:''}${ts>10000?` · 매도 ₩${fmtKRW(ts)}는 정산(T+2~3) 후 충당`:''}</div>
+          <div style="font-size:9px;color:var(--text-3);margin-top:4px;line-height:1.5">매수 추천은 동원가능액(예수금+매도정산+미정산 − 현금 목표분) 한도로 우선순위대로 캡 — 실행 후에도 현금 목표 유지${trimmed>10000?` · 보류 ₩${fmtKRW(trimmed)}는 다음 회차 이월 또는 입금 시 집행`:''}${ts>10000?` · 매도 ₩${fmtKRW(ts)}는 정산(T+2~3) 후 충당`:''}</div>
         </div>`;
       })()
         : (()=>{
@@ -6399,7 +6402,10 @@ function computeUnifiedPlan(s){
   const buyTotalFull=buys.reduce((a,x)=>a+x.val,0);   // 캡 전 목표 매수 합
   const sellTotal=sells.reduce((a,x)=>a-x.val,0);
   // === 매수 캡 — 동원가능액(예수금+매도정산+미정산금) 한도로 우선순위(큰 순)대로 채우고, 자금 소진되면 작은 것부터 잘라냄(실행 불가능한 매수 추천 방지) ===
-  const avail = Math.max(0, (s.cash||0) + sellTotal + (s.pendingSettle||0));
+  // v152: 현금 목표(하한 포함)는 동원가능액에서 제외 — 매도가 계획보다 적게 나와도(윈너라이딩 ⅓ 트림·회복연동 보류 등)
+  //   매수가 준비금을 파먹지 않게. 구버전은 현금 전액을 매수 재원으로 잡아 실행 후 현금이 목표보다 ~1%p 낮게 끝났음.
+  const _cashReserve = (s.totalWithCash||0) * effectiveCashPct(s);
+  const avail = Math.max(0, (s.cash||0) + sellTotal + (s.pendingSettle||0) - _cashReserve);
   let capTrimmed=0;
   if(buyTotalFull > avail + 1){
     let budget = avail;
@@ -9287,7 +9293,7 @@ function renderSettings(){
       st=`① 사이징: 실효 ${r.eff.toFixed(2)}배 / 권장 ≤${cap} <span style="color:var(--text-3)">(변동성 ${vol})</span>`
         +(_hasExemptLev?` · <span style="color:var(--gold)">레버리지 점진 청산 중 — 방어 보류</span>`:'')+`<br>`
         +`② 추세 200일선 ${rk.trendOn?'사용':'끔'} · ③ 백스톱 ${state.settings.risk&&state.settings.risk.backstop!=null?('−'+(state.settings.risk.backstop*100).toFixed(0)+'%'):'미사용'}(고점 −10% 1차→현금15% · −20% 2차→현금25% · 단 지수 <b>풀가속</b> 중엔 베타로 보고 현금 보류 · <b>고점 −35%↑ + 풀가속 아님이면 현금 floor 재가동</b>) · ④ 플로어 <b style="color:var(--text)">${floorTxt}</b>${rk.peakEpoch?` <span style="color:#5AA0A6">· peak 기준 ${rk.peakEpoch} 리셋됨</span> <span style="color:var(--text-3);text-decoration:underline;cursor:pointer" onclick="if(confirm('peak 리셋을 해제하고 전체 이력 기준으로 되돌립니다. 계속할까요?'))window.clearPeakEpoch()">해제</span>`:''}<br>`
-        +`⑤ 리밸런싱 노터치 밴드 ±${((rk.rebalBand!=null?rk.rebalBand:0.05)*100).toFixed(0)}%p<br>`
+        +`⑤ 리밸런싱 노터치 밴드 ±${((rk.rebalBand!=null?rk.rebalBand:0.05)*100).toFixed(0)}%p · <b>현금 하한 ${(cashMinPct()*100).toFixed(0)}%</b>(상승가속 반감 후에도 이 밑으로 안 내려감)<br>`
         +`⑥ 오버슛 현금화: 목표 +${((rk.overshootPct!=null?rk.overshootPct:0.15)*100).toFixed(0)}% 초과 시 초과분의 ${((rk.cashoutFrac!=null?rk.cashoutFrac:0.50)*100).toFixed(0)}% 분할 · <b>크립토 하드캡 ${(CRYPTO_HARDCAP*100).toFixed(0)}%</b>(spot 크립토 초과 시 윈너라이딩 무시·목표까지 풀매도)`;
       try{ const acS=computeAccelRegime(portfolioStats(),'stock'); const acC=computeAccelRegime(portfolioStats(),'crypto');
         if((acS.on&&acS.regime!=='unknown')||(acC.on&&acC.regime!=='unknown')){
